@@ -1,0 +1,12 @@
+[submodule "libs/electron_helper"]
+	path = libs/electron_helper
+	url = https://github.com/herrbasan/electron_helper.git
+[submodule "libs/nui"]
+	path = libs/nui
+	url = https://github.com/herrbasan/nui.git
+[submodule "libs/howler"]
+	path = libs/howler
+	url = https://github.com/goldfire/howler.js.git
+[submodule "libs/chiptune"]
+	path = libs/chiptune
+	url = https://github.com/DrSnuggles/chiptune.git
