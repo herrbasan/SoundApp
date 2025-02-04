@@ -96,9 +96,9 @@ async function appStart(){
 		minHeight:217, 
 		width:480, 
 		height:217, 
-		show:true,
+		show:false,
 		resizable:true, 
-		devTools:true,
+		devTools:false,
 		transparent:false,
 		file:'html/stage.html'
 	})

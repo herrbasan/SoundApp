@@ -21,11 +21,6 @@ g.test = {};
 // Init
 // ###########################################################################
 
-/*window.libopenmpt = openmpt;
-libopenmpt.onRuntimeInitialized = function () {
-	console.log('openMPT Initialized')
-	init();
-};*/
 init();
 async function init(){
 	fb('Init Stage')
