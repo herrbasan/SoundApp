@@ -1,0 +1,25 @@
+{
+  "name": "soundapp",
+  "version": "1.1.0",
+  "description": "SoundApp",
+  "main": "js/app.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "dist": "electron-builder",
+    "make": "electron-forge make"
+  },
+  "author": "David Renelt",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.6.1",
+    "@electron-forge/maker-deb": "^7.6.1",
+    "@electron-forge/maker-rpm": "^7.6.1",
+    "@electron-forge/maker-squirrel": "^7.6.1",
+    "@electron-forge/maker-zip": "^7.6.1",
+    "electron": "^34.0.2"
+  },
+  "dependencies": {
+    "electron-regedit": "^2.0.0"
+  }
+}

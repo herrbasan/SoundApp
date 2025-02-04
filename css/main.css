@@ -1,0 +1,433 @@
+/* #################################################################################################
+ * #################################################################################################
+ * Main
+ * #################################################################################################
+ * ################################################################################################# */
+:root {
+	--space-base: 10;
+	--space-frame: 1.3rem;
+	--space-top: 2.7rem;
+	--color-shade0: 50, 50, 50;
+	--color-shade1: 60, 60, 60;
+	--color-shade2: 70, 70, 70;
+	--color-text: 200,200,200;
+	--color-text-dim: 180,180,180;
+}
+
+html, body {
+	font-family: 'Open Sans', sans-serif;
+	color: rgb(var(--color-text));
+	font-size: calc(var(--space-base)*1px);
+	line-height: 1.5rem;
+    font-weight: 400;
+}
+
+
+.frame {
+	position: absolute;
+	top:0;
+	left:0;
+	bottom:0;
+	right: 0;
+	border: solid 1px rgb(var(--color-shade1));
+	background-color: rgba(var(--color-shade0),1);
+	overflow: hidden;
+}
+
+.frame.focus {
+	border: solid 1px rgb(var(--color-shade2));
+}
+
+
+.alert {
+	position: absolute;
+	top:var(--space-top);
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0, 0, 0, 0.8);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	z-index: 100;
+}
+.alert .inner {
+	width: 90%;
+	padding: 1em;
+	background-color: red;
+	color: white;
+}
+
+
+.top {
+	position: absolute;
+	top: 0;
+	width: 100%;
+	height: var(--space-top);
+	background-color: rgba(0, 0, 0, 0.2);
+	border-bottom: solid 1px rgba(255, 255, 255, 0.07);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	opacity: 0.5;
+}
+
+.frame.focus .top {
+	opacity: 1;
+}
+
+.top .content{
+	width: 100%;
+	display: grid;
+	grid-template-columns: 3rem 2rem auto 3rem;
+	height: 100%;
+}
+
+.top .content .playpause{
+	font-family: 'Material Icons';
+	font-size: 1.5rem;
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 100%;
+}
+
+.top .content .playpause:hover{
+	color: white;
+}
+
+.top .content .playpause::after{
+	content: 'pause';
+	display: block;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+body.pause .top .content .playpause::after{
+	content: 'play_arrow';
+}
+
+.top .content .loop{
+	font-family: 'Material Icons';
+	font-size: 1.3rem;
+	display: flex;
+	align-items: center;
+	width: 100%;
+	height: 100%;
+}
+
+.top .content .loop:hover{
+	color: white;
+}
+
+.top .content .loop::after{
+	content: 'loop';
+	display: block;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	opacity: 0.3;
+}
+
+body.loop .top .content .loop::after{
+	opacity: 1;
+}
+
+
+.top .content .num{
+	font-size: 1rem;
+	-webkit-app-region: drag;
+	display: flex;
+	align-items: center;
+	padding-left: 0.5rem;
+}
+
+.top .content .close{
+	font-family: 'Material Icons';
+	font-size: 1.5rem;
+	opacity: 0.5;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: opacity 0.2s;
+}
+
+.top .content .close:hover{
+	opacity: 1;
+	background-color: rgb(145, 58, 7);
+}
+
+.info {
+	position: absolute;
+	top: calc(var(--space-frame) + var(--space-top));
+	left: var(--space-frame);
+	right: var(--space-frame);
+	display: grid;
+	grid-template-columns: 12.5rem auto;
+	gap: 1rem;
+	color: rgb(var(--color-text-dim));
+}
+
+.frame.focus .info {
+	color: rgb(var(--color-text));
+}
+
+.info .cover {
+	position: relative;
+	display: block;
+	width: 12.5rem;
+	height: 12.5rem;
+	background-color: rgb(var(--color-shade1));
+}
+
+.info .cover img{
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	
+}
+
+
+.info .text {
+	font-size: 1rem;
+}
+
+.info .text .item{
+	display: grid;
+	grid-template-columns: 5rem auto;
+	gap: 1rem;
+}
+
+.info .text .item .label{
+	opacity: 0.5;
+	text-align: right;
+}
+
+.info .text .item .content{
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.info .text .space{
+	display: block;
+	width: 100%;
+	height: 1rem;
+}
+
+.no-select {
+  user-select: none;
+  -moz-user-select: none;
+  -webkit-user-select: none;
+}
+
+.filetype {
+	position: absolute;
+	top:0;
+	left:0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+.filetype .icon {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	display: block;
+	font-family: 'Material Icons';
+	font-size: 9rem;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	color: rgba(var(--color-text),0.2);
+	z-index: 0;
+}
+
+.filetype .type {
+	font-family: 'Open Sans', sans-serif;
+	text-transform: uppercase;
+	position: absolute;
+	bottom: 1.2rem;
+	right: -4rem;
+	width: 100%;
+	height: 2rem;
+	font-size: 1rem;
+	font-weight: 600;
+	background-color: rgb(100, 100, 100);
+	transform: rotate(-45deg);
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0px 0px 5px 0px rgba(0, 0, 0, 0.2);
+	transition: opacity 0.2s;
+}
+
+.filetype .type.mp3{
+	background-color: rgb(134, 14, 54);
+}
+.filetype .type.ogg{
+	background-color: rgb(145, 58, 7);
+}
+.filetype .type.m4a,
+.filetype .type.m4b,
+.filetype .type.aac,
+.filetype .type.mp4 {
+	background-color: rgb(7, 62, 145);
+}
+
+.filetype .type.flac {
+	background-color: rgb(15, 104, 23);
+}
+
+
+.filetype .type.mptm, 
+.filetype .type.mod,
+.filetype .type.mo3, 
+.filetype .type.s3m, 
+.filetype .type.xm, 
+.filetype .type.it,  
+.filetype .type.amf, 
+.filetype .type.ams, 
+.filetype .type.c67, 
+.filetype .type.dbm, 
+.filetype .type.digi, 
+.filetype .type.dmf, 
+.filetype .type.dsm, 
+.filetype .type.dsym, 
+.filetype .type.dtm, 
+.filetype .type.far, 
+.filetype .type.fmt, 
+.filetype .type.imf, 
+.filetype .type.ice, 
+.filetype .type.j2b, 
+.filetype .type.m15,
+.filetype .type.mdl,
+.filetype .type.med, 
+.filetype .type.mms, 
+.filetype .type.mt2, 
+.filetype .type.mtm, 
+.filetype .type.mus, 
+.filetype .type.nst, 
+.filetype .type.okt, 
+.filetype .type.plm, 
+.filetype .type.psm, 
+.filetype .type.pt36, 
+.filetype .type.ptm, 
+.filetype .type.sfx, 
+.filetype .type.sfx2, 
+.filetype .type.st26, 
+.filetype .type.stk, 
+.filetype .type.stm, 
+.filetype .type.stx, 
+.filetype .type.stp, 
+.filetype .type.symmod, 
+.filetype .type.ult, 
+.filetype .type.wow, 
+.filetype .type.gdm, 
+.filetype .type.mo3, 
+.filetype .type.oxm, 
+.filetype .type.umx, 
+.filetype .type.xpk, 
+.filetype .type.ppm, 
+.filetype .type.mmcmp {
+	background-color: rgb(176, 11, 151);
+}
+
+.filetype .type.wav,
+.filetype .type.aif,
+.filetype .type.aiff {
+	background-color: rgb(100, 100, 100);
+}
+
+.info .cover:hover .filetype .type{
+	opacity: 0;
+}
+
+.info .cover:hover img {
+	object-fit: contain;
+}
+
+
+.bottom {
+	position: absolute;
+	left: var(--space-frame);
+	right: var(--space-frame);
+	bottom: 0.5rem;
+	height: 4rem;
+	z-index: 1;
+}
+.bottom .playhead {
+	position: relative;
+	margin-top: 1rem;
+	height: 0.5rem;
+	background-color: rgb(var(--color-shade1));
+}
+
+.bottom .playhead .prog {
+	position: absolute;
+	width: 0px;
+	height: 100%;
+	background-color: rgb(var(--color-text-dim));
+}
+
+.bottom .playtime {
+	display: grid;
+	grid-template-columns: 100px auto 100px;
+	height: 2.5rem;
+	
+}
+
+.bottom .playtime div{
+	display: flex;
+	align-items: center;
+}
+
+.bottom .playtime .volume{
+	justify-content: center;
+	opacity: 0.5;
+}
+
+.bottom .playtime .volume label{
+	padding-right: 0.2rem;
+}
+
+.bottom .playtime .remain{
+	justify-content: flex-end;
+}
+
+.dropzone {
+	position: absolute;
+	top:0; left: 0; right: 0; bottom: 0;
+	background-color: rgba(30,30,30,0.9);
+	z-index: 100;
+	display:none;
+}
+
+.dropzone .content{
+	position: absolute;
+	top:1em; left: 1em; right: 1em; bottom: 1em;
+	display: grid;
+	grid-template-rows: auto;
+	gap: 1em;
+	transition: all 0.2s;
+	opacity: 0;
+}
+
+.dropzone .content .item{
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: rgba(225,225,225,0.05);
+	transition: all 0.2s;
+}
+
+
+.dropzone .content .item.active {
+	background-color: rgba(225,225,225,0.2);
+}
