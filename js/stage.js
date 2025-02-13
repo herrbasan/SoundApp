@@ -9,7 +9,7 @@ const helper = require('../libs/electron_helper/helper.js');
 const { Howl, Howler} = require('../libs/howler/dist/howler.js');
 const tools = helper.tools;
 const app = helper.app;
-//const openmpt = require('../html/libopenmpt');
+
 const os = require('node:os');
 
 
@@ -112,7 +112,6 @@ async function init(){
 		console.log('%c' + data.context, 'color:#6058d6', data.data);
 	});
 	
-	
 }
 
 
@@ -195,6 +194,8 @@ function setupDragDrop(){
 		document.body
 	);
 	async function dropHandler(e){
+		console.log(e);
+		e.preventDefault();
 		if(e.target.id == 'drop_add'){
 			let files = fileListArray(e.dataTransfer.files);
 			await playListFromMulti(files, true, !e.ctrlKey);

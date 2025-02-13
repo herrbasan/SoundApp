@@ -17,9 +17,45 @@
     "@electron-forge/maker-rpm": "^7.6.1",
     "@electron-forge/maker-squirrel": "^7.6.1",
     "@electron-forge/maker-zip": "^7.6.1",
-    "electron": "^34.0.2"
+    "@electron-forge/plugin-auto-unpack-natives": "^7.6.1",
+    "electron": "^34.0.2",
+    "electron-rebuild": "^3.2.5"
+  },
+  "config": {
+    "forge": {
+      "packagerConfig": {
+        "asar": false,
+        "ignore": [
+          "_Material",
+          "_gsdata_",
+          ".vscode",
+          "build",
+          "bin",
+          "env.json"
+        ],
+        "extraResource": [
+          "./bin",
+          "./build/icons/"
+        ],
+        "executableName": "soundApp",
+        "icon": "build/icons/app.ico"
+      },
+      "rebuildConfig": {},
+      "makers": [
+        {
+          "name": "@electron-forge/maker-squirrel",
+          "config": {
+            "name": "soundApp",
+            "setupExe": "soundApp_Setup.exe",
+            "setupIcon": "build/icons/installer.ico",
+            "loadingGif": "build/loader.gif",
+            "iconUrl": "https://raum.com/update/soundapp/app.ico"
+          }
+        }
+      ]
+    }
   },
   "dependencies": {
-    "electron-regedit": "^2.0.0"
+    "windows-native-registry": "^3.2.2"
   }
 }

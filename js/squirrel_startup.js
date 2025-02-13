@@ -3,7 +3,7 @@ const spawn = require('child_process').spawn;
 const app = require('electron').app;
 const fs = require('fs').promises;
 
-const { ProgId, ShellOption, Regedit } = require('electron-regedit')
+//const { ProgId, ShellOption, Regedit } = require('electron-regedit')
 
 let app_dir = path.dirname(app.getAppPath());
 
@@ -16,23 +16,25 @@ function squirrel_startup() {
 			
 			if (cmd === '--squirrel-firstrun'){
 				await log('Squirrel Firstrun');
-				await log('Register File Types');
-				await registy('reg');
 			}
 			if (cmd === '--squirrel-install' || cmd === '--squirrel-updated') {
 				await log('Creating Shortcut at: ' + target);
 				await runCommand(['--createShortcut=' + target + '']);
-				await log('Register File Types');
-				await registy('reg');
+				//await log('Register File Types');
+				//await registy('reg');
 				await log('Install Done');
 				ret = true;
 			}
 			if (cmd === '--squirrel-uninstall') {
 				await log('Remove Shortcut at: ' + target);
 				await runCommand(['--removeShortcut=' + target + '']);
-				await log('Un-Register File Types');
-				await registy('unreg');
+				//await log('Un-Register File Types');
+				//await registy('unreg');
 				await log('Uninstall Done');
+				ret = true;
+			}
+			if (cmd === '--squirrel-obsoleted') {
+				await log('Squirrel Obsoleted');
 				ret = true;
 			}
 		}
@@ -54,7 +56,7 @@ function registy(task) {
 
 		new ProgId({ squirrel: true, appName: 'soundapp_mp3', friendlyAppName: 'soundapp', description: 'MPEG Layer 3 Audio File', icon: path.join(app_dir, 'icons', 'mp3.ico'), extensions: ['mp3'] })
 		new ProgId({ squirrel: true, appName: 'soundapp_mp2', friendlyAppName: 'soundapp', description: 'MPEG Layer 2 Audio File', icon: path.join(app_dir, 'icons', 'pcm.ico'), extensions: ['mp2', 'mpa'] })
-		new ProgId({ squirrel: true, appName: 'soundapp_m4a', friendlyAppName: 'soundapp', description: 'MPEG Layer 4 Audio File', icon: path.join(app_dir, 'icons', 'm4a.ico'), extensions: ['m4a', 'aac', 'm4b', 'aa'] })
+		new ProgId({ squirrel: true, appName: 'soundapp_m4a', friendlyAppName: 'soundapp', description: 'MPEG Layer 4 Audio File', icon: path.join(app_dir, 'icons', 'm4a.ico'), extensions: ['m4a', 'aac', 'm4b'] })
 		new ProgId({ squirrel: true, appName: 'soundapp_flac', friendlyAppName: 'soundapp', description: 'FLAC Audio File', icon: path.join(app_dir, 'icons', 'flac.ico'), extensions: ['flac'] })
 		new ProgId({ squirrel: true, appName: 'soundapp_pcm', friendlyAppName: 'soundapp', description: 'PCM Audio File', icon: path.join(app_dir, 'icons', 'pcm.ico'), extensions: ['wav', 'aif', 'aiff', 'pcm'] })
 		new ProgId({ squirrel: true, appName: 'soundapp_ogg', friendlyAppName: 'soundapp', description: 'OGG Audio File', icon: path.join(app_dir, 'icons', 'ogg.ico'), extensions: ['ogg', 'oga', 'opus', 'ogm', 'mogg'] })
@@ -84,20 +86,5 @@ function log(msg){
 	console.log(msg);
 	return fs.appendFile(path.resolve(path.dirname(process.execPath), '..', 'startup.log'),  msg + '\n');
 }
-/*
-let log_buffer = [];
-let write_lock = false;
-async function log(msg){
-	log_buffer.push(Date.now() + ' | ' + msg);
-	if(!write_lock){
-		write_lock = true;
-		let out = '';
-		for(let i=0; i<log_buffer.length; i++){
-			out += log_buffer[i] + '\n';
-		}
-		await fs.appendFile(path.join(app_dir, 'startup.log'), out);
-		log_buffer = [];
-		write_lock = false;
-	}
-}*/
+
 module.exports = squirrel_startup;
