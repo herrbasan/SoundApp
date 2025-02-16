@@ -1,0 +1,23 @@
+Installed
+[
+    "normal start",
+    "Base Path: C:\\Users\\dave\\AppData\\Local\\soundApp\\",
+    "User Data: C:\\Users\\dave\\AppData\\Roaming\\soundapp",
+    "App Path: C:\\Users\\dave\\AppData\\Local\\soundApp\\app-1.1.0\\resources\\app.asar"
+]
+
+Packaged
+[
+    "normal start",
+    "Base Path: D:\\Work\\_GIT\\SoundApp\\out\\",
+    "User Data: C:\\Users\\dave\\AppData\\Roaming\\soundapp",
+    "App Path: D:\\Work\\_GIT\\SoundApp\\out\\soundapp-win32-x64\\resources\\app.asar"
+]
+
+Debug
+[
+    "normal start",
+    "Base Path: D:\\Work\\_GIT\\SoundApp",
+    "User Data: C:\\Users\\dave\\AppData\\Roaming\\soundapp",
+    "App Path: D:\\Work\\_GIT\\SoundApp"
+]

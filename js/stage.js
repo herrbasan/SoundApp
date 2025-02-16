@@ -9,11 +9,8 @@ const helper = require('../libs/electron_helper/helper.js');
 const { Howl, Howler} = require('../libs/howler/dist/howler.js');
 const tools = helper.tools;
 const app = helper.app;
-
 const os = require('node:os');
-
-
-
+const registry = require('../js/registry.js');
 
 let player;
 let g = {};
@@ -24,7 +21,6 @@ g.test = {};
 init();
 async function init(){
 	fb('Init Stage')
-
 	g.win = helper.window;
 	g.main_env = await helper.global.get('main_env');
 	g.basePath = await helper.global.get('base_path');
@@ -71,7 +67,6 @@ async function init(){
 		g.ffppath = path.resolve(fp + '/bin/win_bin/ffprobe.exe');
 	}
 
-	
 	/* Mod Player */
 	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0});
 	player.onMetadata(async (meta) => {
@@ -96,9 +91,7 @@ async function init(){
 		appStart();
 	});
 
-	//appStart();
 	ipcRenderer.on('main', async (e, data) => {
-		console.log(data);
 		if(data.length == 1){
 			await playListFromSingle(data[0], false);
 		}
@@ -107,15 +100,12 @@ async function init(){
 		}
 		playAudio(g.music[g.idx])
 	})
-	
+	console.log(g.main_env)
 	ipcRenderer.on('log', (e, data) => {
 		console.log('%c' + data.context, 'color:#6058d6', data.data);
 	});
 	
 }
-
-
-
 
 async function appStart(){
 	window.addEventListener("keydown", onKey);
@@ -856,7 +846,12 @@ async function onKey(e) {
 	if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
-	
+	if(e.keyCode == 112 && e.ctrlKey && e.shiftKey){
+		console.log(await registry('register', g.main_env.app_exe, g.main_env.app_path));
+	}
+	if(e.keyCode == 113 && e.ctrlKey && e.shiftKey){
+		console.log(await registry('unregister', g.main_env.app_exe, g.main_env.app_path));
+	}
 	if (e.keyCode == 123) {
 		g.win.toggleDevTools();
 	}

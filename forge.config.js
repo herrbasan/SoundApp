@@ -1,4 +1,3 @@
-const { on } = require('events');
 const path = require('path');
 
 module.exports = {
@@ -10,6 +9,7 @@ module.exports = {
       '.vscode', 
       'build', 
       'bin',
+      'node_modules',
       'env.json'
     ],
     extraResource: [
@@ -19,8 +19,6 @@ module.exports = {
     executableName: 'soundApp',
     icon: path.join(__dirname, 'build', 'icons', 'app.ico'),
   },
-  plugins: [
-  ],
   rebuildConfig: {
   },
   makers: [

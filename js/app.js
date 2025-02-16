@@ -1,21 +1,18 @@
 'use strict';
 const {app, protocol, BrowserWindow, Menu, ipcMain} = require('electron');
-const squirrel_startup = require('./squirrel_startup.js');
-squirrel_startup().then(ret => { if(ret) { app.quit(); return; } init(); });
-
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper.js');
 const update = require('../libs/electron_helper/update.js');
-const reg = require('../libs/windows-native-registry.js');
+const squirrel_startup = require('./squirrel_startup.js');
+
+squirrel_startup().then((ret, cmd) => { if(ret) { app.quit(); return; } init(cmd); });
 
 let main_env = {channel:'stable'};
 let isPackaged = app.isPackaged;
 let app_path = app.getAppPath();
 let base_path = path.join(app_path);
 let user_data = app.getPath('userData');
-
-let log = [];
 let wins = {};
 
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
@@ -24,10 +21,9 @@ let wins = {};
 //app.disableHardwareAcceleration();
 //protocol.registerSchemesAsPrivileged([{ scheme: 'raum', privileges: { bypassCSP: true, supportFetchAPI:true } }])
 
-
-
-async function init(){
+async function init(cmd){
 	fb('APP INIT');
+
 	if (isPackaged) {
 		const gotTheLock = app.requestSingleInstanceLock()
 	
@@ -62,12 +58,34 @@ async function init(){
 		}
 	}
 	
+
 	let fp = path.join(app_path, 'env.json');
 	if((await helper.tools.fileExists(fp))){
 		let _env = await fs.readFile(fp, 'utf8');
 		main_env = JSON.parse(_env);
 	}
 	setEnv();
+	
+	main_env.base_path = base_path;
+	main_env.user_data = user_data;
+	main_env.app_path = app_path;
+	main_env.startType = 'Dev'
+	main_env.app_name = app.getName();
+	main_env.app_version = app.getVersion();
+	main_env.app_exe = process.execPath;
+	main_env.argv = process.argv[1];
+
+	if(base_path.includes('AppData')){
+		if(base_path.includes('Local')){
+			main_env.startType = 'Installed';
+			let name = path.basename(main_env.app_exe);
+			main_env.app_exe = path.resolve(path.dirname(main_env.app_exe), '..', name);
+		}
+		else {
+			main_env.startType = 'Portable';
+		}
+	}
+
 }
 
 
@@ -113,7 +131,6 @@ async function appStart(){
 	if(main_env?.channel != 'dev'){
 		setTimeout(checkUpdate,1000);
 	}
-	configWindow();
 }
 
 async function checkUpdate(){
@@ -130,12 +147,6 @@ function update_progress(e){
 }
 
 function mainCommand(e, data){
-	if(data.cmd == 'register'){
-		registerFileType()
-	}
-	else if(data.cmd == 'unregister'){
-		unregisterFileType()
-	}
 	return true;
 }
 
@@ -148,20 +159,6 @@ function fb(o, context='main'){
 	 }
 }
 
-
-function registerFileType(){
-	/* Native-reg Example 
-	let key = reg.openKey(reg.HKCU, 'Software\\Classes\\soundapp_flac', reg.Access.ALL_ACCESS, reg.ValueType.NONE);
-	let val = reg.getValue(key, 'DefaultIcon', '', reg.ValueType.STRING);
-	*/
-	let key = reg.getRegistryKey(reg.HK.CU, 'Software\\Classes\\soundapp_flac');
-	wins.temp.webContents.send('msg', JSON.stringify(key));
-	console.log(key);
-}
-
-function unregisterFileType(){
-
-}
 
 async function configWindow(){
     wins.temp = await helper.tools.browserWindow('frameless', {
@@ -222,6 +219,7 @@ async function configWindow(){
                     
 					function update(e, data){
                         g.msg_content.innerHTML += '<br>' + data;
+						console.log(JSON.parse(data));
                     }
 
 					ut.el('#register').addEventListener('click', sendCommand);

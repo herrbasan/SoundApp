@@ -17,20 +17,19 @@
     "@electron-forge/maker-rpm": "^7.6.1",
     "@electron-forge/maker-squirrel": "^7.6.1",
     "@electron-forge/maker-zip": "^7.6.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.6.1",
-    "electron": "^34.0.2",
-    "electron-rebuild": "^3.2.5"
+    "electron": "^34.0.2"
   },
   "config": {
     "forge": {
       "packagerConfig": {
-        "asar": false,
+        "asar": true,
         "ignore": [
           "_Material",
           "_gsdata_",
           ".vscode",
           "build",
           "bin",
+          "node_modules",
           "env.json"
         ],
         "extraResource": [
@@ -54,8 +53,5 @@
         }
       ]
     }
-  },
-  "dependencies": {
-    "windows-native-registry": "^3.2.2"
   }
 }
