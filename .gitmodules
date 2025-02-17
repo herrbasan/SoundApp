@@ -10,3 +10,6 @@
 [submodule "libs/chiptune"]
 	path = libs/chiptune
 	url = https://github.com/DrSnuggles/chiptune.git
+[submodule "libs/native-registry"]
+	path = libs/native-registry
+	url = https://github.com/herrbasan/windows-native-registry.git
