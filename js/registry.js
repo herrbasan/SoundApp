@@ -1,5 +1,5 @@
 const path = require('path');
-const reg = require('../libs/native-registry.js');
+const reg = require('../libs/native-registry/dist/native-registry.js');
 
 
 async function registry(task, exe_path, app_path) {
