@@ -842,7 +842,10 @@ function renderBar(){
 
 
 async function onKey(e) {
-	//fb(e.keyCode)
+	fb(e.keyCode)
+	if(e.keyCode == 88){
+		document.body.toggleClass('dark');
+	}
 	if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
