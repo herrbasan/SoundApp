@@ -134,15 +134,20 @@ async function appStart(){
 }
 
 async function checkUpdate(){
+	fb('Checking for updates');
 	let check = await update.checkVersion('https://raum.com/update/soundapp/stable/');
 	if(check.status && check.isNew){
+		fb('Update available');
 		update.init({mode:'splash', url:'https://raum.com/update/soundapp/stable/', progress:update_progress, check:check})
+	}
+	else {
+		fb('No updates available');
 	}
 }
 
 function update_progress(e){
 	if(e.type == 'state'){
-		console.log(e);
+		fb('Update State: ' + e.data);
 	}
 }
 
@@ -159,80 +164,5 @@ function fb(o, context='main'){
 	 }
 }
 
-
-async function configWindow(){
-    wins.temp = await helper.tools.browserWindow('frameless', {
-        webPreferences:{preload: helper.tools.path.join(__dirname, '..', 'libs', 'electron_helper', 'helper.js')},
-        devTools: true,
-        width:800, 
-        height:800,
-        modal: true,
-        html:/*HTML*/`
-            <!DOCTYPE html>
-            <html>
-                <head>
-                    <title>SoundApp</title>
-                </head>
-            
-                <body class="dark">
-                    <main>
-                        <section>
-                            <article>
-								<div class="nui-card">
-									<div class="nui-input">
-										<label for="apppath">App Path</label>
-										<input id="apppath" type="text" placeholder="Enter path here" value="C:\\Users\\dave\\AppData\\Local\\soundApp\\soundApp.exe">
-									</div>
-									<div class="nui-input">
-										<label for="iconpath">Icons Path</label>
-										<input id="iconpath" type="text" placeholder="Enter path here" value="C:\\Users\\dave\\AppData\\Local\\soundApp\\app-1.1.0\\resources\\icons">
-									</div>
-									<div class="nui-button-container">
-										<button id="register" class="nui-button">Register</button>
-										<button id="unregister" class="nui-button">Un-Register</button>
-									</div>
-								</div>
-								<div id="msg" class="nui-card">
-									<div class="nui-output"></div>
-								</div>
-                            </article>
-                        </section>
-                    </main>
-                </body>
-				<style>
-					
-				</style>
-                <script type="module">
-                    import nui from './libs/nui/nui.js';
-                    import ut from './libs/nui/nui_ut.js';
-                    import nui_app from './libs/nui/nui_app.js';
-                    
-					document.addEventListener('DOMContentLoaded', init, {conce:true})
-					let g = {};
-
-					async function init(){
-						await nui_app.appWindow({inner:ut.el('body'), fnc_close:window.electron_helper.window.close, icon:ut.icon('settings')});
-                        electron_helper.ipcHandleRenderer('msg', update);
-						g.msg = ut.el('#msg');
-						g.msg_content = ut.el('#msg .nui-output');
-					}
-                    
-					function update(e, data){
-                        g.msg_content.innerHTML += '<br>' + data;
-						console.log(JSON.parse(data));
-                    }
-
-					ut.el('#register').addEventListener('click', sendCommand);
-					ut.el('#unregister').addEventListener('click', sendCommand);
-					
-					function sendCommand(e){
-						electron_helper.tools.sendToMain('command', {cmd:e.target.id, data:{ apppath:ut.el('#apppath').value, iconpath:ut.el('#iconpath').value}});
-					}
-
-                </script>
-            </html>
-        `
-    });
-}
 
 module.exports.fb = fb;

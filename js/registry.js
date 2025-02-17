@@ -24,7 +24,7 @@ async function registry(task, exe_path, app_path) {
                 soundapp_m4a: {
                     description: 'SoundApp Audio File',
                     icon: 'm4a.ico',
-                    extensions: ['m4a', 'm4b', 'aac'],
+                    extensions: ['m4a', 'm4b', 'aac', 'aa'],
                 },
                 soundapp_flac: {
                     description: 'SoundApp Audio File',

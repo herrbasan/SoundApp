@@ -847,10 +847,14 @@ async function onKey(e) {
 		console.log(g.currentAudio.src)
 	}
 	if(e.keyCode == 112 && e.ctrlKey && e.shiftKey){
-		console.log(await registry('register', g.main_env.app_exe, g.main_env.app_path));
+		if(main_env.startType == 'installed'){
+			console.log(await registry('register', g.main_env.app_exe, g.main_env.app_path));
+		}
 	}
 	if(e.keyCode == 113 && e.ctrlKey && e.shiftKey){
-		console.log(await registry('unregister', g.main_env.app_exe, g.main_env.app_path));
+		if(main_env.startType == 'installed'){
+			console.log(await registry('unregister', g.main_env.app_exe, g.main_env.app_path));
+		}
 	}
 	if (e.keyCode == 123) {
 		g.win.toggleDevTools();
