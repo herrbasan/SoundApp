@@ -73,9 +73,10 @@ The app categorizes audio files into three groups:
 - **Audio Info:** Metadata display, cover art extraction, format details
 - **File Associations:** Windows registry integration for file type associations
 - **Auto-Update:** Squirrel-based updates via electron_helper
-  - HTTP version check against update server
-  - Simple HTTP download for new versions
+  - GitHub Releases API for version checking
+  - Automatic download from GitHub CDN
   - Squirrel handles installation/replacement
+  - See [docs/github-releases-migration.md](../docs/github-releases-migration.md) for details
 
 ## Project Structure
 - `js/stage.js` - Main player logic and audio handling
@@ -132,14 +133,15 @@ The app categorizes audio files into three groups:
 ## Backlog / Future Refactors
 
 ### Version 1.1.2
-1. **Howler.js Removal / Unified Audio Controller**
-   - Replace Howler.js with direct Web Audio API implementation
-   - Create unified audio controller for all playback types
-   - Foundation for future gain/pan/speed controls
+1. ~~**Howler.js Removal / Unified Audio Controller**~~ ✅ DONE
+   - ~~Replace Howler.js with direct Web Audio API implementation~~
+   - ~~Create unified audio controller for all playback types~~
+   - ~~Foundation for future gain/pan/speed controls~~
 
-2. **GitHub Releases for Updates**
-   - Migrate from custom HTTP server to GitHub Releases API
-   - Update auto-update feature in electron_helper
+2. ~~**GitHub Releases for Updates**~~ ✅ DONE
+   - ~~Migrate from custom HTTP server to GitHub Releases API~~
+   - ~~Update auto-update feature in electron_helper~~
+   - See [docs/github-releases-migration.md](../docs/github-releases-migration.md)
 
 3. **Playlist Window**
    - Separate window displaying full playlist

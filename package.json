@@ -48,7 +48,7 @@
             "setupExe": "soundApp_Setup.exe",
             "setupIcon": "build/icons/installer.ico",
             "loadingGif": "build/loader.gif",
-            "iconUrl": "https://raum.com/update/soundapp/app.ico"
+            "iconUrl": "https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/icons/app.ico"
           }
         }
       ]

@@ -148,10 +148,10 @@ async function appStart(){
 
 async function checkUpdate(){
 	fb('Checking for updates');
-	let check = await update.checkVersion('https://raum.com/update/soundapp/stable/');
+	let check = await update.checkVersion('herrbasan/SoundApp', 'git');
 	if(check.status && check.isNew){
-		fb('Update available');
-		update.init({mode:'splash', url:'https://raum.com/update/soundapp/stable/', progress:update_progress, check:check})
+		fb('Update available: v' + check.remote_version);
+		update.init({mode:'splash', url:'herrbasan/SoundApp', source:'git', progress:update_progress, check:check})
 	}
 	else {
 		fb('No updates available');

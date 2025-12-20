@@ -1,0 +1,83 @@
+# Release Scripts
+
+## create-release.ps1
+
+PowerShell script for creating GitHub releases with auto-update artifacts.
+
+### Prerequisites
+
+1. **GitHub CLI** must be installed and authenticated:
+   ```powershell
+   # Install
+   winget install --id GitHub.cli
+   
+   # Authenticate
+   gh auth login
+   ```
+
+2. **Clean main branch** with committed changes
+3. **Version bumped** in `package.json`
+
+### Usage
+
+Basic release:
+```powershell
+.\scripts\create-release.ps1
+```
+
+Create draft release (won't trigger auto-updates):
+```powershell
+.\scripts\create-release.ps1 -Draft
+```
+
+Clean old builds first:
+```powershell
+.\scripts\create-release.ps1 -Clean
+```
+
+Add custom release notes:
+```powershell
+.\scripts\create-release.ps1 -Notes "Fixed critical playback bug"
+```
+
+### What it does
+
+1. Reads version from `package.json`
+2. Checks if tag already exists (prevents duplicates)
+3. Validates clean working directory
+4. Runs `npm run make` to build artifacts
+5. Creates GitHub release with:
+   - `soundApp_Setup.exe` (installer)
+   - `soundapp-X.X.X-full.nupkg` (auto-update package)
+   - `RELEASES` (version metadata)
+6. Syncs tag to local repository
+
+### Workflow
+
+```
+Bump version in package.json
+    ↓
+Commit and push to main
+    ↓
+Run create-release.ps1
+    ↓
+Release appears on GitHub
+    ↓
+Users receive auto-update
+```
+
+### Troubleshooting
+
+**"Release already exists"**  
+→ Bump version in package.json
+
+**"GitHub CLI is not authenticated"**  
+→ Run `gh auth login`
+
+**"Must be on main branch"**  
+→ Switch to main: `git checkout main`
+
+**"Working directory is not clean"**  
+→ Commit or stash changes first
+
+See [../docs/github-releases-migration.md](../docs/github-releases-migration.md) for more details.
