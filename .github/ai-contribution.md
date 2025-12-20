@@ -1,5 +1,103 @@
 # AI Contribution Notes
 
+## Session: December 20, 2025 - v1.1.2 Phase 1 Complete: Unified Audio Controller
+
+### What We Accomplished
+
+**Howler.js Removal - COMPLETE ✅**
+- Created `js/audio_controller.js` - Unified AudioController class using Web Audio API
+- Removed all Howler.js dependencies from codebase
+- Merged `playAudio()` and `playAudioLoop()` into single function with mode switching
+- Version bumped to 1.1.2 in package.json
+
+**AudioController Architecture:**
+- Dual-mode operation:
+  - **BufferSource** (loop mode): Loads entire file into AudioBuffer for gapless looping
+  - **MediaElement** (streaming mode): Uses HTML5 audio element for efficient playback
+- Unified interface: `play()`, `pause()`, `stop()`, `seek()`, `volume` properties
+- Proper state tracking with `sourceStarted` flag (no try/catch for control flow)
+- Ready for future features: gain node foundation for speed control, effects chain
+
+**Technical Fixes Implemented:**
+1. **Chiptune playback issue** - Connected player.gain to audioContext.destination (was disconnected when passing custom context)
+2. **Progress bar tracking** - Fixed currentTime getter with null checks and edge case handling
+3. **Gapless looping** - Used `buffer.duration` for loopEnd, 86400s duration parameter (matches Howler.js pattern)
+4. **Seeking in loop mode** - Works correctly with loopStart/loopEnd boundaries
+5. **State management** - Used explicit `sourceStarted` flag instead of try/catch blocks
+
+**Code Philosophy Updates:**
+- Added rules to copilot-instructions.md:
+  - Avoid try/catch for control flow - use explicit state tracking
+  - Graceful error handling - report fail states in UI, don't silently swallow
+- Emphasized surgical, self-critical approach with context awareness
+
+**Files Modified:**
+- `js/audio_controller.js` (new file - 208 lines)
+- `js/stage.js` (refactored playback logic, removed Howler.js)
+- `package.json` (version 1.1.2)
+- `.github/copilot-instructions.md` (added error handling rules)
+
+### Key Technical Insights
+
+**Why Looping Was Clicking:**
+- BufferSource with loop=true needs `loopStart` and `loopEnd` properties
+- Must use `buffer.duration` not `this.duration` for precise looping
+- Duration parameter in `start(0, offset, duration)` should be 86400 (effectively infinite) for looped playback
+- This prevents clicks at loop boundary and allows seeking while maintaining gapless loop
+
+**State Tracking Pattern:**
+```javascript
+// Instead of try/catch for stopped sources
+this.sourceStarted = false; // Track state explicitly
+if (this.source && this.sourceStarted) {
+    this.source.stop(); // Only stop if actually started
+}
+```
+
+**Chiptune Context Issue:**
+```javascript
+// When passing custom context to chiptune player:
+player = new chiptune({context: g.audioContext});
+// Must manually connect in onInitialized:
+player.gain.connect(g.audioContext.destination);
+```
+
+### What's Ready for v1.1.2 Next Steps
+
+**Remaining v1.1.2 Features:**
+1. GitHub Releases for Updates (migrate from HTTP server)
+2. Playlist Window (use nui_list.js)
+3. Help/Documentation Window
+
+**Foundation Now In Place For v1.2:**
+- Unified audio routing through Web Audio API ✅
+- Gain nodes ready for effects chain ✅
+- Architecture supports speed control, multi-track mixer ✅
+- Ready for FFmpeg streaming implementation ✅
+
+### State of the Codebase
+
+**What's Working:**
+- All playback modes: native formats, chiptune, FFmpeg transcoding ✅
+- Loop mode with gapless playback ✅
+- Seeking in all modes including loop ✅
+- Volume control ✅
+- Progress bar tracking ✅
+- Play/pause/stop controls ✅
+
+**Performance Characteristics:**
+- Loop mode: Higher memory (full AudioBuffer), instant seeking
+- Streaming mode: Lower memory, efficient for long files
+- Automatic mode selection based on `g.isLoop` state
+
+**Next Immediate Steps (for future sessions):**
+1. GitHub Releases integration for auto-updates
+2. Create playlist window with nui_list.js
+3. Create help window with keyboard shortcuts
+4. Consider removing `libs/howler/` directory (no longer needed)
+
+---
+
 ## Session: December 20, 2025 - Project Foundation & Roadmap
 
 ### What We Accomplished

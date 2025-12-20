@@ -20,7 +20,7 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 ## Tech Stack
 - **Framework:** Electron
 - **Audio Libraries:**
-  - Howler.js - Web Audio API wrapper for looping playback
+  - Custom AudioController (Web Audio API) - Unified playback with gapless looping
   - libopenmpt (chiptune3.js) - Tracker/module format playback
   - FFmpeg - Format transcoding for unsupported formats
 - **UI:** Custom HTML/CSS with GSAP for animations
@@ -30,7 +30,9 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 The app categorizes audio files into three groups:
 
 1. **Browser-native formats** (`.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, etc.)
-   - Direct playback via HTML5 Audio or Howler.js
+   - Direct playback via Web Audio API AudioController
+   - Loop mode: AudioBuffer for gapless looping
+   - Normal mode: MediaElement for efficient streaming
 
 2. **Tracker/Module formats** (`.mod`, `.xm`, `.it`, `.s3m`, etc.)
    - Decoded and played via libopenmpt (AudioWorklet-based)
@@ -75,15 +77,19 @@ The app categorizes audio files into three groups:
 
 ## Project Structure
 - `js/stage.js` - Main player logic and audio handling
+- `js/audio_controller.js` - Unified Web Audio API controller
 - `js/app.js` - Main process (Electron)
 - `js/registry.js` - Windows file association handling
-- `libs/` - Third-party audio libraries
+- `libs/` - Third-party audio libraries (chiptune, electron_helper, nui)
 - `bin/` - FFmpeg binaries for Windows and Linux
 - `html/` - Window templates
 - `css/` - Styling
 
-## Current Architecture Notes
-- Looping is handled differently based on format (Howler.js uses AudioBuffer, HTML5 audio doesn't support gapless loops)
-- FFmpeg transcoding blocks playback until conversion completes
+## Current Architecture Notes (v1.1.2)
+- Unified AudioController handles all browser-native format playback
+- Loop mode uses AudioBuffer with gapless looping (via loopStart/loopEnd)
+- Normal mode uses MediaElement for memory-efficient streaming
+- Tracker formats handled separately by libopenmpt player
+- FFmpeg transcoding blocks playback until conversion completes (streaming planned for v1.2)
 - Cached transcoded files stored in system temp directory
 - Configuration persisted to user config file via electron_helper
