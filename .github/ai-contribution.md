@@ -1,0 +1,118 @@
+# AI Contribution Notes
+
+## Session: December 20, 2025 - Project Foundation & Roadmap
+
+### What We Accomplished
+
+**Documentation Created:**
+- Established comprehensive project overview in `.github/copilot-instructions.md`
+- Updated `README.md` with full project context
+- Created `docs/streaming-refactor.md` with detailed FFmpeg streaming plan
+- Documented coding philosophy, architecture, and complete feature roadmap
+
+**Code Migration:**
+- Successfully migrated from `helper.js` to `helper_new.js` (v2.0)
+- Updated both `app.js` (main process) and `stage.js` (renderer)
+- New config API: `helper.config.initMain()` / `helper.config.initRenderer()`
+- All tests passing, app running correctly
+
+**Strategic Decisions:**
+1. **Remove Howler.js** - Priority #1 for v1.1.2, establishes Web Audio foundation
+2. **Unified Audio Controller** - Critical for all future features (speed, mixer, etc.)
+3. **FFmpeg Streaming** - Hybrid approach (streaming + buffered looping)
+4. **Version Roadmap** - Clear priorities: 1.1.2 → 1.2 → 2.0
+
+### Key Insights About the Project
+
+**Philosophy:**
+- Performance-first code with explicit `for` loops over abstractions
+- Functional patterns but pragmatic (not dogmatic about stateless)
+- No comments - code should be self-documenting
+- Minimal dependencies - build it ourselves when possible
+- Only use own libraries (electron_helper, native-registry, nui) + specialized tools
+
+**Target Audience:**
+- Musicians who need to quickly audition audio files
+- Inspired by classic Mac OS System 7 SoundApp
+- Keyboard-driven workflow is essential
+- "No bloat" philosophy - stay lightweight and focused
+
+**Technical Architecture:**
+- Three audio playback paths: Browser-native, Tracker/Module, FFmpeg-transcoded
+- Current limitation: FFmpeg blocks on full file transcode
+- Loop mode uses different playback methods (Howler.js for browser-native, player for tracker)
+
+### Important Context for Future Work
+
+**Version 1.1.2 Priorities:**
+1. Remove Howler.js and create unified Web Audio controller
+   - Current usage: Only for looping playback with AudioBuffer
+   - Replace with native AudioBufferSourceNode + loop property
+   - **Critical:** This sets the foundation for all v1.2 features
+   
+2. GitHub Releases for auto-update
+   - Currently uses custom HTTP server
+   - Migrate to GitHub Releases API
+   
+3. Playlist window (using nui_list.js)
+
+4. Help/documentation window
+
+**Version 1.2 Features:**
+All require Web Audio API routing established in 1.1.2:
+- FFmpeg streaming (biggest architectural change)
+- Playback speed control (time stretching + pitch shifting)
+- Multi-track mixer (killer feature for stem preview)
+- File format converter
+
+**Code Patterns to Follow:**
+```javascript
+// Preferred loop pattern
+for(let i=0; i<items.length; i++){
+    // Having 'i' accessible is often useful
+}
+
+// Self-contained functions
+function doSomething(input){
+    // Do all related work here, even as closures
+    // Repetition is okay if it keeps functions independent
+    return output;
+}
+```
+
+### State of the Codebase
+
+**What's Working:**
+- App runs successfully with helper_new.js
+- All existing features functional
+- Submodules updated (chiptune, electron_helper, howler, native-registry, nui)
+
+**Next Immediate Steps:**
+1. Create unified audio controller class/module
+2. Replace Howler.js usage in `playAudioLoop()` function
+3. Test all playback scenarios (native, tracker, FFmpeg, loop mode)
+4. Ensure seeking, volume, pause/resume all work with new controller
+
+**Files to Focus On:**
+- `js/stage.js` - Main audio playback logic (lines 340-440 for loop mode)
+- `js/app.js` - Config initialization on main process
+- Future: Create `js/audio-controller.js` or similar for unified controller
+
+### Questions for Future Sessions
+
+- Should the unified audio controller handle all three playback types (native, tracker, FFmpeg)?
+- Or should it be specifically for browser-native formats, with tracker/FFmpeg as special cases?
+- How much abstraction is too much given the "minimal dependencies" philosophy?
+
+### Notes on Collaboration Style
+
+User prefers:
+- Direct implementation over suggestions
+- Compact, action-oriented responses
+- No unnecessary explanations unless asked
+- Code that follows existing patterns in the project
+- Working code over perfect code
+
+---
+
+*This file serves as a memory bridge between sessions. Feel free to add notes when work is done or decisions are made.*

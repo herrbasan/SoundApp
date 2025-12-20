@@ -72,6 +72,10 @@ The app categorizes audio files into three groups:
 ### Technical Features
 - **Audio Info:** Metadata display, cover art extraction, format details
 - **File Associations:** Windows registry integration for file type associations
+- **Auto-Update:** Squirrel-based updates via electron_helper
+  - HTTP version check against update server
+  - Simple HTTP download for new versions
+  - Squirrel handles installation/replacement
 
 ## Project Structure
 - `js/stage.js` - Main player logic and audio handling
@@ -87,3 +91,82 @@ The app categorizes audio files into three groups:
 - FFmpeg transcoding blocks playback until conversion completes
 - Cached transcoded files stored in system temp directory
 - Configuration persisted to user config file via electron_helper
+
+## Coding Philosophy & Style
+
+### Performance First
+- High-performance code is a priority
+- Prefer native `for` loops over utility functions: `for(let i=0; i<fl.length; i++)` is fastest
+- Keep iterator `i` accessible for flexible use within loops
+- Avoid forEach and other abstraction layers when performance matters
+
+### Code Structure
+- **Functional patterns:** Aim for simple input/output functions
+- **Self-contained functions:** Do all related work within a function, sometimes as closures
+- **Not dogmatic:** Not religious about stateless functions - pragmatism over purity
+- **Repetition is acceptable:** Prefer clarity and self-contained logic over DRY when it makes sense
+
+### Code Style
+- **Compact code:** Concise, readable code without comments
+- **No comments:** Comments are at best useless, at worst confusing - the code should speak for itself
+- **Engage with the function:** Understanding requires reading the implementation anyway
+
+### Dependencies
+- **Vanilla JS:** Prefer vanilla JavaScript solutions
+- **Minimal dependencies:** If we can build it ourselves, we should
+- **Own libraries only:** 
+  - `electron_helper` (herrbasan/electron_helper)
+  - `native-registry` (herrbasan/native-registry)
+  - `nui` (herrbasan/nui)
+- **Third-party exceptions:** Only for specialized needs (Howler.js, libopenmpt, FFmpeg, GSAP)
+
+## Backlog / Future Refactors
+
+### Version 1.1.2
+1. **Howler.js Removal / Unified Audio Controller**
+   - Replace Howler.js with direct Web Audio API implementation
+   - Create unified audio controller for all playback types
+   - Foundation for future gain/pan/speed controls
+
+2. **GitHub Releases for Updates**
+   - Migrate from custom HTTP server to GitHub Releases API
+   - Update auto-update feature in electron_helper
+
+3. **Playlist Window**
+   - Separate window displaying full playlist
+   - Use `libs/nui/nui_list.js` for virtualized list handling
+   - Search, sort, and scroll through large playlists
+
+4. **Help/Documentation Window**
+   - In-app user guide with visual keyboard shortcut reference
+   - Feature explanations and shortcut table
+
+### Version 1.2
+1. **FFmpeg Native Streaming**
+   - Stream PCM audio directly from FFmpeg stdout to Web Audio API
+   - Hybrid mode: streaming for regular playback, buffered for loop mode
+   - Details: See [docs/streaming-refactor.md](../docs/streaming-refactor.md)
+
+2. **Playback Speed Control**
+   - Time Stretching: Change speed while preserving pitch
+   - Pitch Shifting: Change playback rate affecting pitch
+   - Keyboard controls: Ctrl+Shift+Arrow Up/Down
+
+3. **Multi-Track Mixer**
+   - Open folder (max ~20 files) and trigger mixer mode
+   - Synchronous playback with per-track volume and panning
+   - Use case: Preview bounced stems/tracks from projects
+
+4. **File Format Converter**
+   - Convert currently playing file to different formats
+   - Keyboard shortcut opens conversion window with format options
+   - FFmpeg CLI for transcoding
+
+### Version 2.0 (Future)
+- **Waveform Visualization** - Display audio waveform (if performance allows)
+- **Quick Compare Mode** - Hold key to jump to another track, release to return
+- **Export Playlist** - Save playlist as M3U or text file
+- **Marker System** - Set up to 10 markers in a file (keys 1-0), jump and play from markers
+  - Integrates with Quick Compare Mode for A/B comparison between markers
+- **Folder Metadata Display** - Show folder stats (duration, file count, size)
+- **Quick Tag Editor** - Simple inline ID3/metadata editing

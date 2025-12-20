@@ -5,7 +5,7 @@ const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
-const helper = require('../libs/electron_helper/helper.js');
+const helper = require('../libs/electron_helper/helper_new.js');
 const { Howl, Howler} = require('../libs/howler/dist/howler.js');
 const tools = helper.tools;
 const app = helper.app;
@@ -40,8 +40,10 @@ async function init(){
 		volume: 0.5
 	}
 	
-	g.config_obj = await helper.config('user', default_config);
-	g.config =  g.config_obj.data;
+	g.config_obj = await helper.config.initRenderer('user', (newData) => {
+		g.config = newData;
+	});
+	g.config = g.config_obj.get();
 	
 	ut.setCssVar('--space-base', g.config.space);
 
@@ -226,7 +228,7 @@ function setupWindow(){
 			g.window_move_timeout = setTimeout(async () => {
 				let bounds = await g.win.getBounds();
 				g.config.window = bounds;
-				g.config_obj.write();
+				g.config_obj.set(g.config);
 			}, 500)
 		}
 	}
@@ -255,16 +257,16 @@ function playListFromSingle(fp, rec=true){
 		let stat = await fs.lstat(path.normalize(fp));
 		if(stat.isDirectory()){
 			if(rec){
-				pl = await helper.tools.getFilesRecursive(fp, g.supportedFilter);
+				pl = await tools.getFilesRecursive(fp, g.supportedFilter);
 			}
 			else {
-				pl = await helper.tools.getFiles(fp, g.supportedFilter);
+				pl = await tools.getFiles(fp, g.supportedFilter);
 			}
 		}
 		else {
-			if(helper.tools.checkFileType(fp, g.supportedFilter)){
+			if(tools.checkFileType(fp, g.supportedFilter)){
 				let info = path.parse(fp);
-				pl = await helper.tools.getFiles(info.dir, g.supportedFilter);
+				pl = await tools.getFiles(info.dir, g.supportedFilter);
 				idx = pl.findIndex(item => item == path.join(info.dir, info.base));
 				if(idx == -1) { idx = 0};
 			}
@@ -290,15 +292,15 @@ function playListFromMulti(ar, add=false, rec=false){
 			if(stat.isDirectory()){
 				let folder_files = [];
 				if(rec){
-					folder_files = await helper.tools.getFilesRecursive(fp, g.supportedFilter);
+					folder_files = await tools.getFilesRecursive(fp, g.supportedFilter);
 				}
 				else {
-					folder_files = await helper.tools.getFiles(fp, g.supportedFilter);
+					folder_files = await tools.getFiles(fp, g.supportedFilter);
 				}
 				pl = pl.concat(folder_files);
 			}
 			else {
-				if(helper.tools.checkFileType(fp, g.supportedFilter)){
+				if(tools.checkFileType(fp, g.supportedFilter)){
 					pl.push(fp);
 				}
 				else {
@@ -335,7 +337,7 @@ async function playAudio(fp,n){
 		clearAudio();
 
 		if(g.supportedMpt.includes(parse.ext.toLocaleLowerCase())){
-			let buffer = await player.load(helper.tools.getFileURL(fp));
+			let buffer = await player.load(tools.getFileURL(fp));
 			//player.play(buffer);
 			player.gain.gain.value = g.config.volume;
 			g.currentAudio = {isMod:true, fp:fp, bench:bench, currentTime:0, paused:false, duration:player.duration, 
@@ -358,11 +360,11 @@ async function playAudio(fp,n){
 			audio.addEventListener('ended', audioEnded);
 			if(!g.supportedChrome.includes(parse.ext.toLocaleLowerCase())){
 				let tp = await transcodeToFile(fp);
-				audio.src = helper.tools.getFileURL(tp);
+				audio.src = tools.getFileURL(tp);
 				audio.cache_path = tp;
 			}
 			else {
-				audio.src = helper.tools.getFileURL(fp);
+				audio.src = tools.getFileURL(fp);
 			}
 
 			let timeout = await ut.awaitEvent(audio, 'canplay', 5000);
@@ -386,7 +388,7 @@ async function playAudio(fp,n){
 		}
 	}
 	if(g.info_win) {
-		helper.tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
+		tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
 	}
 }
 
@@ -401,11 +403,11 @@ async function playAudioLoop(fp, n){
 
 		if(!g.supportedChrome.includes(parse.ext)){
 			let tp = await transcodeToFile(fp);
-			audio = new Howl({src:helper.tools.getFileURL(tp), html5:false, loop:true});
+			audio = new Howl({src:tools.getFileURL(tp), html5:false, loop:true});
 			audio.cache_path = tp;
 		}
 		else {
-			audio = new Howl({src:helper.tools.getFileURL(fp), html5:false, loop:true});
+			audio = new Howl({src:tools.getFileURL(fp), html5:false, loop:true});
 		}
 		audio.webaudioLoop = true;
 		audio.once('load', async (e) => { 
@@ -484,10 +486,10 @@ function renderInfo(fp, metadata){
 				cover = id3_cover;
 			}
 			else {
-				let images = await helper.tools.getFiles(parse.dir, ['.jpg','.jpeg','.png','.gif']);
+				let images = await tools.getFiles(parse.dir, ['.jpg','.jpeg','.png','.gif']);
 				if(images.length > 0){
-					//cover = await loadImage(helper.tools.getFileURL(images[images.length-1]))
-					cover = await helper.tools.loadImage(images[images.length-1])
+					//cover = await loadImage(tools.getFileURL(images[images.length-1]))
+					cover = await tools.loadImage(images[images.length-1])
 				}
 			}
 
@@ -779,7 +781,7 @@ function transcodeToFile(fp){
 
 	
 	return new Promise(async (resolve, reject) => {
-		if(await (helper.tools.fileExists(tp))){
+		if(await (tools.fileExists(tp))){
 			resolve(tp);
 		}
 		else {
@@ -867,7 +869,7 @@ async function onKey(e) {
 	}
 
 	if (e.keyCode == 27) {
-		await g.config_obj.write();
+		g.config_obj.set(g.config);
 		app.exit();
 	}
 	if (e.keyCode == 39) {
@@ -908,10 +910,10 @@ async function onKey(e) {
 	}
 	if(e.keyCode == 87){
 		if(!g.info_win){
-			g.info_win = await helper.tools.browserWindow('frameless', {show:false, file:'./html/info.html', init_data:{config:g.config, list:g.msuic, idx:g.idx}})
+			g.info_win = await tools.browserWindow('frameless', {show:false, file:'./html/info.html', init_data:{config:g.config, list:g.msuic, idx:g.idx}})
 		}
-		//helper.tools.sendToId(g.info_win, 'info', g.currentInfo);
-		helper.tools.sendToId(g.info_win, 'command', 'show');
+		//tools.sendToId(g.info_win, 'info', g.currentInfo);
+		tools.sendToId(g.info_win, 'command', 'show');
 	}
 }
 
@@ -926,7 +928,7 @@ async function scaleWindow(val){
 	await g.win.setBounds(g.config.window);
 	g.config.space = val;
 	ut.setCssVar('--space-base', g.config.space);
-	g.config_obj.write();
+	g.config_obj.set(g.config);
 }
 
 

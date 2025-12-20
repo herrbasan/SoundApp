@@ -2,7 +2,7 @@
 const {app, protocol, BrowserWindow, Menu, ipcMain} = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
-const helper = require('../libs/electron_helper/helper.js');
+const helper = require('../libs/electron_helper/helper_new.js');
 const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 
@@ -93,11 +93,11 @@ function setEnv(){
 	fb('APP SET_ENV');
 	fb('--------------------------------------');
 	process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = true;
-	global.main_env = main_env;
-	global.isPackaged = isPackaged;
-	global.base_path = base_path;
-	global.temp_path = path.join(app.getPath('userData'), 'temp');
-	global.start_vars = process.argv;
+	helper.setGlobal('main_env', main_env);
+	helper.setGlobal('isPackaged', isPackaged);
+	helper.setGlobal('base_path', base_path);
+	helper.setGlobal('temp_path', path.join(app.getPath('userData'), 'temp'));
+	helper.setGlobal('start_vars', process.argv);
 
 	fb('Electron Version: ' + process.versions.electron);
 	fb('Node Version: ' + process.versions.node);
@@ -110,6 +110,19 @@ function setEnv(){
 
 async function appStart(){
     fb('Init Windows');
+    
+    // Initialize config on main process
+    await helper.config.initMain('user', {
+        transcode: {
+            "ext":".wav",
+            "cmd":"-c:a pcm_s16le"
+        },
+        space:10,
+        win_min_width:480,
+        win_min_height:217,
+        volume: 0.5
+    });
+    
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 
 		minWidth:480, 
