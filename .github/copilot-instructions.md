@@ -120,6 +120,15 @@ The app categorizes audio files into three groups:
   - `nui` (herrbasan/nui)
 - **Third-party exceptions:** Only for specialized needs (Howler.js, libopenmpt, FFmpeg, GSAP)
 
+### Working with the Codebase (LLM Instructions)
+- **Surgical approach:** Work in careful, thoughtful steps
+- **Consider context:** Always analyze connected functions and how changes ripple through the codebase
+- **Self-critical:** Review your changes for potential side effects and edge cases
+- **When uncertain:** Ask the user for clarification rather than making assumptions
+- **Read before modifying:** Understand the full context of what a function does before changing it
+- **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
+- **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
+
 ## Backlog / Future Refactors
 
 ### Version 1.1.2

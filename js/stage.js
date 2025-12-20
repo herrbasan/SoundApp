@@ -6,7 +6,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const helper = require('../libs/electron_helper/helper_new.js');
-const { Howl, Howler} = require('../libs/howler/dist/howler.js');
+const AudioController = require('./audio_controller.js');
 const tools = helper.tools;
 const app = helper.app;
 const os = require('node:os');
@@ -15,6 +15,7 @@ const registry = require('../js/registry.js');
 let player;
 let g = {};
 g.test = {};
+g.audioContext = null;
 // Init
 // ###########################################################################
 
@@ -69,8 +70,11 @@ async function init(){
 		g.ffppath = path.resolve(fp + '/bin/win_bin/ffprobe.exe');
 	}
 
+	/* Init Web Audio Context */
+	g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
 	/* Mod Player */
-	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0});
+	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0, context: g.audioContext});
 	player.onMetadata(async (meta) => {
 		if(g.currentAudio){
 			g.currentAudio.duration = player.duration;
@@ -89,6 +93,7 @@ async function init(){
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false;});
 	player.onInitialized(() => {
 		console.log('Player Initialized');
+		player.gain.connect(g.audioContext.destination);
 		g.blocky = false;
 		appStart();
 	});
@@ -325,102 +330,74 @@ function playListFromMulti(ar, add=false, rec=false){
 
 
 
-async function playAudio(fp,n){
-	let parse = path.parse(fp);
-	let bench = performance.now();
-	if(player) { player.stop(); }
-	if(g.isLoop && !g.supportedMpt.includes(parse.ext.toLocaleLowerCase())){
-		playAudioLoop(fp,n);
-	}
-	else if(!g.blocky){
+async function playAudio(fp, n){
+	if(!g.blocky){
+		let parse = path.parse(fp);
+		let bench = performance.now();
 		g.blocky = true;
 		clearAudio();
 
+		if(player) { player.stop(); }
+
 		if(g.supportedMpt.includes(parse.ext.toLocaleLowerCase())){
-			let buffer = await player.load(tools.getFileURL(fp));
-			//player.play(buffer);
-			player.gain.gain.value = g.config.volume;
-			g.currentAudio = {isMod:true, fp:fp, bench:bench, currentTime:0, paused:false, duration:player.duration, 
-				play:() =>  { g.currentAudio.paused = false; player.unpause() }, 
-				pause:() => { g.currentAudio.paused = true; player.pause() }
+			g.currentAudio = {
+				isMod: true, 
+				fp: fp, 
+				bench: bench, 
+				currentTime: 0,
+				paused: false, 
+				duration: 0,
+				play: () =>  { g.currentAudio.paused = false; player.unpause() }, 
+				pause: () => { g.currentAudio.paused = true; player.pause() }
 			};
+			player.load(tools.getFileURL(fp));
+			player.gain.gain.value = g.config.volume;
 			checkState();
-			g.currentAudio.fp = fp;
-			/*
-			player.onMetadata(async (meta) => {
-				await renderInfo(fp, meta);
-				console.log('Operation took: ' + Math.round((performance.now() - bench)) );
-				g.blocky = false;
-			})*/
-			//await renderInfo(fp);
-			//g.blocky = false;
 		}
 		else {
-			let audio = ut.createElement('audio');
-			audio.addEventListener('ended', audioEnded);
+			let audio = new AudioController(g.audioContext);
+			audio.fp = fp;
+			audio.bench = bench;
+			audio.onEnded(audioEnded);
+
+			let url;
 			if(!g.supportedChrome.includes(parse.ext.toLocaleLowerCase())){
 				let tp = await transcodeToFile(fp);
-				audio.src = tools.getFileURL(tp);
+				url = tools.getFileURL(tp);
 				audio.cache_path = tp;
 			}
 			else {
-				audio.src = tools.getFileURL(fp);
+				url = tools.getFileURL(fp);
 			}
 
-			let timeout = await ut.awaitEvent(audio, 'canplay', 5000);
-			if(timeout != 'timeout'){
-				if(n > 0) { audio.currentTime = n}
+			try {
+				if(g.isLoop){
+					await audio.loadBuffer(url, true);
+					audio.webaudioLoop = true;
+				}
+				else {
+					await audio.loadMediaElement(url, false);
+				}
+				
+				if(n > 0) { audio.seek(n) }
+				audio.volume = g.config.volume;
 				audio.play();
+				g.currentAudio = audio;
+				checkState();
+				console.log('Operation took: ' + Math.round((performance.now() - bench)) );
+				await renderInfo(fp);
+				g.blocky = false;
 			}
-			else{
+			catch(err) {
+				console.error('Playback error:', err);
 				g.text.innerHTML += 'Error!<br>';
 				g.blocky = false;
 				return false;
 			}
-			
-			
-			g.currentAudio = audio;
-			audio.volume = g.config.volume;
-			checkState();
-			console.log('Operation took: ' + Math.round((performance.now() - bench)) );
-			await renderInfo(fp);
-			g.blocky = false;
 		}
 	}
 	if(g.info_win) {
 		tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
-	}
-}
-
-async function playAudioLoop(fp, n){
-	if(!g.blocky){
-		let bench = performance.now();
-		let parse = path.parse(fp);
-		g.blocky = true;
-		clearAudio();
-
-		let audio;
-
-		if(!g.supportedChrome.includes(parse.ext)){
-			let tp = await transcodeToFile(fp);
-			audio = new Howl({src:tools.getFileURL(tp), html5:false, loop:true});
-			audio.cache_path = tp;
-		}
-		else {
-			audio = new Howl({src:tools.getFileURL(fp), html5:false, loop:true});
-		}
-		audio.webaudioLoop = true;
-		audio.once('load', async (e) => { 
-			audio.duration = audio._duration;
-			if(n > 0) { audio.seek(n)}
-			audio.play();
-			g.currentAudio = audio;
-			audio.volume(g.config.volume);
-			checkState();
-			console.log('Operation took: ' + Math.round((performance.now() - bench)) );
-			await renderInfo(fp);
-			g.blocky = false;
-		})
 	}
 }
 
@@ -527,22 +504,21 @@ function clearAudio(){
 		}
 		else {
 			let mem = g.currentAudio;
-			if(!mem.webaudioLoop){
-				mem.removeEventListener('ended', audioEnded);
-			}
-			gsap.to(mem, {duration:0.05, volume:0, ease:'linear', onComplete:() => {
-				if(mem.webaudioLoop){
+			let targetVol = mem.volume || 0;
+			if(targetVol > 0){
+				mem.fadeOut(0.05, () => {
 					mem.unload();
-				}
-				else {
-					mem.pause();
-					mem.src = '';
-					mem.load();
-				}
+					if(mem.cache_path){
+						setTimeout(() => { fs.unlink(mem.cache_path)}, 500);
+					}
+				});
+			}
+			else {
+				mem.unload();
 				if(mem.cache_path){
 					setTimeout(() => { fs.unlink(mem.cache_path)}, 500);
 				}
-			}})
+			}
 		}
 	}
 }
@@ -565,7 +541,6 @@ function audioEnded(e){
 
 function checkState(){
 	if(g.currentAudio){
-		if(g.currentAudio.webaudioLoop) { g.currentAudio.paused = !g.currentAudio.playing()} 
 		if(g.isLoop){
 			g.body.addClass('loop')
 		}
@@ -623,9 +598,9 @@ function toggleLoop(){
 	}
 	if(g.currentAudio){
 		if(!g.currentAudio.isMod){
-			if(g.currentAudio.webaudioLoop) { g.currentAudio.currentTime = g.currentAudio.seek()}
-			console.log(g.currentAudio.currentTime);
-			playAudio(g.music[g.idx], g.currentAudio.currentTime);
+			let currentTime = g.currentAudio.currentTime;
+			playAudio(g.music[g.idx], currentTime);
+			return;
 		}
 	}
 	checkState();
@@ -636,16 +611,14 @@ function volumeUp(){
 	g.config.volume += 0.05;
 	if(g.config.volume > 1) { g.config.volume = 1 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio.webaudioLoop){ g.currentAudio.volume(g.config.volume)}
-	else { g.currentAudio.volume = g.config.volume; }
+	if(g.currentAudio && !g.currentAudio.isMod) { g.currentAudio.volume = g.config.volume; }
 }
 
 function volumeDown(){
 	g.config.volume -= 0.05;
 	if(g.config.volume < 0) { g.config.volume = 0 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio.webaudioLoop){ g.currentAudio.volume(g.config.volume)}
-	else { g.currentAudio.volume = g.config.volume; }
+	if(g.currentAudio && !g.currentAudio.isMod) { g.currentAudio.volume = g.config.volume; }
 }
 
 
@@ -660,14 +633,12 @@ function seek(mx){
 
 function seekTo(s){
 	if(g.currentAudio){
-		if(g.currentAudio.webaudioLoop){
-			g.currentAudio.seek(s);
+		if(g.currentAudio.isMod){
+			player.seek(s);
+			g.currentAudio.currentTime = s;
 		}
 		else {
-			if(g.currentAudio.isMod){
-				player.seek(s);
-			}
-			g.currentAudio.currentTime = s;
+			g.currentAudio.seek(s);
 		}
 	}
 }
@@ -812,9 +783,6 @@ function renderBar(){
 	let proz = 0;
 	let time = 0;
 	if(g.currentAudio){
-		if(g.currentAudio.webaudioLoop){
-			g.currentAudio.currentTime = g.currentAudio.seek();
-		}
 		if(g.currentAudio.lastTime != g.currentAudio.currentTime){
 			g.currentAudio.lastTime = g.currentAudio.currentTime;
 			time = g.currentAudio.currentTime;
