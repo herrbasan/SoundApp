@@ -472,9 +472,9 @@ function renderInfo(fp, metadata){
 
 		let prevCovers = g.cover.els('img');
 		for(let i=0; i<prevCovers.length; i++){
-			gsap.to(prevCovers[i], {delay:0.2, duration:0.2, opacity:0, onComplete:() => { 
-				ut.killMe(prevCovers[i]);
-			}})
+			let el = prevCovers[i];
+			el.animate([{opacity: 1}, {opacity: 0}], {duration: 200, delay: 200, fill: 'forwards'})
+				.onfinish = () => ut.killMe(el);
 		}
 		renderTopInfo(); 
 		
@@ -527,8 +527,8 @@ function renderInfo(fp, metadata){
 
 			if(cover){
 				g.cover.appendChild(cover)
-				gsap.set(cover, {opacity:0});
-				gsap.to(cover, {duration:0.2, opacity:1})
+				cover.style.opacity = '0';
+				cover.animate([{opacity: 0}, {opacity: 1}], {duration: 200, fill: 'forwards'});
 				g.currentInfo.cover_src = cover.src;
 			}
 			

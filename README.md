@@ -24,7 +24,7 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
   - libopenmpt (chiptune3.js) - Tracker/module format playback
   - FFmpeg NAPI decoder - Native decoder for unsupported formats with streaming support
   - FFmpeg CLI - Legacy transcoding fallback
-- **UI:** Custom HTML/CSS with GSAP for animations
+- **UI:** Custom HTML/CSS with Web Animation API for transitions
 - **Platform Support:** Windows and Linux
 
 ## Audio Format Handling
