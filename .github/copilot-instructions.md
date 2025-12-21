@@ -156,10 +156,20 @@ The app categorizes audio files into three groups:
    - See [docs/github-releases-migration.md](../docs/github-releases-migration.md)
 
 ### Version 1.1.3
-1. **FFmpeg Native Streaming**
-   - Stream PCM audio directly from FFmpeg stdout to Web Audio API
-   - Hybrid mode: streaming for regular playback, buffered for loop mode
+1. **FFmpeg Native Streaming** ✅ DONE
+   - ~~Stream PCM audio directly from FFmpeg stdout to Web Audio API~~
+   - ~~Hybrid mode: streaming for regular playback, buffered for loop mode~~
+   - Implemented via ffmpeg-napi-interface submodule
    - Details: See [docs/streaming-refactor.md](../docs/streaming-refactor.md)
+
+2. **Binary Management Cleanup**
+   - Remove `bin/` from git, add to `.gitignore`
+   - Create `scripts/setup-binaries.ps1` that:
+     - Downloads FFmpeg CLI from official/hosted builds
+     - Downloads `.node` + DLLs from ffmpeg-napi-interface releases
+     - Copies JS files from submodule
+   - Requires: Create releases on ffmpeg-napi-interface with prebuilt binaries
+   - Goal: No LFS, no large files in repo, clean clone experience
 
 ### Version 1.1.4
 1. **Playlist Window**
