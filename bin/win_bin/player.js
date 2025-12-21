@@ -176,6 +176,8 @@ class FFmpegStreamPlayer {
           for (let i = 0; i < 15; i++) {
             this._decodeAndSendChunk();
           }
+          // Restart feed loop (it stopped at EOF)
+          this._startFeedLoop();
           break;
           
         case 'ended':
@@ -367,11 +369,12 @@ class FFmpegStreamPlayer {
         this.workletNode.port.postMessage({ type: 'setPosition', frames: frames });
         this.currentFrames = frames;
         
-        // Pre-buffer
+        // Pre-buffer and restart feed loop
         if (this.isPlaying) {
           for (let i = 0; i < 10; i++) {
             this._decodeAndSendChunk();
           }
+          this._startFeedLoop();
         }
       }
     }
