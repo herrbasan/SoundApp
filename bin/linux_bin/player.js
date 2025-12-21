@@ -161,9 +161,16 @@ class FFmpegStreamPlayer {
         case 'loopStarted':
           // Worklet is playing loop chunk (chunk 0)
           // Seek to start and skip first chunk to ensure sample-accurate positioning
-          this.decoder.seek(0);
+          if (!this.decoder.seek(0)) {
+            console.error('Failed to seek to start for loop');
+            break;
+          }
           // Read and discard first chunk (same as loopChunk) to get to chunk 1 position
-          this.decoder.read(this.loopChunkFrames * this._channels);
+          const skipResult = this.decoder.read(this.loopChunkFrames * this._channels);
+          if (skipResult.samplesRead === 0) {
+            console.error('Failed to skip loop chunk');
+            break;
+          }
           this.decoderEOF = false;
           // Burst chunks to refill queue
           for (let i = 0; i < 15; i++) {
@@ -284,12 +291,9 @@ class FFmpegStreamPlayer {
    */
   _startFeedLoop() {
     if (!this.isPlaying) return;
+    if (this.decoderEOF) return;
     
-    // Keep feeding if decoder hasn't reached EOF
-    if (!this.decoderEOF) {
-      this._decodeAndSendChunk();
-    }
-    
+    this._decodeAndSendChunk();
     this.decodeTimer = setTimeout(() => this._startFeedLoop(), 20);
   }
 
@@ -349,6 +353,8 @@ class FFmpegStreamPlayer {
    */
   seek(seconds) {
     if (!this.decoder) return false;
+    
+    seconds = Math.max(0, Math.min(seconds, this.duration));
 
     const success = this.decoder.seek(seconds);
     if (success) {
