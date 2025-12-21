@@ -72,6 +72,8 @@ class FFmpegStreamPlayer {
     this.duration = 0;
     this._sampleRate = 44100;
     this._channels = 2;
+    this._targetVolume = 1;
+    this._rampTime = 0.030;
     
     // Position tracking
     this.currentFrames = 0;
@@ -89,11 +91,29 @@ class FFmpegStreamPlayer {
 
   /** @type {number} */
   get volume() {
-    return this.gainNode.gain.value;
+    return this._targetVolume;
   }
 
   set volume(val) {
-    this.gainNode.gain.value = val;
+    this._targetVolume = val;
+    const now = this.audioContext.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+    this.gainNode.gain.linearRampToValueAtTime(val, now + this._rampTime);
+  }
+
+  _fadeIn() {
+    const now = this.audioContext.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setValueAtTime(0, now);
+    this.gainNode.gain.linearRampToValueAtTime(this._targetVolume, now + this._rampTime);
+  }
+
+  _fadeOut() {
+    const now = this.audioContext.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+    this.gainNode.gain.linearRampToValueAtTime(0, now + this._rampTime);
   }
 
   /**
@@ -251,6 +271,9 @@ class FFmpegStreamPlayer {
     // Connect audio graph
     this.workletNode.connect(this.gainNode);
     
+    // Fade in to prevent clicks
+    this._fadeIn();
+    
     // Restore position from pause if resuming
     if (this._pausedAtFrames !== undefined) {
       this.currentFrames = this._pausedAtFrames;
@@ -327,6 +350,7 @@ class FFmpegStreamPlayer {
    */
   pause() {
     if (this.isPlaying) {
+      this._fadeOut();
       this.isPlaying = false;
       this._pausedAtFrames = this.currentFrames;
 
@@ -335,9 +359,12 @@ class FFmpegStreamPlayer {
         this.decodeTimer = null;
       }
 
-      if (this.workletNode) {
-        this.workletNode.disconnect();
-      }
+      // Delay disconnect to allow fade out
+      setTimeout(() => {
+        if (!this.isPlaying && this.workletNode) {
+          this.workletNode.disconnect();
+        }
+      }, this._rampTime * 1000 + 5);
     }
   }
 
@@ -358,6 +385,59 @@ class FFmpegStreamPlayer {
     
     seconds = Math.max(0, Math.min(seconds, this.duration));
 
+    // Rate limit seeks - ignore if too soon after last seek
+    const now = performance.now();
+    if (this._lastSeekTime && (now - this._lastSeekTime) < 80) {
+      this._pendingSeek = seconds;
+      if (!this._seekThrottleTimer) {
+        this._seekThrottleTimer = setTimeout(() => {
+          this._seekThrottleTimer = null;
+          if (this._pendingSeek !== null) {
+            const pos = this._pendingSeek;
+            this._pendingSeek = null;
+            this._lastSeekTime = performance.now();
+            this._executeSeek(pos);
+          }
+        }, 80);
+      }
+      return true;
+    }
+    this._lastSeekTime = now;
+    this._pendingSeek = null;
+
+    this._executeSeek(seconds);
+    return true;
+  }
+
+  /**
+   * Execute a seek with fade out/in
+   * @private
+   */
+  _executeSeek(seconds) {
+    // Stop feed loop during seek
+    if (this.decodeTimer) {
+      clearTimeout(this.decodeTimer);
+      this.decodeTimer = null;
+    }
+
+    // Fade out before seek to prevent clicks
+    if (this.isPlaying) {
+      this._fadeOut();
+    }
+
+    // Delay the actual seek to allow fade out to complete
+    setTimeout(() => {
+      this._doSeek(seconds);
+    }, this._rampTime * 1000);
+  }
+
+  /**
+   * Internal seek implementation (called after fade out)
+   * @private
+   */
+  _doSeek(seconds) {
+    if (!this.decoder) return;
+
     const success = this.decoder.seek(seconds);
     if (success) {
       this.decoderEOF = false;
@@ -374,11 +454,11 @@ class FFmpegStreamPlayer {
           for (let i = 0; i < 10; i++) {
             this._decodeAndSendChunk();
           }
+          this._fadeIn();
           this._startFeedLoop();
         }
       }
     }
-    return success;
   }
 
   /**

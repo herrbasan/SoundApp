@@ -6,7 +6,6 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const helper = require('../libs/electron_helper/helper_new.js');
-const AudioController = require('./audio_controller.js');
 const tools = helper.tools;
 const app = helper.app;
 const os = require('node:os');
@@ -46,6 +45,7 @@ async function init(){
 		g.config = newData;
 	});
 	g.config = g.config_obj.get();
+	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	
 	ut.setCssVar('--space-base', g.config.space);
 
@@ -94,7 +94,7 @@ async function init(){
 			g.currentAudio.duration = player.duration;
 			g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
 			await renderInfo(g.currentAudio.fp, meta);
-			console.log('Operation took: ' + Math.round((performance.now() - g.currentAudio.bench)) );
+			//console.log('Operation took: ' + Math.round((performance.now() - g.currentAudio.bench)) );
 		}
 		g.blocky = false;
 	});
@@ -166,7 +166,6 @@ async function appStart(){
 	g.music = [];
 	g.idx = 0;
 	g.isLoop = false;
-	g.useFFmpegForAll = true; // Set to true to route all audio through FFmpeg
 	setupWindow();
 	setupDragDrop();
 
@@ -354,9 +353,9 @@ async function playAudio(fp, n){
 
 		if(player) { player.stop(); }
 
-		const needsFFmpeg = g.useFFmpegForAll || g.supportedFFmpeg.includes(parse.ext.toLocaleLowerCase());
+		const isTracker = g.supportedMpt.includes(parse.ext.toLocaleLowerCase());
 
-		if(g.supportedMpt.includes(parse.ext.toLocaleLowerCase()) && !g.useFFmpegForAll){
+		if(isTracker){
 			g.currentAudio = {
 				isMod: true, 
 				fp: fp, 
@@ -371,81 +370,46 @@ async function playAudio(fp, n){
 			player.gain.gain.value = g.config.volume;
 			checkState();
 		}
-		else if (needsFFmpeg) {
-				try {
-					const ffPlayer = g.ffmpegPlayer;
-					ffPlayer.onEnded(audioEnded);
-					
-					// Open file, set loop mode, then play
-					const metadata = await ffPlayer.open(fp);
-					ffPlayer.setLoop(g.isLoop);
-					
-					g.currentAudio = {
-						isFFmpeg: true,
-						fp: fp,
-						bench: bench,
-						currentTime: 0,
-						paused: false,
-						duration: metadata.duration,
-						player: ffPlayer,
-						volume: g.config.volume,
-						play: () => { g.currentAudio.paused = false; ffPlayer.play(); },
-						pause: () => { g.currentAudio.paused = true; ffPlayer.pause(); },
-						seek: (time) => ffPlayer.seek(time),
-						getCurrentTime: () => ffPlayer.getCurrentTime()
-					};
-					
-					ffPlayer.volume = g.config.volume;
-					
-					if (n > 0) { ffPlayer.seek(n); }
-					
-					// Start playback
-					await ffPlayer.play();
-					
-					checkState();
-					console.log('Operation took: ' + Math.round((performance.now() - bench)));
-					await renderInfo(fp);
-					g.blocky = false;
-				}
-				catch(err) {
-					console.error('FFmpeg playback error:', err);
-					g.text.innerHTML += 'Error loading file with FFmpeg!<br>';
-					g.blocky = false;
-					return false;
-				}
-		}
 		else {
-			let audio = new AudioController(g.audioContext);
-			audio.fp = fp;
-			audio.bench = bench;
-			audio.onEnded(audioEnded);
-
-			let url = tools.getFileURL(fp);
-
 			try {
-					if(g.isLoop){
-						await audio.loadBuffer(url, true);
-						audio.webaudioLoop = true;
-					}
-					else {
-						await audio.loadMediaElement(url, false);
-					}
-					
-					if(n > 0) { audio.seek(n) }
-					audio.volume = g.config.volume;
-					audio.play();
-					g.currentAudio = audio;
-					checkState();
-					console.log('Operation took: ' + Math.round((performance.now() - bench)) );
-					await renderInfo(fp);
-					g.blocky = false;
-				}
-				catch(err) {
-					console.error('Playback error:', err);
-					g.text.innerHTML += 'Error!<br>';
-					g.blocky = false;
-					return false;
-				}
+				const ffPlayer = g.ffmpegPlayer;
+				ffPlayer.onEnded(audioEnded);
+				
+				const metadata = await ffPlayer.open(fp);
+				ffPlayer.setLoop(g.isLoop);
+				
+				g.currentAudio = {
+					isFFmpeg: true,
+					fp: fp,
+					bench: bench,
+					currentTime: 0,
+					paused: false,
+					duration: metadata.duration,
+					player: ffPlayer,
+					volume: g.config.volume,
+					play: () => { g.currentAudio.paused = false; ffPlayer.play(); },
+					pause: () => { g.currentAudio.paused = true; ffPlayer.pause(); },
+					seek: (time) => ffPlayer.seek(time),
+					getCurrentTime: () => ffPlayer.getCurrentTime()
+				};
+				
+				ffPlayer.volume = g.config.volume;
+				
+				if (n > 0) { ffPlayer.seek(n); }
+				
+				await ffPlayer.play();
+				
+				checkState();
+				//console.log('Operation took: ' + Math.round((performance.now() - bench)));
+				await renderInfo(fp);
+				g.blocky = false;
+			}
+			catch(err) {
+				console.error('FFmpeg playback error:', err);
+				g.text.innerHTML += 'Error loading file!<br>';
+				g.blocky = false;
+				return false;
+			}
 		}
 	}
 	if(g.info_win) {
@@ -552,54 +516,19 @@ function renderTopInfo(){
 
 function clearAudio(){
 	if(g.ffmpegPlayer) g.ffmpegPlayer.stop();
-	
 	if(g.currentAudio){
-		if(g.currentAudio.isMod){
-			player.stop();
-			g.currentAudio = undefined;
-		}
-		else if(g.currentAudio.isFFmpeg){
-			g.currentAudio = undefined;
-		}
-		else {
-			let mem = g.currentAudio;
-			let targetVol = mem.volume || 0;
-			if(targetVol > 0){
-				mem.fadeOut(0.05, () => {
-					mem.unload();
-					if(mem.cache_path){
-						setTimeout(() => { fs.unlink(mem.cache_path)}, 500);
-					}
-				});
-			}
-			else {
-				mem.unload();
-				if(mem.cache_path){
-					setTimeout(() => { fs.unlink(mem.cache_path)}, 500);
-				}
-			}
-		}
+		if(g.currentAudio.isMod) player.stop();
+		g.currentAudio = undefined;
 	}
 }
 
 function audioEnded(e){
-	if(g.currentAudio?.isMod){
-		if(g.isLoop){
-			playAudio(g.music[g.idx]);
-		}
-		else {
-			playNext();
-		}
-	}
-	else if(g.currentAudio?.isFFmpeg){
-		// FFmpeg player handles looping internally, onEnded only fires when not looping
-		playNext();
+	if(g.currentAudio?.isMod && g.isLoop){
+		playAudio(g.music[g.idx]);
 	}
 	else {
-		if(e){ e.currentTarget.removeEventListener('ended', audioEnded);}
 		playNext();
 	}
-	
 }
 
 function checkState(){
@@ -642,7 +571,6 @@ function playPrev(e){
 }
 
 function playPause(){
-	if(g.currentAudio.webaudioLoop) { g.currentAudio.paused = !g.currentAudio.playing()} 
 	if(g.currentAudio.paused){
 		g.currentAudio.play();
 	}
@@ -654,17 +582,8 @@ function playPause(){
 
 function toggleLoop(){
 	g.isLoop = !g.isLoop;
-	if(g.currentAudio){
-		// FFmpeg player supports dynamic loop toggling
-		if(g.currentAudio.isFFmpeg && g.currentAudio.player){
-			g.currentAudio.player.setLoop(g.isLoop);
-		}
-		// Other players need to reload
-		else if(!g.currentAudio.isMod){
-			let currentTime = g.currentAudio.getCurrentTime ? g.currentAudio.getCurrentTime() : g.currentAudio.currentTime;
-			playAudio(g.music[g.idx], currentTime);
-			return;
-		}
+	if(g.currentAudio && g.currentAudio.isFFmpeg && g.currentAudio.player){
+		g.currentAudio.player.setLoop(g.isLoop);
 	}
 	checkState();
 }
@@ -674,26 +593,20 @@ function volumeUp(){
 	g.config.volume += 0.05;
 	if(g.config.volume > 1) { g.config.volume = 1 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio) {
-		if(g.currentAudio.isFFmpeg && g.currentAudio.player) {
-			g.currentAudio.player.volume = g.config.volume;
-		} else if(!g.currentAudio.isMod) {
-			g.currentAudio.volume = g.config.volume;
-		}
+	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
+		g.currentAudio.player.volume = g.config.volume;
 	}
+	g.config_obj.set(g.config);
 }
 
 function volumeDown(){
 	g.config.volume -= 0.05;
 	if(g.config.volume < 0) { g.config.volume = 0 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio) {
-		if(g.currentAudio.isFFmpeg && g.currentAudio.player) {
-			g.currentAudio.player.volume = g.config.volume;
-		} else if(!g.currentAudio.isMod) {
-			g.currentAudio.volume = g.config.volume;
-		}
+	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
+		g.currentAudio.player.volume = g.config.volume;
 	}
+	g.config_obj.set(g.config);
 }
 
 
@@ -821,7 +734,7 @@ function renderBar(){
 
 
 async function onKey(e) {
-	fb(e.keyCode)
+	//fb(e.keyCode)
 	if(e.keyCode == 88){
 		document.body.toggleClass('dark');
 	}
