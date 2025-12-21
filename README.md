@@ -22,7 +22,8 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 - **Audio Libraries:**
   - Custom AudioController (Web Audio API) - Unified playback with gapless looping
   - libopenmpt (chiptune3.js) - Tracker/module format playback
-  - FFmpeg - Format transcoding for unsupported formats
+  - FFmpeg NAPI decoder - Native decoder for unsupported formats with streaming support
+  - FFmpeg CLI - Legacy transcoding fallback
 - **UI:** Custom HTML/CSS with GSAP for animations
 - **Platform Support:** Windows and Linux
 
@@ -38,7 +39,10 @@ The app categorizes audio files into three groups:
    - Decoded and played via libopenmpt (AudioWorklet-based)
 
 3. **Unsupported formats** (`.aif`, `.aiff`, `.mpg`, `.mp2`, `.aa`)
-   - Transcoded to WAV using FFmpeg CLI, cached to temp directory
+   - Decoded via FFmpeg NAPI decoder (native C++ addon)
+   - Stream mode: Real-time decoding via AudioWorklet
+   - Loop mode: Full buffer decode for gapless looping
+   - Fallback: FFmpeg CLI transcoding (legacy support)
 
 ## Key Features
 
@@ -80,16 +84,24 @@ The app categorizes audio files into three groups:
 - `js/audio_controller.js` - Unified Web Audio API controller
 - `js/app.js` - Main process (Electron)
 - `js/registry.js` - Windows file association handling
+- `bin/win_bin/player.js` - FFmpegStreamPlayer (NAPI decoder + AudioWorklet)
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk streaming
+- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
 - `libs/` - Third-party audio libraries (chiptune, electron_helper, nui)
-- `bin/` - FFmpeg binaries for Windows and Linux
+- `bin/` - FFmpeg binaries and NAPI decoder for Windows and Linux
+- `scripts/` - Build and update scripts
 - `html/` - Window templates
 - `css/` - Styling
 
-## Current Architecture Notes (v1.1.2)
+## Current Architecture Notes (v1.1.3+)
 - Unified AudioController handles all browser-native format playback
 - Loop mode uses AudioBuffer with gapless looping (via loopStart/loopEnd)
 - Normal mode uses MediaElement for memory-efficient streaming
 - Tracker formats handled separately by libopenmpt player
-- FFmpeg transcoding blocks playback until conversion completes (streaming planned for v1.2)
-- Cached transcoded files stored in system temp directory
+- **FFmpeg NAPI streaming player** for unsupported formats:
+  - Chunk-based streaming via AudioWorklet
+  - Gapless looping via stored loop chunk (no separate buffered mode needed)
+  - Direct seeking support via native FFmpeg APIs
+  - No temp file overhead
+- FFmpeg CLI transcoding available as fallback
 - Configuration persisted to user config file via electron_helper

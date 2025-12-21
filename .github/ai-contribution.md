@@ -1,5 +1,78 @@
 # AI Contribution Notes
 
+## Session: December 21, 2025 - FFmpeg NAPI Integration Complete
+
+### What We Accomplished
+
+**FFmpeg NAPI Player Integration - COMPLETE ✅**
+- Integrated `ffmpeg-napi-interface` package (v1.1.3) with SoundApp
+- Unified streaming player with gapless looping in all modes
+- No more separate "loop mode" requiring full file decode
+
+**Key Files Added/Modified:**
+- `bin/win_bin/player.js` - FFmpegStreamPlayer class
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk streaming
+- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder
+- `js/stage.js` - Integrated new player
+- `scripts/update-napi-binaries.ps1` - Updated to copy .js files
+
+**Bug Fixes Applied Locally (carry to ffmpeg-napi-interface repo):**
+All documented in `bin/LOCAL_FIXES.md`:
+
+1. **Fix 1: Pause doesn't freeze time display**
+   - Added `_pausedAtFrames` caching in player.js
+   - `getCurrentTime()` returns cached value when paused
+
+2. **Fix 2: Resume resets time to 0**
+   - Removed position reset from `play()`
+   - Restore `currentFrames` from `_pausedAtFrames` on resume
+
+3. **Fix 3: Seeking causes file skip**
+   - Root cause: Worklet fired `ended` when buffer temporarily empty during seek
+   - Solution: Added `reachedEOF` flag in worklet
+   - Only fire `ended` after playing through EOF-marked chunk
+
+**Performance Review Created:**
+See `docs/ffmpeg-player-review.md` for critical analysis:
+- Memory leak: Transferable ArrayBuffers not used
+- Feed loop runs even after EOF
+- Queue can grow unbounded
+- Seek range not validated
+- Recommendations for future fixes
+
+### Technical Insights
+
+**Gapless Looping Strategy:**
+- First chunk stored as "loop chunk" in worklet
+- When last chunk finishes and loop enabled, immediately play loop chunk
+- Main thread notified via `loopStarted` message to refill queue
+- Sample-accurate looping without full file buffering
+
+**End Detection Fix (critical learning):**
+```javascript
+// Wrong: fires when buffer empty for ANY reason (including seek)
+} else if (!this.loopEnabled && !this.hasEnded) {
+  this.port.postMessage({ type: 'ended' });
+}
+
+// Right: only fire after actually reaching EOF-marked chunk
+} else if (this.reachedEOF && !this.loopEnabled && !this.hasEnded) {
+  this.port.postMessage({ type: 'ended' });
+}
+```
+
+### Files to Clean Up
+- `libs/howler/` - No longer needed (can remove entire directory)
+- `js/ffmpeg_player.js` - Old implementation (superseded by bin/win_bin/player.js)
+
+### Next Steps for Future Sessions
+1. Apply fixes from `bin/LOCAL_FIXES.md` to ffmpeg-napi-interface repo
+2. Implement improvements from `docs/ffmpeg-player-review.md`
+3. Remove unused howler.js library
+4. Consider removing FFmpegBufferedPlayer class (unused)
+
+---
+
 ## Session: December 20, 2025 - v1.1.2 Phase 1 Complete: Unified Audio Controller
 
 ### What We Accomplished

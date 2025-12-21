@@ -20,6 +20,7 @@ module.exports = {
     icon: path.join(__dirname, 'build', 'icons', 'app.ico'),
   },
   rebuildConfig: {
+    onlyModules: []
   },
   makers: [
     {

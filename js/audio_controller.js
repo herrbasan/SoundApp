@@ -134,9 +134,13 @@ class AudioController {
 	seek(time) {
 		if (this.sourceType === 'buffer') {
 			let wasPlaying = !this.paused;
-			if (this.source && this.sourceStarted && !this.paused) {
-				this.source.stop();
+			if (this.source) {
+				this.source.onended = null;
+				if (this.sourceStarted) {
+					this.source.stop();
+				}
 				this.source.disconnect();
+				this.source = null;
 				this.sourceStarted = false;
 			}
 			this.pauseTime = Math.max(0, Math.min(time, this.duration));

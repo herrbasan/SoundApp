@@ -13,3 +13,6 @@
 [submodule "libs/native-registry"]
 	path = libs/native-registry
 	url = https://github.com/herrbasan/windows-native-registry.git
+[submodule "libs/ffmpeg-napi-interface"]
+	path = libs/ffmpeg-napi-interface
+	url = https://github.com/herrbasan/ffmpeg-napi-interface.git

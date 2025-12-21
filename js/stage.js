@@ -16,6 +16,7 @@ let player;
 let g = {};
 g.test = {};
 g.audioContext = null;
+g.ffmpegPlayer = null;
 // Init
 // ###########################################################################
 
@@ -63,15 +64,31 @@ async function init(){
 	if(os.platform() == 'linux'){
 		g.ffmpath = path.resolve(fp + '/bin/linux_bin/ffmpeg');
 		g.ffppath = path.resolve(fp + '/bin/linux_bin/ffprobe');
-	
+		g.ffmpeg_napi_path = path.resolve(fp + '/bin/linux_bin/ffmpeg_napi.node');
+		g.ffmpeg_player_path = path.resolve(fp + '/bin/linux_bin/player.js');
+		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-processor.js');
 	}
 	else {
 		g.ffmpath = path.resolve(fp + '/bin/win_bin/ffmpeg.exe');
 		g.ffppath = path.resolve(fp + '/bin/win_bin/ffprobe.exe');
+		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
+		g.ffmpeg_player_path = path.resolve(fp + '/bin/win_bin/player.js');
+		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-processor.js');
 	}
 
-	/* Init Web Audio Context */
-	g.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+	/* Init Web Audio Context at 44100Hz to match FFmpeg decoder output */
+	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+
+	/* FFmpeg NAPI Player - unified streaming with gapless looping */
+	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
+	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
+	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
+	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path);
+	try {
+		await g.ffmpegPlayer.init();
+	} catch (err) {
+		console.error('Failed to initialize FFmpeg player:', err);
+	}
 
 	/* Mod Player */
 	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0, context: g.audioContext});
@@ -152,6 +169,7 @@ async function appStart(){
 	g.music = [];
 	g.idx = 0;
 	g.isLoop = false;
+	g.useFFmpegForAll = true; // Set to true to route all audio through FFmpeg
 	setupWindow();
 	setupDragDrop();
 
@@ -339,7 +357,9 @@ async function playAudio(fp, n){
 
 		if(player) { player.stop(); }
 
-		if(g.supportedMpt.includes(parse.ext.toLocaleLowerCase())){
+		const needsFFmpeg = g.useFFmpegForAll || g.supportedFFmpeg.includes(parse.ext.toLocaleLowerCase());
+
+		if(g.supportedMpt.includes(parse.ext.toLocaleLowerCase()) && !g.useFFmpegForAll){
 			g.currentAudio = {
 				isMod: true, 
 				fp: fp, 
@@ -354,46 +374,81 @@ async function playAudio(fp, n){
 			player.gain.gain.value = g.config.volume;
 			checkState();
 		}
+		else if (needsFFmpeg) {
+				try {
+					const ffPlayer = g.ffmpegPlayer;
+					ffPlayer.onEnded(audioEnded);
+					
+					// Open file, set loop mode, then play
+					const metadata = await ffPlayer.open(fp);
+					ffPlayer.setLoop(g.isLoop);
+					
+					g.currentAudio = {
+						isFFmpeg: true,
+						fp: fp,
+						bench: bench,
+						currentTime: 0,
+						paused: false,
+						duration: metadata.duration,
+						player: ffPlayer,
+						volume: g.config.volume,
+						play: () => { g.currentAudio.paused = false; ffPlayer.play(); },
+						pause: () => { g.currentAudio.paused = true; ffPlayer.pause(); },
+						seek: (time) => ffPlayer.seek(time),
+						getCurrentTime: () => ffPlayer.getCurrentTime()
+					};
+					
+					ffPlayer.volume = g.config.volume;
+					
+					if (n > 0) { ffPlayer.seek(n); }
+					
+					// Start playback
+					await ffPlayer.play();
+					
+					checkState();
+					console.log('Operation took: ' + Math.round((performance.now() - bench)));
+					await renderInfo(fp);
+					g.blocky = false;
+				}
+				catch(err) {
+					console.error('FFmpeg playback error:', err);
+					g.text.innerHTML += 'Error loading file with FFmpeg!<br>';
+					g.blocky = false;
+					return false;
+				}
+		}
 		else {
 			let audio = new AudioController(g.audioContext);
 			audio.fp = fp;
 			audio.bench = bench;
 			audio.onEnded(audioEnded);
 
-			let url;
-			if(!g.supportedChrome.includes(parse.ext.toLocaleLowerCase())){
-				let tp = await transcodeToFile(fp);
-				url = tools.getFileURL(tp);
-				audio.cache_path = tp;
-			}
-			else {
-				url = tools.getFileURL(fp);
-			}
+			let url = tools.getFileURL(fp);
 
 			try {
-				if(g.isLoop){
-					await audio.loadBuffer(url, true);
-					audio.webaudioLoop = true;
+					if(g.isLoop){
+						await audio.loadBuffer(url, true);
+						audio.webaudioLoop = true;
+					}
+					else {
+						await audio.loadMediaElement(url, false);
+					}
+					
+					if(n > 0) { audio.seek(n) }
+					audio.volume = g.config.volume;
+					audio.play();
+					g.currentAudio = audio;
+					checkState();
+					console.log('Operation took: ' + Math.round((performance.now() - bench)) );
+					await renderInfo(fp);
+					g.blocky = false;
 				}
-				else {
-					await audio.loadMediaElement(url, false);
+				catch(err) {
+					console.error('Playback error:', err);
+					g.text.innerHTML += 'Error!<br>';
+					g.blocky = false;
+					return false;
 				}
-				
-				if(n > 0) { audio.seek(n) }
-				audio.volume = g.config.volume;
-				audio.play();
-				g.currentAudio = audio;
-				checkState();
-				console.log('Operation took: ' + Math.round((performance.now() - bench)) );
-				await renderInfo(fp);
-				g.blocky = false;
-			}
-			catch(err) {
-				console.error('Playback error:', err);
-				g.text.innerHTML += 'Error!<br>';
-				g.blocky = false;
-				return false;
-			}
 		}
 	}
 	if(g.info_win) {
@@ -497,9 +552,14 @@ function renderTopInfo(){
 }
 
 function clearAudio(){
+	if(g.ffmpegPlayer) g.ffmpegPlayer.stop();
+	
 	if(g.currentAudio){
 		if(g.currentAudio.isMod){
 			player.stop();
+			g.currentAudio = undefined;
+		}
+		else if(g.currentAudio.isFFmpeg){
 			g.currentAudio = undefined;
 		}
 		else {
@@ -531,6 +591,10 @@ function audioEnded(e){
 		else {
 			playNext();
 		}
+	}
+	else if(g.currentAudio?.isFFmpeg){
+		// FFmpeg player handles looping internally, onEnded only fires when not looping
+		playNext();
 	}
 	else {
 		if(e){ e.currentTarget.removeEventListener('ended', audioEnded);}
@@ -590,15 +654,15 @@ function playPause(){
 }
 
 function toggleLoop(){
-	if(g.isLoop){
-		g.isLoop = false;
-	}
-	else {
-		g.isLoop = true;
-	}
+	g.isLoop = !g.isLoop;
 	if(g.currentAudio){
-		if(!g.currentAudio.isMod){
-			let currentTime = g.currentAudio.currentTime;
+		// FFmpeg player supports dynamic loop toggling
+		if(g.currentAudio.isFFmpeg && g.currentAudio.player){
+			g.currentAudio.player.setLoop(g.isLoop);
+		}
+		// Other players need to reload
+		else if(!g.currentAudio.isMod){
+			let currentTime = g.currentAudio.getCurrentTime ? g.currentAudio.getCurrentTime() : g.currentAudio.currentTime;
 			playAudio(g.music[g.idx], currentTime);
 			return;
 		}
@@ -611,14 +675,26 @@ function volumeUp(){
 	g.config.volume += 0.05;
 	if(g.config.volume > 1) { g.config.volume = 1 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio && !g.currentAudio.isMod) { g.currentAudio.volume = g.config.volume; }
+	if(g.currentAudio) {
+		if(g.currentAudio.isFFmpeg && g.currentAudio.player) {
+			g.currentAudio.player.volume = g.config.volume;
+		} else if(!g.currentAudio.isMod) {
+			g.currentAudio.volume = g.config.volume;
+		}
+	}
 }
 
 function volumeDown(){
 	g.config.volume -= 0.05;
 	if(g.config.volume < 0) { g.config.volume = 0 }
 	if(player) { player.gain.gain.value = g.config.volume; }
-	if(g.currentAudio && !g.currentAudio.isMod) { g.currentAudio.volume = g.config.volume; }
+	if(g.currentAudio) {
+		if(g.currentAudio.isFFmpeg && g.currentAudio.player) {
+			g.currentAudio.player.volume = g.config.volume;
+		} else if(!g.currentAudio.isMod) {
+			g.currentAudio.volume = g.config.volume;
+		}
+	}
 }
 
 
@@ -783,6 +859,10 @@ function renderBar(){
 	let proz = 0;
 	let time = 0;
 	if(g.currentAudio){
+		if(g.currentAudio.isFFmpeg && g.currentAudio.player){
+			g.currentAudio.currentTime = g.currentAudio.player.getCurrentTime();
+		}
+		
 		if(g.currentAudio.lastTime != g.currentAudio.currentTime){
 			g.currentAudio.lastTime = g.currentAudio.currentTime;
 			time = g.currentAudio.currentTime;

@@ -81,3 +81,38 @@ Users receive auto-update
 → Commit or stash changes first
 
 See [../docs/github-releases-migration.md](../docs/github-releases-migration.md) for more details.
+
+---
+
+## update-napi-binaries.ps1
+
+PowerShell script for updating FFmpeg NAPI decoder binaries from GitHub releases.
+
+### Usage
+
+Update both Windows and Linux binaries (default):
+```powershell
+.\scripts\update-napi-binaries.ps1
+```
+
+Update single platform:
+```powershell
+.\scripts\update-napi-binaries.ps1 -Platform win
+.\scripts\update-napi-binaries.ps1 -Platform linux
+```
+
+### What it does
+
+1. Fetches latest release from [herrbasan/ffmpeg-napi-interface](https://github.com/herrbasan/ffmpeg-napi-interface)
+2. Downloads platform-specific tar.gz archives
+3. Extracts `.node` files and FFmpeg libraries (DLLs/SOs)
+4. Copies to `bin/win_bin/` and/or `bin/linux_bin/`
+5. Replaces existing binaries in repository
+
+### When to run
+
+- After updating ffmpeg-napi-interface to a new version
+- When FFmpeg library versions change
+- Before committing updated binaries to the repo
+
+**Note:** Binaries are committed to the repository, not downloaded during install. This script is for manual updates only.

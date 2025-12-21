@@ -20,9 +20,10 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 ## Tech Stack
 - **Framework:** Electron
 - **Audio Libraries:**
-  - Howler.js - Web Audio API wrapper for looping playback
+  - Custom AudioController (Web Audio API) - Unified playback with gapless looping
+  - FFmpegStreamPlayer (bin/win_bin/player.js) - Native NAPI decoder with AudioWorklet streaming
   - libopenmpt (chiptune3.js) - Tracker/module format playback
-  - FFmpeg - Format transcoding for unsupported formats
+  - FFmpeg CLI - Legacy transcoding fallback
 - **UI:** Custom HTML/CSS with GSAP for animations
 - **Platform Support:** Windows and Linux
 
@@ -30,13 +31,17 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 The app categorizes audio files into three groups:
 
 1. **Browser-native formats** (`.mp3`, `.wav`, `.flac`, `.ogg`, `.m4a`, etc.)
-   - Direct playback via HTML5 Audio or Howler.js
+   - Direct playback via Web Audio API AudioController
+   - Loop mode: AudioBuffer for gapless looping
+   - Normal mode: MediaElement for efficient streaming
 
 2. **Tracker/Module formats** (`.mod`, `.xm`, `.it`, `.s3m`, etc.)
    - Decoded and played via libopenmpt (AudioWorklet-based)
 
 3. **Unsupported formats** (`.aif`, `.aiff`, `.mpg`, `.mp2`, `.aa`)
-   - Transcoded to WAV using FFmpeg CLI, cached to temp directory
+   - Decoded via FFmpeg NAPI decoder (native C++ addon)
+   - Real-time streaming via AudioWorklet with gapless looping support
+   - Fallback: FFmpeg CLI transcoding (legacy)
 
 ## Key Features
 
@@ -80,18 +85,25 @@ The app categorizes audio files into three groups:
 
 ## Project Structure
 - `js/stage.js` - Main player logic and audio handling
+- `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
 - `js/app.js` - Main process (Electron)
 - `js/registry.js` - Windows file association handling
+- `bin/win_bin/player.js` - FFmpegStreamPlayer class (NAPI decoder + AudioWorklet)
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk-based streaming
+- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
 - `libs/` - Third-party audio libraries
-- `bin/` - FFmpeg binaries for Windows and Linux
+- `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
 - `html/` - Window templates
 - `css/` - Styling
 
 ## Current Architecture Notes
-- Looping is handled differently based on format (Howler.js uses AudioBuffer, HTML5 audio doesn't support gapless loops)
-- FFmpeg transcoding blocks playback until conversion completes
-- Cached transcoded files stored in system temp directory
+- **Browser-native formats:** AudioController with dual mode (BufferSource for loop, MediaElement for stream)
+- **FFmpeg formats:** FFmpegStreamPlayer with native NAPI decoder and AudioWorklet streaming
+- **Gapless looping:** Both AudioController and FFmpegStreamPlayer support true gapless looping
+- **FFmpeg streaming:** Chunk-based streaming with loop chunk stored for seamless repeat
 - Configuration persisted to user config file via electron_helper
+- See `bin/LOCAL_FIXES.md` for fixes applied locally to FFmpeg player (carry to source repo)
+- See `docs/ffmpeg-player-review.md` for performance/reliability improvement notes
 
 ## Coding Philosophy & Style
 
@@ -119,7 +131,7 @@ The app categorizes audio files into three groups:
   - `electron_helper` (herrbasan/electron_helper)
   - `native-registry` (herrbasan/native-registry)
   - `nui` (herrbasan/nui)
-- **Third-party exceptions:** Only for specialized needs (Howler.js, libopenmpt, FFmpeg, GSAP)
+- **Third-party exceptions:** Only for specialized needs (libopenmpt, FFmpeg, GSAP)
 
 ### Working with the Codebase (LLM Instructions)
 - **Surgical approach:** Work in careful, thoughtful steps
@@ -132,43 +144,45 @@ The app categorizes audio files into three groups:
 
 ## Backlog / Future Refactors
 
-### Version 1.1.2
-1. ~~**Howler.js Removal / Unified Audio Controller**~~ ✅ DONE
+### Version 1.1.2 ✅ DONE
+1. ~~**Howler.js Removal / Unified Audio Controller**~~ 
    - ~~Replace Howler.js with direct Web Audio API implementation~~
    - ~~Create unified audio controller for all playback types~~
    - ~~Foundation for future gain/pan/speed controls~~
 
-2. ~~**GitHub Releases for Updates**~~ ✅ DONE
+2. ~~**GitHub Releases for Updates**~~ 
    - ~~Migrate from custom HTTP server to GitHub Releases API~~
    - ~~Update auto-update feature in electron_helper~~
    - See [docs/github-releases-migration.md](../docs/github-releases-migration.md)
 
-3. **Playlist Window**
-   - Separate window displaying full playlist
-   - Use `libs/nui/nui_list.js` for virtualized list handling
-   - Search, sort, and scroll through large playlists
-
-4. **Help/Documentation Window**
-   - In-app user guide with visual keyboard shortcut reference
-   - Feature explanations and shortcut table
-
-### Version 1.2
+### Version 1.1.3
 1. **FFmpeg Native Streaming**
    - Stream PCM audio directly from FFmpeg stdout to Web Audio API
    - Hybrid mode: streaming for regular playback, buffered for loop mode
    - Details: See [docs/streaming-refactor.md](../docs/streaming-refactor.md)
 
-2. **Playback Speed Control**
+### Version 1.1.4
+1. **Playlist Window**
+   - Separate window displaying full playlist
+   - Use `libs/nui/nui_list.js` for virtualized list handling
+   - Search, sort, and scroll through large playlists
+
+2. **Help/Documentation Window**
+   - In-app user guide with visual keyboard shortcut reference
+   - Feature explanations and shortcut table
+
+### Version 1.2
+1. **Playback Speed Control**
    - Time Stretching: Change speed while preserving pitch
    - Pitch Shifting: Change playback rate affecting pitch
    - Keyboard controls: Ctrl+Shift+Arrow Up/Down
 
-3. **Multi-Track Mixer**
+2. **Multi-Track Mixer**
    - Open folder (max ~20 files) and trigger mixer mode
    - Synchronous playback with per-track volume and panning
    - Use case: Preview bounced stems/tracks from projects
 
-4. **File Format Converter**
+3. **File Format Converter**
    - Convert currently playing file to different formats
    - Keyboard shortcut opens conversion window with format options
    - FFmpeg CLI for transcoding
