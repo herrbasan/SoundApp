@@ -62,15 +62,11 @@ async function init(){
 	if(g.isPackaged){fp = path.dirname(fp);}
 
 	if(os.platform() == 'linux'){
-		g.ffmpath = path.resolve(fp + '/bin/linux_bin/ffmpeg');
-		g.ffppath = path.resolve(fp + '/bin/linux_bin/ffprobe');
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/linux_bin/ffmpeg_napi.node');
 		g.ffmpeg_player_path = path.resolve(fp + '/bin/linux_bin/player.js');
 		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-processor.js');
 	}
 	else {
-		g.ffmpath = path.resolve(fp + '/bin/win_bin/ffmpeg.exe');
-		g.ffppath = path.resolve(fp + '/bin/win_bin/ffprobe.exe');
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
 		g.ffmpeg_player_path = path.resolve(fp + '/bin/win_bin/player.js');
 		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-processor.js');
@@ -80,7 +76,8 @@ async function init(){
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
 
 	/* FFmpeg NAPI Player - unified streaming with gapless looping */
-	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
+	const { FFmpegDecoder, getMetadata } = require(g.ffmpeg_napi_path);
+	g.getMetadata = getMetadata;
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
 	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path);
@@ -491,36 +488,38 @@ function renderInfo(fp, metadata){
 		}
 		else {
 			
-			let info = await getFileInfo(fp);
-			let stream = info.streams[0];
-			let tags = info.format.tags;
-			g.currentInfo.file = info;
+			let meta = await getFileInfo(fp);
+			g.currentInfo.file = meta;
 
-			if(info.format.format_long_name.includes('Tracker')){
+			if(meta.formatLongName && meta.formatLongName.includes('Tracker')){
 				g.text.appendChild(renderInfoItem('Format:', 'Tracker Format'))
 			}
 			else {
-				g.text.appendChild(renderInfoItem('Format:', stream.codec_long_name))
+				g.text.appendChild(renderInfoItem('Format:', meta.codecLongName || meta.codec || 'Unknown'))
 			}
-			g.text.appendChild(renderInfoItem(' ', Math.round(stream.bit_rate/1000) + ' kbs / ' + (stream.channel_layout ? (stream.channel_layout + ' / ') : '') + stream.sample_rate))
+			
+			let bitrateStr = meta.bitrate ? Math.round(meta.bitrate/1000) + ' kbps' : '';
+			let channelStr = meta.channels == 2 ? 'stereo' : (meta.channels == 1 ? 'mono' : (meta.channels ? meta.channels + ' ch' : ''));
+			let sampleStr = meta.sampleRate ? meta.sampleRate + ' Hz' : '';
+			let infoLine = [bitrateStr, channelStr, sampleStr].filter(s => s).join(' / ');
+			if(infoLine) g.text.appendChild(renderInfoItem(' ', infoLine))
+			
 			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
-			if(tags){
-				if(tags.artist) { g.text.appendChild(renderInfoItem('Artist:', tags.artist)) }
-				if(tags.album) { g.text.appendChild(renderInfoItem('Album:', tags.album)) }
-				if(tags.title) { g.text.appendChild(renderInfoItem('Title:', tags.title)) }
-			}
+			
+			if(meta.artist) { g.text.appendChild(renderInfoItem('Artist:', meta.artist)) }
+			if(meta.album) { g.text.appendChild(renderInfoItem('Album:', meta.album)) }
+			if(meta.title) { g.text.appendChild(renderInfoItem('Title:', meta.title)) }
 			
 
 			
 			let cover;
-			let id3_cover = await getCoverArt(fp);
+			let id3_cover = await getCoverArt(meta);
 			if(id3_cover){
 				cover = id3_cover;
 			}
 			else {
 				let images = await tools.getFiles(parse.dir, ['.jpg','.jpeg','.png','.gif']);
 				if(images.length > 0){
-					//cover = await loadImage(tools.getFileURL(images[images.length-1]))
 					cover = await tools.loadImage(images[images.length-1])
 				}
 			}
@@ -752,98 +751,28 @@ function loadImage(url){
 
 function getFileInfo(fp){
 	return new Promise((resolve, reject) => {
-		let cp = spawn(g.ffppath, [
-			'-hide_banner',
-			'-print_format', 'json', 
-			'-loglevel', 'fatal', 
-			'-show_format',
-			'-show_error',
-			'-show_streams',
-			'-show_private_data',
-			fp
-		]);
-
-		let str = '';
-		cp.stdout.on('data', (data) => { 
-			str += data.toString();
-		});
-		cp.stderr.on('data', (data) => { 
-			//str += data.toString();
-		});
-		cp.on('close', (code) => {
-			let out = {};
-			try{ 
-				out = JSON.parse(str);
-			}
-			catch(err){
-				console.log(err);
-				out = {'error':err.toString()}
-			}
-			resolve(out)
-		})
+		setTimeout(() => {
+			let meta = g.getMetadata(fp);
+			resolve(meta);
+		}, 0);
 	})
 }
 
-function getCoverArt(fp){
+function getCoverArt(meta){
 	return new Promise((resolve, reject) => {
-		let cp = spawn(g.ffmpath, [
-			'-i',
-			fp,
-			'-an',
-			'-vcodec', 'copy',
-			'-f', 'image2pipe', '-'
-		]);
-
-		let bufs = [];
-		cp.stdout.on('data', function(d){ bufs.push(d); });
-		cp.stderr.on('data', (data) => { 
-			//str += data.toString();
-		});
-		cp.on('close', (code) => {
-			//console.log(`child process exited with code ${code}`);
-			let buf = Buffer.concat(bufs);
-			if(buf.length > 0){
-				let img = new Image();
-				img.src = 'data:image/jpg;base64,' + buf.toString("base64");
-				buf = null;
-				img.addEventListener('load', () => {
-					resolve(img);
-				}, {once:true})
-			}
-			else {
+		if(meta && meta.coverArt && meta.coverArt.length > 0){
+			let img = new Image();
+			let mime = meta.coverArtMimeType || 'image/jpeg';
+			img.src = 'data:' + mime + ';base64,' + meta.coverArt.toString('base64');
+			img.addEventListener('load', () => {
+				resolve(img);
+			}, {once:true});
+			img.addEventListener('error', () => {
 				resolve();
-			}
-		});
-	})
-}
-
-
-
-function transcodeToFile(fp){
-	let hash = crypto.createHash('md5').update(fp).digest("hex");
-	let tp = path.join(g.cache_path, hash + g.config.transcode.ext);
-	let ff = g.config.transcode.cmd.split(' ');
-	ff.unshift('-i', fp, );
-	ff.push(tp);
-
-	
-	return new Promise(async (resolve, reject) => {
-		if(await (tools.fileExists(tp))){
-			resolve(tp);
+			}, {once:true});
 		}
 		else {
-			let cp = spawn(g.ffmpath, ff);
-			let count = 0;
-
-			cp.stdout.on('data', function(d){
-				//console.log(data.toString())
-			});
-			cp.stderr.on('data', (data) => {
-				//console.log(data.toString())
-			});
-			cp.on('close', (code) => {
-				resolve(tp);
-			});
+			resolve();
 		}
 	})
 }

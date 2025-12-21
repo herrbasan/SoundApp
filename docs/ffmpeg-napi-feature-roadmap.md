@@ -4,6 +4,58 @@
 
 ---
 
+## Architecture Overview
+
+### Design Decisions
+
+1. **Layered API Design**
+   - **Layer 1 (Low-level):** Direct wrappers around FFmpeg structures (FormatContext, CodecContext, etc.)
+   - **Layer 2 (High-level):** Convenience classes combining multiple FFmpeg operations (Decoder, Encoder, Metadata)
+   - Users can choose the abstraction level that fits their needs
+
+2. **Async-First Operations**
+   - File I/O operations (open, metadata extraction) use `Napi::AsyncWorker`
+   - Both sync and async versions available: `open()` / `openAsync()`
+   - Long operations support progress callbacks
+
+3. **Buffer-Based Data**
+   - Audio samples returned as `Float32Array` (zero-copy when possible)
+   - Cover art returned as `Buffer` directly (cleaner API, avoids temp files)
+   - Large metadata (cover art) is optional via `getMetadata({ includeCoverArt: true })`
+
+4. **Module Structure**
+   ```
+   src/
+   ├── core/                    # Low-level FFmpeg wrappers
+   │   ├── format_context.cpp   # AVFormatContext (file/metadata access)
+   │   ├── codec_context.cpp    # AVCodecContext (decoder/encoder state)
+   │   ├── resampler.cpp        # SwrContext (sample format conversion)
+   │   ├── filter_graph.cpp     # AVFilterGraph (effects chain)
+   │   └── error.cpp            # Error handling, av_strerror wrapping
+   │
+   ├── decoder.cpp              # High-level decoder (current)
+   ├── encoder.cpp              # High-level encoder (Phase 1.2)
+   ├── metadata.cpp             # Metadata extraction (Phase 1.1)
+   ├── waveform.cpp             # Waveform generation (Phase 2)
+   ├── multi_track.cpp          # Multi-track mixer (Phase 2)
+   │
+   └── binding.cpp              # NAPI exports (all classes)
+   
+   lib/
+   ├── index.js                 # Main export, feature detection
+   ├── decoder.js               # FFmpegDecoder + async wrapper
+   ├── metadata.js              # Standalone metadata utilities
+   └── player.js                # AudioWorklet integration
+   ```
+
+5. **Error Handling**
+   - No try/catch for control flow
+   - Methods return success/failure boolean or null
+   - `getLastError()` provides detailed error message
+   - Errors propagate to JS with context (file path, operation, FFmpeg error code)
+
+---
+
 ## Current Implementation (v1.0.0)
 
 ✅ **Basic Decoder**
@@ -25,65 +77,123 @@ These features are needed to completely eliminate FFmpeg CLI usage in SoundApp.
 
 **Priority: HIGH** - Currently using `ffprobe` subprocess
 
+**Implementation approach:**
+- Add `getMetadata()` to existing `FFmpegDecoder` class (reuses open file handle)
+- Also provide static `FFmpeg.getMetadata(path)` for standalone use
+- Always return everything including cover art buffer - caller decides what to use
+- Async versions available for UI responsiveness
+
 ```cpp
-// C++ API
+// C++ API - in decoder.h
 struct AudioMetadata {
+  // Tags (from AVFormatContext->metadata)
   std::string title;
   std::string artist;
   std::string album;
+  std::string albumArtist;
   std::string genre;
   std::string date;
+  std::string comment;
   int trackNumber;
-  int64_t duration;     // microseconds
-  int bitrate;          // bits/sec
-  std::string codec;
-  int sampleRate;
-  int channels;
-  std::string format;
-  // Cover art
-  bool hasCoverArt;
-  std::vector<uint8_t> coverArtData;
-  std::string coverArtMime;
+  int trackTotal;
+  int discNumber;
+  int discTotal;
+  
+  // Format info (from AVStream/AVCodecParameters)
+  std::string codec;          // "mp3", "flac", "aac"
+  std::string codecLongName;  // "MP3 (MPEG audio layer 3)"
+  std::string format;         // "mp3", "flac", "ogg"
+  std::string formatLongName; // "MP2/3 (MPEG audio layer 2/3)"
+  int64_t duration;           // microseconds
+  int bitrate;                // bits/sec (0 for VBR/unknown)
+  int sampleRate;             // original sample rate
+  int channels;               // original channel count
+  int bitsPerSample;          // for lossless formats
+  
+  // Cover art (from AV_DISPOSITION_ATTACHED_PIC stream)
+  std::vector<uint8_t> coverArt;      // JPEG/PNG bytes, empty if none
+  std::string coverArtMimeType;       // "image/jpeg", "image/png"
 };
 
-AudioMetadata getMetadata();
+// Instance method (reuses open file)
+AudioMetadata getMetadata() const;
+
+// Static method (opens file just for metadata, closes immediately)
+static AudioMetadata getFileMetadata(const char* path);
 ```
 
 **JavaScript API:**
 ```javascript
-const metadata = decoder.getMetadata();
-// {
-//   title: "Track Name",
-//   artist: "Artist Name",
-//   album: "Album Name",
-//   coverArt: Buffer,  // JPEG/PNG data
-//   coverArtMime: "image/jpeg",
-//   duration: 180.5,
-//   bitrate: 320000,
-//   codec: "mp3",
-//   ...
-// }
+// On decoder instance (file already open)
+const decoder = new FFmpeg.Decoder();
+decoder.open('music.mp3');
+const meta = decoder.getMetadata();
+
+// Static utility (opens, reads, closes)
+const meta = FFmpeg.getMetadata('music.mp3');
+
+// Async versions
+const meta = await FFmpeg.getMetadataAsync('music.mp3');
+const meta = await decoder.getMetadataAsync();
+
+// Result shape - everything returned directly
+{
+  title: "Track Name",
+  artist: "Artist Name",
+  album: "Album Name",
+  albumArtist: "Various Artists",
+  genre: "Electronic",
+  date: "2024",
+  trackNumber: 3,
+  trackTotal: 12,
+  
+  codec: "mp3",
+  codecLongName: "MP3 (MPEG audio layer 3)",
+  format: "mp3",
+  duration: 180.5,         // seconds
+  bitrate: 320000,         // bits/sec
+  sampleRate: 44100,
+  channels: 2,
+  
+  coverArt: Buffer,        // JPEG/PNG bytes, null if none
+  coverArtMimeType: "image/jpeg"
+}
 ```
 
 ### 1.2 Format Conversion/Encoding
 
 **Priority: MEDIUM** - Planned for v1.2 (File Format Converter feature)
 
+**Implementation approach:**
+- New `FFmpegEncoder` class in `src/encoder.cpp`
+- Mirrors decoder pattern: open, write, close
+- Async write with progress callback for large files
+
 ```cpp
-class FFmpegEncoder {
-public:
-  bool open(const char* outputPath, EncoderOptions options);
-  bool write(float* samples, int numSamples);
-  bool close();
+// C++ API - encoder.h
+struct EncoderOptions {
+  std::string codec;      // "mp3", "flac", "aac", "opus", "wav", "pcm_s16le"
+  int sampleRate;         // Output sample rate (0 = match input)
+  int channels;           // Output channels (0 = match input)
+  int bitrate;            // For lossy codecs (bits/sec)
+  int quality;            // Codec-specific quality (0-10, higher = better)
+  std::map<std::string, std::string> metadata;
 };
 
-struct EncoderOptions {
-  std::string codec;      // "mp3", "flac", "aac", "opus", etc.
-  int sampleRate;
-  int channels;
-  int bitrate;            // For lossy codecs
-  int quality;            // Codec-specific quality (0-10)
-  std::map<std::string, std::string> metadata;
+class FFmpegEncoder {
+public:
+  bool open(const char* outputPath, const EncoderOptions& options);
+  bool write(float* samples, int numSamples);
+  bool flush();  // Flush encoder buffers
+  void close();
+  
+  // Progress
+  int64_t getSamplesWritten() const;
+  double getProgress() const;  // 0.0 to 1.0 if total known
+  
+  // Error handling
+  bool hasError() const;
+  std::string getLastError() const;
 };
 ```
 
@@ -102,11 +212,21 @@ encoder.open('output.flac', {
 });
 
 // Feed samples from decoder
-while (samples = decoder.read(4096)) {
-  encoder.write(samples);
+while (true) {
+  const { buffer, samplesRead } = decoder.read(4096);
+  if (samplesRead === 0) break;
+  encoder.write(buffer);
 }
 
+encoder.flush();
 encoder.close();
+
+// Or use convenience function for file conversion
+await FFmpeg.convert('input.aif', 'output.flac', {
+  codec: 'flac',
+  quality: 8,
+  onProgress: (percent) => console.log(`${percent}%`)
+});
 ```
 
 ---
