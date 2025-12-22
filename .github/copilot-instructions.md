@@ -57,19 +57,20 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 ## Backlog / Future Refactors
 
 ### Short term Updates / Features
-1. **Playlist Window**
-   - Separate window displaying full playlist
-   - Use `libs/nui/nui_list.js` for virtualized list handling
-   - Search, sort, and scroll through large playlists
 
-2. **Help/Documentation Window**
+1. **Help/Documentation Window**
    - In-app user guide with visual keyboard shortcut reference
    - Feature explanations and shortcut table
 
-3. **Playback Speed Control**
+2. **Playback Speed Control**
    - Time Stretching: Change speed while preserving pitch
    - Pitch Shifting: Change playback rate affecting pitch
    - Keyboard controls: Ctrl+Shift+Arrow Up/Down
+
+3. **Playlist Window**
+   - Separate window displaying full playlist
+   - Use `libs/nui/nui_list.js` for virtualized list handling
+   - Search, sort, and scroll through large playlists
 
 4. **Multi-Track Mixer**
    - Open folder (max ~20 files) and trigger mixer mode

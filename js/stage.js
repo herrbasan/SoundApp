@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcRenderer, webUtils, ipcMain } = require( "electron" );
+const { ipcRenderer, webUtils } = require( "electron" );
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
@@ -16,6 +16,8 @@ let g = {};
 g.test = {};
 g.audioContext = null;
 g.ffmpegPlayer = null;
+g.windows = { help: null, settings: null, playlist: null };
+
 // Init
 // ###########################################################################
 
@@ -38,7 +40,8 @@ async function init(){
 		space:10,
 		win_min_width:480,
 		win_min_height:217,
-		volume: 0.5
+		volume: 0.5,
+		theme: 'dark'
 	}
 	
 	g.config_obj = await helper.config.initRenderer('user', (newData) => {
@@ -46,6 +49,16 @@ async function init(){
 	});
 	g.config = g.config_obj.get();
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
+	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
+	
+	// Apply theme at startup
+	if(g.config.theme === 'dark') {
+		document.body.classList.add('dark');
+	} else {
+		document.body.classList.remove('dark');
+	}
+	// Send initial theme to main process
+	tools.sendToMain('command', { command: 'set-theme', theme: g.config.theme });
 	
 	ut.setCssVar('--space-base', g.config.space);
 
@@ -124,6 +137,23 @@ async function init(){
 	console.log(g.main_env)
 	ipcRenderer.on('log', (e, data) => {
 		console.log('%c' + data.context, 'color:#6058d6', data.data);
+	});
+	
+	ipcRenderer.on('window-closed', (e, data) => {
+		if (g.windows[data.type] === data.windowId) {
+			g.windows[data.type] = null;
+		}
+	});
+	
+	ipcRenderer.on('theme-changed', (e, data) => {
+		if (data.dark) {
+			document.body.classList.add('dark');
+		} else {
+			document.body.classList.remove('dark');
+		}
+		// Save theme preference to config (stage window is responsible for persistence)
+		g.config.theme = data.dark ? 'dark' : 'light';
+		g.config_obj.set(g.config);
 	});
 	
 }
@@ -736,11 +766,12 @@ function renderBar(){
 async function onKey(e) {
 	//fb(e.keyCode)
 	if(e.keyCode == 88){
-		document.body.toggleClass('dark');
+		tools.sendToMain('command', { command: 'toggle-theme' });
 	}
 	if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
+	/*
 	if(e.keyCode == 112 && e.ctrlKey && e.shiftKey){
 		if(main_env.startType == 'installed'){
 			console.log(await registry('register', g.main_env.app_exe, g.main_env.app_path));
@@ -750,7 +781,7 @@ async function onKey(e) {
 		if(main_env.startType == 'installed'){
 			console.log(await registry('unregister', g.main_env.app_exe, g.main_env.app_path));
 		}
-	}
+	}*/
 	if (e.keyCode == 123) {
 		g.win.toggleDevTools();
 	}
@@ -782,9 +813,6 @@ async function onKey(e) {
 	}
 	if (e.keyCode == 73){
 		helper.shell.showItemInFolder(g.music[g.idx]);
-		//helper.ipcInvoke('w_info', {command:'show'});
-		//let win_id = await helper.tools.browserWindow('default', {devTools:true, file:'./html/info.html'});
-		//helper.tools.sendToId(win_id, 'frommain', 'helloes');
 	}
 	
 	if(e.keyCode == 32){
@@ -798,13 +826,52 @@ async function onKey(e) {
 		let val = ut.getCssVar('--space-base').value;
 		scaleWindow(val+1)
 	}
-	if(e.keyCode == 87){
-		if(!g.info_win){
-			g.info_win = await tools.browserWindow('frameless', {show:false, file:'./html/info.html', init_data:{config:g.config, list:g.msuic, idx:g.idx}})
-		}
-		//tools.sendToId(g.info_win, 'info', g.currentInfo);
-		tools.sendToId(g.info_win, 'command', 'show');
+	if(e.keyCode == 72){
+		openWindow('help');
 	}
+}
+
+async function openWindow(type) {
+	if (g.windows[type]) {
+		// Try to show existing window, will fail silently if destroyed
+		try {
+			tools.sendToId(g.windows[type], 'show-window');
+			return;
+		} catch(e) {
+			// Window was destroyed, create new one
+			g.windows[type] = null;
+		}
+	}
+	
+	// Get the stage window's display to open new window on same screen
+	let stageBounds = await g.win.getBounds();
+	let displays = await helper.screen.getAllDisplays();
+	let targetDisplay = displays.find(d => 
+		stageBounds.x >= d.bounds.x && 
+		stageBounds.x < d.bounds.x + d.bounds.width &&
+		stageBounds.y >= d.bounds.y && 
+		stageBounds.y < d.bounds.y + d.bounds.height
+	) || displays[0];
+	
+	// Position window in center of the same display
+	let windowWidth = 960;
+	let windowHeight = 800;
+	let x = targetDisplay.bounds.x + Math.round((targetDisplay.bounds.width - windowWidth) / 2);
+	let y = targetDisplay.bounds.y + Math.round((targetDisplay.bounds.height - windowHeight) / 2);
+	
+	g.windows[type] = await tools.browserWindow('frameless', {
+		file: `./html/${type}.html`,
+		show: false,
+		width: windowWidth,
+		height: windowHeight,
+		x: x,
+		y: y,
+		init_data: {
+			type: type,
+			stageId: await g.win.getId(),
+			config: g.config
+		}
+	});
 }
 
 async function scaleWindow(val){

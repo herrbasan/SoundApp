@@ -3,6 +3,83 @@
 ## What This Is
 A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
 
+## Keyboard Shortcuts
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><kbd>Space</kbd></td>
+<td>Play / Pause</td>
+</tr>
+<tr>
+<td><kbd>L</kbd></td>
+<td>Toggle loop mode</td>
+</tr>
+<tr>
+<td><kbd>R</kbd></td>
+<td>Shuffle playlist</td>
+</tr>
+<tr>
+<td><kbd>←</kbd></td>
+<td>Previous track</td>
+</tr>
+<tr>
+<td><kbd>→</kbd></td>
+<td>Next track</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd> + <kbd>←</kbd></td>
+<td>Skip back 10 seconds</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd> + <kbd>→</kbd></td>
+<td>Skip forward 10 seconds</td>
+</tr>
+<tr>
+<td><kbd>↑</kbd></td>
+<td>Volume up</td>
+</tr>
+<tr>
+<td><kbd>↓</kbd></td>
+<td>Volume down</td>
+</tr>
+<tr>
+<td><kbd>I</kbd></td>
+<td>Show file in folder</td>
+</tr>
+<tr>
+<td><kbd>H</kbd></td>
+<td>Show help window</td>
+</tr>
+<tr>
+<td><kbd>X</kbd></td>
+<td>Toggle dark/light theme</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd> + <kbd>+</kbd></td>
+<td>Scale UI up</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd> + <kbd>-</kbd></td>
+<td>Scale UI down</td>
+</tr>
+<tr>
+<td><kbd>F12</kbd></td>
+<td>Toggle DevTools</td>
+</tr>
+<tr>
+<td><kbd>Esc</kbd></td>
+<td>Exit application</td>
+</tr>
+</tbody>
+</table>
+
 ## Historical Context
 Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/SoundApp/) from the Mac OS System 7 era - a beloved lightweight audio previewer that musicians used to quickly audition audio files. The original was famous for its minimal interface and keyboard-driven workflow, allowing rapid navigation through directories of audio files without touching the mouse.
 
@@ -67,17 +144,6 @@ Dedicated handling for tracker music formats via libopenmpt AudioWorklet player:
   - Gapless loop mode (L key) - seamless audio looping
   - Playlist shuffle (R key) - randomize playback order
   - 10-second skip forward/backward (Ctrl+Arrow Left/Right)
-
-### Complete Keyboard Shortcuts
-- `Arrow Left/Right` - Previous/Next track
-- `Ctrl+Arrow Left/Right` - Skip backward/forward 10 seconds  
-- `Arrow Up/Down` - Volume up/down
-- `Space` - Play/Pause
-- `L` - Toggle loop mode
-- `R` - Shuffle playlist
-- `I` - Show file in folder
-- `Esc` - Exit
-- `Ctrl+Plus/Minus` - Scale UI
 
 ### Technical Features
 - **Audio Info:** Metadata display, cover art extraction, format details

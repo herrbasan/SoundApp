@@ -1,0 +1,95 @@
+/* Window Chrome & Layout
+ * Styles for secondary windows (help, settings, etc.)
+ * Chrome is hidden in browser preview, visible in Electron
+ */
+
+/* CSS Variables */
+:root {
+	--title-bar-height: 2.5rem;
+	--window-padding: 2rem;
+}
+
+/* ============================================================
+ * NUI App Window Layout (matching nui_app.css pattern)
+ * ============================================================ */
+
+.nui-app > .content {
+	display: block;
+	padding: 0;
+	position: absolute;
+	top: var(--app-window-titlebar-height, 3rem);
+	left: 0;
+	right: 0;
+	bottom: var(--app-window-statusbar-height, 2rem);
+	overflow-y: hidden;
+	overflow-x: hidden;
+}
+
+.nui-app .content > main {
+	display: block;
+	padding: var(--window-padding);
+	position: absolute;
+	inset: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+    background-color: rgb(var(--color-shade3));
+}
+
+/* ============================================================
+ * Context Switching: Browser vs Electron
+ * ============================================================ */
+
+/* Browser preview: hide chrome, content fills viewport */
+body:not(.electron) .window-chrome { 
+	display: none; 
+}
+
+/* Electron: show chrome, proper layout */
+body.electron {
+	overflow: hidden;
+}
+
+
+
+
+/* ============================================================
+ * Shortcuts Table (for Help window)
+ * ============================================================ */
+
+.shortcuts-table kbd {
+	display: inline-block;
+	padding: 0.5rem 1rem;
+	font-size: 0.8rem;
+    font-weight: bold;
+	background: rgb(var(--color-shade4));
+	border-radius: 0.2rem;
+	color: white;
+    border: solid thin rgb(var(--color-shade5));
+    text-transform: uppercase;
+}
+
+.shortcuts-table {
+    width: 100%;
+
+    margin-top: 1rem;
+    background-color: rgb(var(--color-shade2));
+    filter: drop-shadow(0 0 0.5rem rgba(0,0,0,0.1));
+    box-shadow: none;
+}
+
+
+
+
+/* ============================================================
+ * Section Dividers
+ * ============================================================ */
+
+.section {
+	margin-bottom: 2rem;
+}
+
+.section-divider {
+	height: 1px;
+	background: rgb(var(--color-shade1));
+	margin: 1.5rem 0;
+}

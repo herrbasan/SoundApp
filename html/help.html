@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Help - SoundApp</title>
+    <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+    <link rel="stylesheet" href="../css/window.css">
+</head>
+
+<body class="dark">
+    <div class="nui-app">
+        <div class="nui-title-bar">
+            <div class="title">
+                <div class="nui-icon-container">
+                    <i>help</i>
+                </div>
+                <div class="label">Help</div>
+            </div>
+            <div class="controls">
+                <div class="nui-icon-container close"><i>close</i></div>
+            </div>
+        </div>
+        <div class="content">
+            <main>
+                <section class="section">
+                    <h1>Keyboard Shortcuts</h1>
+                    <table class="shortcuts-table" id="shortcuts-table">
+                        <thead>
+                            <tr>
+                                <th>Key</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated by JS, but has static fallback for preview -->
+                            <tr>
+                                <td><kbd>Space</kbd></td>
+                                <td>Play / Pause</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>L</kbd></td>
+                                <td>Toggle loop mode</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>R</kbd></td>
+                                <td>Shuffle playlist</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>←</kbd></td>
+                                <td>Previous track</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>→</kbd></td>
+                                <td>Next track</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>Ctrl</kbd> + <kbd>←</kbd></td>
+                                <td>Skip back 10 seconds</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>Ctrl</kbd> + <kbd>→</kbd></td>
+                                <td>Skip forward 10 seconds</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>↑</kbd></td>
+                                <td>Volume up</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>↓</kbd></td>
+                                <td>Volume down</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>I</kbd></td>
+                                <td>Show file in folder</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>H</kbd></td>
+                                <td>Show this help window</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>X</kbd></td>
+                                <td>Toggle dark/light theme</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>Ctrl</kbd> + <kbd>+</kbd></td>
+                                <td>Scale UI up</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>Ctrl</kbd> + <kbd>-</kbd></td>
+                                <td>Scale UI down</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>F12</kbd></td>
+                                <td>Toggle DevTools</td>
+                            </tr>
+                            <tr>
+                                <td><kbd>Esc</kbd></td>
+                                <td>Exit application</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <div class="section-divider"></div>
+
+                <section class="section">
+                    <h2>Drag & Drop</h2>
+                    <p>Drag audio files or folders onto the player window:</p>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Top zone</strong></td>
+                                <td>Add to current playlist</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Bottom zone</strong></td>
+                                <td>Replace playlist</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p>Folders are scanned recursively for audio files.</p>
+                </section>
+
+                <div class="section-divider"></div>
+
+                <section class="section">
+                    <h2>Supported Formats</h2>
+                    <p><strong>Audio:</strong> MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, WMA, and more via FFmpeg</p>
+                    <p><strong>Tracker:</strong> MOD, XM, IT, S3M, and other module formats via libopenmpt</p>
+                </section>
+
+                <div class="section-divider"></div>
+
+                <section class="section">
+                    <h2>Loop Mode</h2>
+                    <p>Press <kbd>L</kbd> to toggle gapless looping. When enabled, the current track loops seamlessly
+                        without any gap or click at the loop point.</p>
+                </section>
+                <section>
+                    <div style="height: 4rem"></div>
+                </section>
+            </main>
+        </div>
+        <div class="nui-status-bar"></div>
+    </div>
+
+    <script type="module">
+        import ut from '../libs/nui/nui_ut.js';
+        import nui from '../libs/nui/nui.js';
+        window.ut = ut;
+        window.nui = nui;
+    </script>
+    <script src="../js/window-loader.js"></script>
+    <script>
+        // Help window initialization
+        window.addEventListener('bridge-ready', (e) => {
+            const data = e.detail;
+            console.log('Help window initialized:', data);
+
+            // Could dynamically update shortcuts from data.shortcuts
+            // but static HTML is fine for documentation
+        });
+    </script>
+</body>
+
+</html>

@@ -3,6 +3,7 @@ const {app, protocol, BrowserWindow, Menu, ipcMain} = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper_new.js');
+const tools = helper.tools;
 const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 
@@ -14,6 +15,7 @@ let app_path = app.getAppPath();
 let base_path = path.join(app_path);
 let user_data = app.getPath('userData');
 let wins = {};
+let currentTheme = 'dark'; // Default theme, will be updated by stage on startup
 
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
@@ -165,6 +167,17 @@ function update_progress(e){
 }
 
 function mainCommand(e, data){
+	if(data.command === 'toggle-theme'){
+		// Toggle theme state
+		currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+		let isDark = currentTheme === 'dark';
+		// Broadcast new theme to all windows
+		tools.broadcast('theme-changed', { dark: isDark });
+	}
+	else if(data.command === 'set-theme'){
+		// Stage sends initial theme on startup
+		currentTheme = data.theme;
+	}
 	return true;
 }
 

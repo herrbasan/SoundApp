@@ -5,8 +5,7 @@ const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
-const helper = require('./linked/ElectronHelper.js');
-const nut = require('./linked/ut.cjs');
+const helper = require('../libs/electron_helper/helper_new.js');
 const tools = helper.tools;
 const app = helper.app;
 

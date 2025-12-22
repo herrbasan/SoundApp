@@ -286,4 +286,98 @@ User prefers:
 
 ---
 
-*This file serves as a memory bridge between sessions. Feel free to add notes when work is done or decisions are made.*
+## Session: December 22, 2025 - Multi-Window System & Global Theme Toggle
+
+### What We Accomplished
+
+**Multi-Window System Architecture - COMPLETE ✅**
+- Designed and documented complete window system architecture
+- Self-contained HTML pages work in both Electron and browser preview
+- Created `js/window-loader.js` for context detection and bridge creation
+- Implemented first window: `html/help.html` with keyboard shortcuts documentation
+
+**Global Theme Toggle System - COMPLETE ✅**
+- Implemented X key shortcut to toggle dark/light theme globally
+- Theme state tracked in main process (app.js)
+- Broadcasts to all windows using `tools.broadcast()`
+- Theme persists to config file via stage window
+- Works from any window (stage or secondary windows)
+
+**Browser Preview Mode - COMPLETE ✅**
+- All secondary windows previewable with live-server
+- X key toggles theme in browser mode (localStorage persistence)
+- Mock bridge logs IPC commands to console
+- Separate theme state for browser vs Electron
+
+**Same-Screen Window Positioning - COMPLETE ✅**
+- Windows open on same display as stage window
+- Finds correct display in multi-monitor setups
+- Centers new window on target display
+
+**Documentation Updates:**
+- Updated README with keyboard shortcuts table in HTML format
+- Positioned shortcuts prominently after "What This Is" section
+
+### Key Files Created
+
+**Documentation:**
+- `docs/window-system-plan.md` - Complete architecture documentation
+  - Window structure patterns
+  - IPC communication patterns
+  - Browser preview setup and workflow
+  - Implementation learnings
+  - Global broadcast pattern for settings sync
+
+**Code:**
+- `js/window-loader.js` - Shared loader for all secondary windows
+  - Context detection (Electron vs browser)
+  - Bridge creation with IPC wrappers
+  - Chrome setup (close button, focus/blur)
+  - Theme listener registration
+  - Mock system for browser preview
+  
+- `html/help.html` - First window implementation
+  - NUI framework structure
+  - Keyboard shortcuts documentation
+  
+- `css/window.css` - Window layout rules
+
+### Key Files Modified
+
+- `js/app.js` - Main process theme state and broadcast
+- `js/stage.js` - Theme integration, same-screen window positioning
+- `js/window-loader.js` - Theme handling for all windows
+- `README.md` - Added keyboard shortcuts table
+
+### Architecture Patterns Established
+
+**Global Command Pattern:**
+```javascript
+// Any window
+tools.sendToMain('command', { command: 'toggle-theme' });
+
+// Main process
+function mainCommand(e, data) {
+  if(data.command === 'toggle-theme') {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    tools.broadcast('theme-changed', { dark: currentTheme === 'dark' });
+  }
+}
+```
+
+**Same-Screen Positioning:**
+```javascript
+let displays = await helper.screen.getAllDisplays();
+let targetDisplay = displays.find(d => 
+  stageBounds.x >= d.bounds.x && 
+  stageBounds.x < d.bounds.x + d.bounds.width
+);
+```
+
+### Ready for Next Phase
+- Settings window implementation
+- Playlist window with virtualized list
+- Additional windows per backlog
+
+---
+
