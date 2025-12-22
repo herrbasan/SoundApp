@@ -8,13 +8,41 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
 - `js/app.js` - Main process (Electron)
 - `js/registry.js` - Windows file association handling
+- `js/window-loader.js` - Shared window initialization and IPC bridge
 - `bin/win_bin/player.js` - FFmpegStreamPlayer class (NAPI decoder + AudioWorklet)
 - `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk-based streaming
 - `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
-- `libs/` - Third-party audio libraries
+- `libs/` - Third-party audio libraries (NUI framework, electron_helper, chiptune, etc.)
 - `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
-- `html/` - Window templates
-- `css/` - Styling
+- `html/` - Window templates (stage.html, help.html)
+- `css/` - Styling (window.css, fonts.css, etc.)
+
+## Window System
+Secondary windows (help, settings, playlist) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.
+
+**Architecture:**
+- `html/*.html` - Complete pages with NUI chrome (`<div class="nui-app">`, `.nui-title-bar`, `.content`, `<main>`)
+- `js/window-loader.js` - Detects Electron vs browser, creates `window.bridge` API
+- `css/window.css` - Window layout and content styles
+- Browser preview: Mock IPC bridge logs to console, uses localStorage for config
+
+**Window Management (stage.js):**
+```javascript
+g.windows = { help: null, settings: null, playlist: null };
+async function openWindow(type) {
+  // Reuse if open, create if not
+  // Windows auto-cleanup on close via 'window-closed' IPC
+}
+```
+
+**Global Settings Pattern:**
+Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via `ipcRenderer.on('theme-changed')` and apply on open via init_data.
+
+**Creating New Windows:**
+1. Copy help.html structure with NUI framework classes
+2. Preview in browser (live-server) for rapid CSS iteration
+3. Add content to `<main>` element
+4. Wire up in stage.js with keyboard shortcut
 
 
 ## Coding Philosophy & Style
