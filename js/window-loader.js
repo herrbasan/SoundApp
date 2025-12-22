@@ -49,11 +49,18 @@ if (isElectron) {
 		helper.window.focus();
 	});
 	
+	// Listen for hide window command
+	ipcRenderer.on('hide-window', () => {
+		helper.window.hide();
+	});
+	
+	// Listen for close window command
+	ipcRenderer.on('close-window', () => {
+		helper.window.close();
+	});
+	
 	// Add global keyboard shortcuts
 	document.addEventListener('keydown', (e) => {
-		if(e.keyCode == 88){ // X key - toggle theme globally
-			tools.sendToMain('command', { command: 'toggle-theme' });
-		}
 		if(e.keyCode == 122){ // F11 - toggle DevTools
 			helper.window.toggleDevTools();
 		}

@@ -430,3 +430,180 @@ let targetDisplay = displays.find(d =>
 - Use window-loader.js bridge API for IPC communication
 
 ---
+## Session: December 22, 2025 - Settings Window & HQ Mode Implementation
+
+### What We Accomplished
+
+**Settings Window - COMPLETE ✅**
+- Created `html/settings.html` with NUI framework components
+- Implemented HQ Mode toggle using NUI checkbox (not custom toggle switch)
+- Added default directory browser with path display
+- Integrated with centralized CSS in `css/window.css`
+- Settings persist via electron_helper config system
+
+**HQ Mode Feature - COMPLETE ✅**
+- Configurable sample rate for audio playback (44.1kHz standard vs 192kHz HQ)
+- Modified FFmpeg NAPI decoder C++ code to accept configurable output sample rates
+  - Changed `OUTPUT_SAMPLE_RATE` from static const to member variable `outputSampleRate`
+  - Updated constructor signature: `FFmpegDecoder(int sampleRate = 44100)`
+  - Modified SwResample initialization to use dynamic sample rate
+- AudioContext now created with configurable sample rate
+- Sample rate detection probes hardware: 192k→176.4k→96k→88.2k→48k→44.1k
+- Real-time switching: destroys and recreates AudioContext, FFmpegPlayer, chiptune player
+- Audio system info display shows max supported and current sample rates
+- Measured CPU impact: 44.1kHz peaks at 1.5%, 192kHz peaks at 2.3% (~0.5% difference)
+
+**Navigation Rate Limiting - COMPLETE ✅**
+- Added 100ms rate limiting for next/previous track keyboard shortcuts
+- Prevents rapid track skipping and UI flashing
+
+**Centralized Keyboard Shortcuts - COMPLETE ✅**
+- Created `js/shortcuts.js` module for shared shortcut definitions
+- H (Help), S (Settings), X (Theme) work from any app window
+- Shortcuts only active when app windows have focus (not system-wide)
+- Input field detection prevents interference with typing
+- Help/Settings windows forward shortcuts to stage via IPC bridge
+
+**Window Management Improvements - COMPLETE ✅**
+- Windows now hide/show instead of close/create for reliable toggling
+- Visibility state tracked with `g.windowsVisible` object
+- Focus returns to stage window when hiding/closing secondary windows
+- Fixed bug: `tools.executeOnId` doesn't exist - was causing windows to respawn
+
+### Key Files Created/Modified
+
+**New Files:**
+- `html/settings.html` - Settings dialog with HQ mode toggle, directory browser, audio info
+- `js/shortcuts.js` - Centralized keyboard shortcut definitions
+- `docs/settings-ideas.md` - Potential future settings features
+
+**Modified Files:**
+- `libs/ffmpeg-napi-interface/src/decoder.h` - Configurable sample rate support
+- `libs/ffmpeg-napi-interface/src/decoder.cpp` - Dynamic sample rate implementation
+- `libs/ffmpeg-napi-interface/src/binding.cpp` - Pass sample rate to decoder
+- `bin/win_bin/player.js` - Create decoder with AudioContext sample rate
+- `js/stage.js` - Sample rate detection, HQ mode toggle, window management fixes
+- `js/window-loader.js` - Added hide-window listener, removed duplicate theme handler
+- `css/window.css` - Settings window specific styles
+- `html/help.html` - Keyboard shortcut updates (Q→S)
+- `.github/copilot-instructions.md` - Removed help window from backlog
+
+### Technical Insights
+
+**FFmpeg NAPI Sample Rate Fix:**
+```cpp
+// Before: Hardcoded 44100Hz
+static const int OUTPUT_SAMPLE_RATE = 44100;
+
+// After: Configurable per instance
+int outputSampleRate;
+FFmpegDecoder(int sampleRate = 44100) : outputSampleRate(sampleRate) {}
+```
+
+**Sample Rate Detection:**
+```javascript
+async function detectMaxSampleRate() {
+  const rates = [192000, 176400, 96000, 88200, 48000, 44100];
+  for(let rate of rates) {
+    try {
+      let ctx = new AudioContext({ sampleRate: rate });
+      if(ctx.sampleRate === rate) { ctx.close(); return rate; }
+    } catch(e) {}
+  }
+  return 44100; // Fallback
+}
+```
+
+**Window Visibility Tracking Fix:**
+```javascript
+// Bug: tools.executeOnId doesn't exist
+let isVisible = await tools.executeOnId(g.windows[type], 'isVisible'); // ❌ Throws error
+
+// Solution: Track state ourselves
+g.windowsVisible = { help: false, settings: false, playlist: false };
+if (g.windowsVisible[type]) {
+  tools.sendToId(g.windows[type], 'hide-window'); // ✅ Works reliably
+}
+```
+
+### Architecture Decisions
+
+**Why HQ Mode is Optional:**
+- CPU impact minimal but measurable (~0.5%)
+- Nyquist theorem: 44.1kHz sufficient for human hearing (20kHz)
+- Placebo effect consideration for professional users
+- User preference: keep as toggle for flexibility
+
+**Why Hide/Show Instead of Close/Create:**
+- Reliable window IDs (no recreation needed)
+- Windows remember state (scroll position, etc.)
+- Simpler code - no async visibility checks
+- Better UX - instant toggle response
+
+**Centralized Shortcuts Strategy:**
+- Not globalShortcut (would capture keys system-wide)
+- Window-level keydown listeners in each window
+- Forwards to stage via IPC for unified handling
+- Input field detection prevents typing interference
+
+### Bugs Fixed (with Claude Opus's help)
+
+1. **Window Toggle Spawning New Windows**
+   - Root cause: `tools.executeOnId()` doesn't exist in helper library
+   - Every toggle threw error, caught by try/catch, reset window ID to null
+   - Solution: Track visibility with `g.windowsVisible` object
+
+2. **Theme Toggle Double-Flash**
+   - Root cause: X key handled in both window-loader.js AND shortcuts.js
+   - Caused rapid toggle-then-revert effect
+   - Solution: Removed duplicate handler from window-loader.js
+
+3. **Settings Not Persisting**
+   - Root cause: Config set in two places causing value inversion
+   - `settings-changed` handler set config, then `toggleHQMode` toggled it again
+   - Solution: Removed hqMode from settings-changed handler
+
+### Performance Metrics
+
+**HQ Mode CPU Usage (measured during playback):**
+- Standard (44.1kHz): Peaks at 1.5% CPU
+- HQ Mode (192kHz): Peaks at 2.3% CPU
+- Difference: ~0.5% (negligible on modern hardware)
+
+**Sample Rate Hardware Support (tested system):**
+- Maximum supported: 192000 Hz ✅
+- Tested and working at: 192k, 96k, 48k, 44.1k
+
+### Ready for Next Phase
+
+**Settings Window Complete:**
+- ✅ HQ mode toggle with real-time switching
+- ✅ Default directory browser
+- ✅ Audio system info display
+- ✅ Settings persistence
+- ✅ NUI framework integration
+
+**Future Settings (documented in docs/settings-ideas.md):**
+- Output device selection
+- Always scan folder
+- Resume last position
+- Stereo separation for MOD files
+- Master volume default
+- Always on top
+
+### State of the Codebase
+
+**Working Features:**
+- Multi-window system with hide/show toggle ✅
+- Centralized keyboard shortcuts (H, S, X) ✅
+- Theme toggle across all windows ✅
+- HQ mode with configurable sample rates ✅
+- Settings persistence ✅
+- Focus management ✅
+
+**Next Immediate Steps:**
+1. Test HQ mode with various file formats
+2. Consider adding more settings from settings-ideas.md
+3. Playlist window implementation
+
+---

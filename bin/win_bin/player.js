@@ -8,10 +8,10 @@
  * @example
  * const { FFmpegDecoder, FFmpegStreamPlayer } = require('ffmpeg-napi-interface');
  * 
- * // Create AudioContext at 44100Hz (must match decoder output)
- * const audioContext = new AudioContext({ sampleRate: 44100 });
+ * // Create AudioContext at desired sample rate
+ * const audioContext = new AudioContext({ sampleRate: 192000 });
  * 
- * // Create player
+ * // Create player (decoder will match AudioContext rate)
  * FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
  * const player = new FFmpegStreamPlayer(audioContext);
  * 
@@ -52,7 +52,7 @@ class FFmpegStreamPlayer {
   }
 
   /**
-   * @param {AudioContext} audioContext - Must be created with sampleRate: 44100
+   * @param {AudioContext} audioContext - AudioContext at any supported sample rate
    * @param {string} [workletPath] - Path to worklet file (for custom serving scenarios)
    */
   constructor(audioContext, workletPath = null) {
@@ -151,7 +151,7 @@ class FFmpegStreamPlayer {
       throw new Error('FFmpegDecoder not set. Call FFmpegStreamPlayer.setDecoder(FFmpegDecoder) first.');
     }
 
-    this.decoder = new FFmpegDecoder();
+    this.decoder = new FFmpegDecoder(this.audioContext.sampleRate);
     if (!this.decoder.open(filePath)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }

@@ -86,29 +86,25 @@ Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via
 
 ### Short term Updates / Features
 
-1. **Help/Documentation Window**
-   - In-app user guide with visual keyboard shortcut reference
-   - Feature explanations and shortcut table
-
-2. **Playback Speed Control**
+1. **Playback Speed Control**
    - Time Stretching: Change speed while preserving pitch
    - Pitch Shifting: Change playback rate affecting pitch
    - Keyboard controls: Ctrl+Shift+Arrow Up/Down
 
-3. **Playlist Window**
+2. **Playlist Window**
    - Separate window displaying full playlist
    - Use `libs/nui/nui_list.js` for virtualized list handling
    - Search, sort, and scroll through large playlists
 
-4. **Multi-Track Mixer**
+3. **Multi-Track Mixer**
    - Open folder (max ~20 files) and trigger mixer mode
    - Synchronous playback with per-track volume and panning
    - Use case: Preview bounced stems/tracks from projects
 
-5. **File Format Converter**
+4. **File Format Converter**
    - Convert currently playing file to different formats
    - Keyboard shortcut opens conversion window with format options
-   - FFmpeg CLI for transcoding
+   - FFmpeg NAPI interface for transcoding
 
 ### Version 2.0 (Future)
 - **Waveform Visualization** - Display audio waveform (if performance allows)

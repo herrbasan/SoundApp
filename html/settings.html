@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Settings - SoundApp</title>
+    <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+    <link rel="stylesheet" href="../css/window.css">
+</head>
+
+<body class="dark">
+    <div class="nui-app">
+        <div class="nui-title-bar">
+            <div class="title">
+                <div class="nui-icon-container">
+                    <i>settings</i>
+                </div>
+                <div class="label">Settings</div>
+            </div>
+            <div class="controls">
+                <div class="nui-icon-container close"><i>close</i></div>
+            </div>
+        </div>
+        <div class="content">
+            <main>
+                <div class="nui-card">
+                    <section class="settings-section">
+                        <h3>Audio</h3>
+                        
+                        <div class="nui-checkbox">
+                            <input type="checkbox" id="hqModeToggle">
+                            <label for="hqModeToggle">
+                                <strong>HQ Mode</strong> — Use maximum sample rate (192kHz) for playback
+                            </label>
+                        </div>
+
+                        <div class="restart-notice" id="hqRestartNotice">
+                            Switching audio system...
+                        </div>
+
+                        <div class="info-box">
+                            <strong>Audio System Info</strong><br>
+                            Max supported sample rate: <strong id="maxSampleRate">--</strong><br>
+                            Current AudioContext rate: <strong id="currentSampleRate">--</strong>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="nui-card">
+                    <section class="settings-section">
+                        <h3>General</h3>
+                        
+                        <div class="nui-input with-button">
+                            <div style="flex: 1;">
+                                <label>Default Directory</label>
+                                <input type="text" id="defaultDirInput" readonly placeholder="No directory set">
+                            </div>
+                            <button id="browseBtn">Browse...</button>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script type="module">
+        import ut from '../libs/nui/nui_ut.js';
+        
+        const isElectron = typeof process !== 'undefined' && process.versions && process.versions.electron;
+        
+        // Use window-loader bridge if in Electron, mock otherwise
+        let bridge;
+        if (isElectron) {
+            const loader = require('../js/window-loader.js');
+            
+            // Wait for bridge to be ready
+            window.addEventListener('bridge-ready', (e) => {
+                bridge = window.bridge;
+                
+                // Load shortcuts module and handle keyboard shortcuts
+                const shortcuts = require('../js/shortcuts.js');
+                window.addEventListener('keydown', (keyEvent) => {
+                    shortcuts.handleShortcut(keyEvent, 'settings');
+                });
+                
+                initSettings(e.detail);
+            });
+        } else {
+            // Mock bridge for browser preview
+            bridge = {
+                sendToStage: (channel, data) => console.log('Mock sendToStage:', channel, data),
+                on: (channel, cb) => console.log('Mock on:', channel),
+                closeWindow: () => console.log('Mock close')
+            };
+            // Initialize with mock data
+            setTimeout(() => initSettings({ config: { hqMode: false, defaultDir: '' } }), 0);
+        }
+
+        function initSettings(data) {
+            const config = data.config || {};
+            
+            // Display audio system info
+            if (data.maxSampleRate) {
+                document.getElementById('maxSampleRate').textContent = data.maxSampleRate + ' Hz';
+            }
+            if (data.currentSampleRate) {
+                document.getElementById('currentSampleRate').textContent = data.currentSampleRate + ' Hz';
+            }
+            
+            // HQ Mode Toggle
+            const hqToggle = document.getElementById('hqModeToggle');
+            const hqNotice = document.getElementById('hqRestartNotice');
+            if (config.hqMode) {
+                hqToggle.checked = true;
+            }
+
+            hqToggle.addEventListener('change', () => {
+                bridge.sendToStage('toggle-hq-mode', {});
+                hqNotice.classList.add('visible');
+                
+                setTimeout(() => {
+                    hqNotice.classList.remove('visible');
+                }, 3000);
+            });
+
+            // Listen for sample rate updates
+            bridge.on('sample-rate-updated', (data) => {
+                if (data.currentSampleRate) {
+                    document.getElementById('currentSampleRate').textContent = data.currentSampleRate + ' Hz';
+                }
+            });
+
+            // Default Directory
+            const dirInput = document.getElementById('defaultDirInput');
+            const browseBtn = document.getElementById('browseBtn');
+            
+            if (config.defaultDir) {
+                dirInput.value = config.defaultDir;
+            }
+
+            browseBtn.addEventListener('click', () => {
+                bridge.sendToStage('browse-directory', {});
+            });
+
+            // Listen for directory selection
+            bridge.on('directory-selected', (dirPath) => {
+                dirInput.value = dirPath;
+                bridge.sendToStage('settings-changed', { defaultDir: dirPath });
+            });
+        }
+    </script>
+</body>
+
+</html>

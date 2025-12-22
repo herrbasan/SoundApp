@@ -93,3 +93,59 @@ body.electron {
 	background: rgb(var(--color-shade1));
 	margin: 1.5rem 0;
 }
+
+/* ============================================================
+ * Settings Window
+ * ============================================================ */
+
+.settings-section {
+	margin-bottom: 2rem;
+}
+
+.settings-section h3 {
+	font-size: 1rem;
+	margin-bottom: 1rem;
+	color: var(--color-text-shade1);
+	text-transform: uppercase;
+	font-weight: 500;
+}
+
+.info-box {
+	padding: 1rem;
+	background: rgba(var(--color-shadeX), 0.05);
+	border-radius: var(--border-radius1);
+	font-size: 0.9rem;
+	line-height: 1.6;
+}
+
+.info-box strong {
+	color: var(--color-highlight);
+}
+
+.restart-notice {
+	margin-top: 0.5rem;
+	padding: 0.75rem;
+	background: rgba(255, 200, 0, 0.1);
+	border-left: 3px solid rgba(255, 200, 0, 0.5);
+	font-size: 0.85rem;
+	color: var(--color-text);
+	display: none;
+}
+
+.restart-notice.visible {
+	display: block;
+}
+
+.nui-input.with-button {
+	display: flex;
+	gap: 0.5rem;
+	align-items: stretch;
+}
+
+.nui-input.with-button input {
+	flex: 1;
+}
+
+.nui-input.with-button button {
+	white-space: nowrap;
+}

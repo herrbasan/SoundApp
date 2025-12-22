@@ -17,9 +17,27 @@ g.test = {};
 g.audioContext = null;
 g.ffmpegPlayer = null;
 g.windows = { help: null, settings: null, playlist: null };
+g.windowsVisible = { help: false, settings: false, playlist: false };
+g.lastNavTime = 0;
 
 // Init
 // ###########################################################################
+
+async function detectMaxSampleRate(){
+	const rates = [192000, 176400, 96000, 88200, 48000, 44100];
+	for(let i=0; i<rates.length; i++){
+		const ctx = new AudioContext({ sampleRate: rates[i] });
+		console.log('Testing rate:', rates[i], '-> Got:', ctx.sampleRate);
+		if(ctx.sampleRate === rates[i]){
+			await ctx.close();
+			console.log('Max rate detected:', rates[i]);
+			return rates[i];
+		}
+		await ctx.close();
+	}
+	console.log('Fallback to 44100');
+	return 44100;
+}
 
 init();
 async function init(){
@@ -41,7 +59,8 @@ async function init(){
 		win_min_width:480,
 		win_min_height:217,
 		volume: 0.5,
-		theme: 'dark'
+		theme: 'dark',
+		hqMode: false
 	}
 	
 	g.config_obj = await helper.config.initRenderer('user', (newData) => {
@@ -50,6 +69,7 @@ async function init(){
 	g.config = g.config_obj.get();
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
+	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
 	
 	// Apply theme at startup
 	if(g.config.theme === 'dark') {
@@ -85,8 +105,14 @@ async function init(){
 		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-processor.js');
 	}
 
-	/* Init Web Audio Context at 44100Hz to match FFmpeg decoder output */
-	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+	/* Detect max supported sample rate for HQ mode */
+	g.maxSampleRate = await detectMaxSampleRate();
+	console.log('Max supported sample rate:', g.maxSampleRate);
+	
+	/* Init Web Audio Context - use max rate in HQ mode, 44100Hz otherwise */
+	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
+	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
+	console.log('AudioContext sample rate:', g.audioContext.sampleRate);
 
 	/* FFmpeg NAPI Player - unified streaming with gapless looping */
 	const { FFmpegDecoder, getMetadata } = require(g.ffmpeg_napi_path);
@@ -142,9 +168,52 @@ async function init(){
 	ipcRenderer.on('window-closed', (e, data) => {
 		if (g.windows[data.type] === data.windowId) {
 			g.windows[data.type] = null;
+			g.windowsVisible[data.type] = false;
+		}
+		// Return focus to stage window after small delay to ensure window is gone
+		setTimeout(() => g.win.focus(), 50);
+	});
+	
+	ipcRenderer.on('settings-changed', (e, data) => {
+		if (data.defaultDir !== undefined) {
+			g.config.defaultDir = data.defaultDir;
+			g.config_obj.set(g.config);
 		}
 	});
 	
+	ipcRenderer.on('toggle-hq-mode', async (e, data) => {
+		await toggleHQMode();
+		// Send updated sample rate to settings window
+		if (g.windows.settings) {
+			tools.sendToId(g.windows.settings, 'sample-rate-updated', {
+				currentSampleRate: g.audioContext.sampleRate
+			});
+		}
+	});
+	
+	ipcRenderer.on('browse-directory', async (e, data) => {
+		const result = await helper.dialog.showOpenDialog({
+			properties: ['openDirectory']
+		});
+		if (!result.canceled && result.filePaths.length > 0) {
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'directory-selected', result.filePaths[0]);
+			}
+		}
+	});
+	
+	ipcRenderer.on('shortcut', (e, data) => {
+		if (data.action === 'toggle-help') {
+			openWindow('help');
+		}
+		else if (data.action === 'toggle-settings') {
+			openWindow('settings');
+		}
+		else if (data.action === 'toggle-theme') {
+			tools.sendToMain('command', { command: 'toggle-theme' });
+		}
+	});
+
 	ipcRenderer.on('theme-changed', (e, data) => {
 		if (data.dark) {
 			document.body.classList.add('dark');
@@ -205,8 +274,8 @@ async function appStart(){
 		await playListFromSingle(arg);
 	}
 	else {
-		let mp = await app.getPath('music');
-		await playListFromSingle(mp);
+		let defaultPath = g.config.defaultDir || await app.getPath('music');
+		await playListFromSingle(defaultPath);
 	}
 	
 	if(g.music.length > 0){
@@ -406,6 +475,7 @@ async function playAudio(fp, n){
 				ffPlayer.onEnded(audioEnded);
 				
 				const metadata = await ffPlayer.open(fp);
+				console.log('File sample rate:', metadata.sampleRate, 'AudioContext rate:', g.audioContext.sampleRate);
 				ffPlayer.setLoop(g.isLoop);
 				
 				g.currentAudio = {
@@ -618,6 +688,54 @@ function toggleLoop(){
 	checkState();
 }
 
+async function toggleHQMode(){
+	g.config.hqMode = !g.config.hqMode;
+	g.config_obj.set(g.config);
+	
+	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
+	console.log('Switching to', g.config.hqMode ? 'HQ mode' : 'Standard mode', '(' + targetRate + 'Hz)');
+	
+	const wasPlaying = g.isPlaying;
+	const currentFile = g.music[g.idx];
+	const currentTime = g.currentAudio?.player?.getCurrentTime() || 0;
+	
+	if(g.currentAudio && g.currentAudio.player){
+		if(typeof g.currentAudio.player.stop === 'function'){
+			g.currentAudio.player.stop();
+		}
+		if(typeof g.currentAudio.player.close === 'function'){
+			await g.currentAudio.player.close();
+		}
+		g.currentAudio = null;
+	}
+	
+	if(g.audioContext && g.audioContext.state !== 'closed'){
+		await g.audioContext.close();
+	}
+	
+	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
+	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
+	
+	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
+	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
+	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
+	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path);
+	await g.ffmpegPlayer.init();
+	
+	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0, context: g.audioContext});
+	
+	if(currentFile){
+		await playAudio(currentFile);
+		if(currentTime > 0 && g.currentAudio && g.currentAudio.player){
+			await g.currentAudio.player.seek(currentTime);
+		}
+		if(wasPlaying && g.currentAudio){
+			g.currentAudio.play();
+		}
+	}
+	
+	checkState();
+}
 
 function volumeUp(){
 	g.config.volume += 0.05;
@@ -765,10 +883,18 @@ function renderBar(){
 
 async function onKey(e) {
 	//fb(e.keyCode)
-	if(e.keyCode == 88){
+	const shortcutAction = window.shortcuts.handleShortcut(e, 'stage');
+	
+	if (shortcutAction === 'toggle-help') {
+		openWindow('help');
+	}
+	else if (shortcutAction === 'toggle-settings') {
+		openWindow('settings');
+	}
+	else if (shortcutAction === 'toggle-theme') {
 		tools.sendToMain('command', { command: 'toggle-theme' });
 	}
-	if (e.keyCode == 70 || e.keyCode == 102) {
+	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
 	/*
@@ -795,11 +921,23 @@ async function onKey(e) {
 	}
 	if (e.keyCode == 39) {
 		if(e.ctrlKey){ seekFore()}
-		else { playNext(); }
+		else { 
+			let now = Date.now();
+			if(now - g.lastNavTime >= 100){
+				g.lastNavTime = now;
+				playNext(); 
+			}
+		}
 	}
 	if (e.keyCode == 37) {
 		if(e.ctrlKey){ seekBack()}
-		else { playPrev(); }
+		else { 
+			let now = Date.now();
+			if(now - g.lastNavTime >= 100){
+				g.lastNavTime = now;
+				playPrev(); 
+			}
+		}
 	}
 	if (e.keyCode == 38) {
 		volumeUp();
@@ -826,21 +964,22 @@ async function onKey(e) {
 		let val = ut.getCssVar('--space-base').value;
 		scaleWindow(val+1)
 	}
-	if(e.keyCode == 72){
-		openWindow('help');
-	}
+	// H and S shortcuts now handled globally in app.js
 }
 
 async function openWindow(type) {
 	if (g.windows[type]) {
-		// Try to show existing window, will fail silently if destroyed
-		try {
+		// Window exists - toggle visibility based on tracked state
+		if (g.windowsVisible[type]) {
+			tools.sendToId(g.windows[type], 'hide-window');
+			g.windowsVisible[type] = false;
+			// Return focus to stage window when hiding
+			g.win.focus();
+		} else {
 			tools.sendToId(g.windows[type], 'show-window');
-			return;
-		} catch(e) {
-			// Window was destroyed, create new one
-			g.windows[type] = null;
+			g.windowsVisible[type] = true;
 		}
+		return;
 	}
 	
 	// Get the stage window's display to open new window on same screen
@@ -869,9 +1008,17 @@ async function openWindow(type) {
 		init_data: {
 			type: type,
 			stageId: await g.win.getId(),
-			config: g.config
+			config: g.config,
+			maxSampleRate: g.maxSampleRate,
+			currentSampleRate: g.audioContext.sampleRate
 		}
 	});
+	
+	// Mark window as visible after creation
+	g.windowsVisible[type] = true;
+	
+	// Show the newly created window
+	tools.sendToId(g.windows[type], 'show-window');
 }
 
 async function scaleWindow(val){

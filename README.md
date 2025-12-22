@@ -3,7 +3,7 @@
 ## What This Is
 A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
 
-![SoundApp Screenshot](./build/screenshot.png)
+![SoundApp Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot.png)
 
 ## Keyboard Shortcuts
 
@@ -22,6 +22,10 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 <tr>
 <td><kbd>L</kbd></td>
 <td>Toggle loop mode</td>
+</tr>
+<tr>
+<td><kbd>S</kbd></td>
+<td>Open settings</td>
 </tr>
 <tr>
 <td><kbd>R</kbd></td>
@@ -173,3 +177,53 @@ Dedicated handling for tracker music formats via libopenmpt AudioWorklet player:
   - No temp file overhead
 - **libopenmpt player** handles tracker/module formats separately for superior quality
 - Configuration persisted to user config file via electron_helper
+
+## Feature Roadmap
+
+### Short-Term Updates (Next Releases)
+
+#### 1. Playback Speed Control
+- **Time Stretching:** Change playback speed while preserving pitch
+- **Pitch Shifting:** Change playback rate affecting pitch
+- **Controls:** Ctrl+Shift+Arrow Up/Down keyboard shortcuts
+
+#### 2. Playlist Window
+Separate window displaying the full playlist with enhanced management:
+- Virtualized list rendering for large playlists (using `nui_list.js`)
+- Search, sort, and scroll capabilities
+- Visual feedback of current track
+
+#### 3. Multi-Track Mixer
+Advanced feature for simultaneous playback of multiple tracks:
+- Open folder (max ~20 files) to trigger mixer mode
+- Synchronous playback with per-track volume and panning controls
+- **Use case:** Preview bounced stems/tracks from music production projects
+
+#### 4. File Format Converter
+Built-in transcoding utility:
+- Convert currently playing file to different formats
+- Keyboard shortcut opens conversion window with format options
+- Powered by FFmpeg NAPI interface for high-quality transcoding
+
+### Version 2.0 (Future Vision)
+
+#### Waveform Visualization
+Display audio waveform for visual reference and navigation (if performance constraints allow).
+
+#### Quick Compare Mode
+Hold a key to jump to another track for A/B comparison, release to return to original position. Perfect for comparing different mixes or masters.
+
+#### Export Playlist
+Save current playlist as M3U or plain text file for archival or sharing.
+
+#### Marker System
+Set up to 10 bookmarks within a file (keys 1-0):
+- Jump to and play from any marker position
+- Integrates with Quick Compare Mode for precise A/B comparison between markers
+- Ideal for comparing sections within long recordings
+
+#### Folder Metadata Display
+Show aggregate statistics for the current folder: total duration, file count, and total size.
+
+#### Quick Tag Editor
+Simple inline ID3/metadata editing for quick corrections without launching external tools.

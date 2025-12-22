@@ -45,6 +45,10 @@
                                 <td>Toggle loop mode</td>
                             </tr>
                             <tr>
+                                <td><kbd>S</kbd></td>
+                                <td>Open settings</td>
+                            </tr>
+                            <tr>
                                 <td><kbd>R</kbd></td>
                                 <td>Shuffle playlist</td>
                             </tr>
@@ -160,8 +164,13 @@
             const data = e.detail;
             console.log('Help window initialized:', data);
 
-            // Could dynamically update shortcuts from data.shortcuts
-            // but static HTML is fine for documentation
+            // Load shortcuts module
+            const shortcuts = require('../js/shortcuts.js');
+            
+            // Handle keyboard shortcuts
+            window.addEventListener('keydown', (keyEvent) => {
+                shortcuts.handleShortcut(keyEvent, 'help');
+            });
         });
     </script>
 </body>
