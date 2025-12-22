@@ -3,7 +3,7 @@
 ## What This Is
 A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
 
-![SoundApp Screenshot](build/screenshot.png)
+![SoundApp Screenshot](./build/screenshot.png)
 
 ## Keyboard Shortcuts
 
