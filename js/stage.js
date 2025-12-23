@@ -346,6 +346,46 @@ async function init(){
 			}
 		}
 	});
+
+	ipcRenderer.on('register-file-types', async (e, data) => {
+		try {
+			const registry = require('./registry.js');
+			const path = require('path');
+			let exe_path = process.execPath;
+			if (g.isPackaged) {
+				exe_path = path.resolve(path.dirname(exe_path), '..', path.basename(exe_path));
+			}
+			await registry('register', exe_path, g.app_path);
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'registry-action-complete', { success: true });
+			}
+		} catch (err) {
+			console.error('Failed to register file types:', err);
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'registry-action-complete', { success: false, error: err.message });
+			}
+		}
+	});
+
+	ipcRenderer.on('unregister-file-types', async (e, data) => {
+		try {
+			const registry = require('./registry.js');
+			const path = require('path');
+			let exe_path = process.execPath;
+			if (g.isPackaged) {
+				exe_path = path.resolve(path.dirname(exe_path), '..', path.basename(exe_path));
+			}
+			await registry('unregister', exe_path, g.app_path);
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'registry-action-complete', { success: true });
+			}
+		} catch (err) {
+			console.error('Failed to unregister file types:', err);
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'registry-action-complete', { success: false, error: err.message });
+			}
+		}
+	});
 	
 	ipcRenderer.on('shortcut', (e, data) => {
 		if (data.action === 'toggle-help') {

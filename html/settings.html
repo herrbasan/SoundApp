@@ -59,6 +59,22 @@
 
                 <div class="nui-card">
                     <section class="settings-section">
+                        <h2>File Associations</h2>
+                        <div class="setting-description" style="margin-bottom: 1rem;">
+                            Register SoundApp as the default handler for supported audio file types in Windows Explorer.
+                        </div>
+                        <div class="button-row">
+                            <button id="registerFilesBtn" type="button" class="nui-button">Register File Types</button>
+                            <button id="unregisterFilesBtn" type="button" class="nui-button secondary">Unregister File Types</button>
+                        </div>
+                        <div class="restart-notice" id="registryNotice">
+                            Done!
+                        </div>
+                    </section>
+                </div>
+
+                <div class="nui-card">
+                    <section class="settings-section">
                         <h2>Audio / Quality</h2>
                         
                         <div class="nui-checkbox">
@@ -437,6 +453,27 @@
             bridge.on('directory-selected', (dirPath) => {
                 dirInput.value = dirPath;
                 bridge.sendToStage('settings-changed', { defaultDir: dirPath });
+            });
+
+            // File Associations
+            const registerBtn = document.getElementById('registerFilesBtn');
+            const unregisterBtn = document.getElementById('unregisterFilesBtn');
+            const registryNotice = document.getElementById('registryNotice');
+
+            registerBtn.addEventListener('click', () => {
+                bridge.sendToStage('register-file-types', {});
+            });
+
+            unregisterBtn.addEventListener('click', () => {
+                bridge.sendToStage('unregister-file-types', {});
+            });
+
+            bridge.on('registry-action-complete', (data) => {
+                registryNotice.textContent = data.success ? 'Done!' : 'Failed: ' + data.error;
+                registryNotice.classList.add('visible');
+                setTimeout(() => {
+                    registryNotice.classList.remove('visible');
+                }, 2000);
             });
         }
     </script>
