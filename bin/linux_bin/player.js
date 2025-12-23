@@ -8,8 +8,8 @@
  * @example
  * const { FFmpegDecoder, FFmpegStreamPlayer } = require('ffmpeg-napi-interface');
  * 
- * // Create AudioContext at 44100Hz (must match decoder output)
- * const audioContext = new AudioContext({ sampleRate: 44100 });
+ * // Create AudioContext; decoder output will be configured to match its sampleRate
+ * const audioContext = new AudioContext({ sampleRate: 48000 });
  * 
  * // Create player
  * FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
@@ -171,15 +171,25 @@ class FFmpegStreamPlayer {
     }
 
     this.decoder = new FFmpegDecoder();
-    if (!this.decoder.open(filePath)) {
+    const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
+    if (!this.decoder.open(filePath, ctxRate)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }
 
+    const decRate = this.decoder.getSampleRate() | 0;
+    if (decRate !== ctxRate) {
+      this.decoder.close();
+      throw new Error('Decoder output sample rate (' + decRate + 'Hz) does not match AudioContext sampleRate (' + ctxRate + 'Hz)');
+    }
+
+    console.log('[FFmpegStreamPlayer] open:', { ctxRate, decRate, chunkSeconds: this.chunkSeconds });
+
     this.filePath = filePath;
     this.duration = this.decoder.getDuration();
-    this._sampleRate = this.decoder.getSampleRate();
+    this._sampleRate = decRate;
     this._channels = this.decoder.getChannels();
     this._recomputeChunkSize();
+    console.log('[FFmpegStreamPlayer] chunk:', { chunkFrames: this.chunkFrames, chunkSize: this.chunkSize, channels: this._channels });
     this.totalFramesInFile = Math.floor(this.duration * this._sampleRate);
     this.decoderEOF = false;
     this.currentFrames = 0;
@@ -482,7 +492,7 @@ class FFmpegBufferedPlayer {
   }
 
   /**
-   * @param {AudioContext} audioContext - Must be created with sampleRate: 44100
+   * @param {AudioContext} audioContext
    */
   constructor(audioContext) {
     this.audioContext = audioContext;
@@ -529,12 +539,19 @@ class FFmpegBufferedPlayer {
     }
 
     const decoder = new FFmpegDecoder();
-    if (!decoder.open(filePath)) {
+    const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
+    if (!decoder.open(filePath, ctxRate)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }
 
     this.duration = decoder.getDuration();
     this._sampleRate = decoder.getSampleRate();
+    if ((this._sampleRate | 0) !== (ctxRate | 0)) {
+      decoder.close();
+      throw new Error('Decoder output sample rate (' + this._sampleRate + 'Hz) does not match AudioContext sampleRate (' + ctxRate + 'Hz)');
+    }
+
+    console.log('[FFmpegBufferedPlayer] open:', { ctxRate, decRate: this._sampleRate });
     const channels = decoder.getChannels();
 
     // Decode entire file
@@ -542,7 +559,7 @@ class FFmpegBufferedPlayer {
     let totalSamples = 0;
 
     while (true) {
-      const result = decoder.read(88200);
+      const result = decoder.read((ctxRate * channels) | 0);
       if (result.samplesRead === 0) break;
       
       const chunk = new Float32Array(result.samplesRead);

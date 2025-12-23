@@ -115,12 +115,10 @@ async function init(){
 		Init Web Audio Context
 		NOTE:
 		- FFmpeg AudioWorklet streaming requires the decoded PCM rate to match the AudioContext rate.
-		- The current native FFmpeg decoder outputs a fixed 44100 Hz stream, so forcing a higher
-		  AudioContext sample rate causes pitch/speed errors.
-		- HQ mode is therefore decoupled from AudioContext sample rate until the native addon
-		  supports configurable output sample rates.
+		- The native decoder must therefore be configured to output at exactly audioContext.sampleRate.
+		- HQ mode selects a higher AudioContext rate (up to device max).
 	*/
-	const targetRate = 44100;
+	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('AudioContext sample rate:', g.audioContext.sampleRate);
 	
@@ -844,8 +842,8 @@ async function toggleHQMode(){
 	g.config.hqMode = !g.config.hqMode;
 	g.config_obj.set(g.config);
 	
-	const targetRate = 44100;
-	console.log('Switching to', g.config.hqMode ? 'HQ mode' : 'Standard mode', '(' + targetRate + 'Hz)', '(fixed output rate)');
+	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
+	console.log('Switching to', g.config.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
 	
 	const wasPlaying = !g.currentAudio?.paused;
 	const currentFile = g.music[g.idx];

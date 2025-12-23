@@ -2,6 +2,8 @@
 
 Date context: I’m assuming **Germany (CET/CEST)**. The chat system time may differ, but it doesn’t affect the technical conclusions.
 
+**Reference note (Dec 23, 2025):** This document is kept for historical context. The gapless looping regression is **resolved**, but only **partially** in the broader sense: “HQ mode == max sample rate” was intentionally **disabled/removed** in the current solution (AudioContext + native output are fixed at 44100 Hz).
+
 ## Executive summary
 - We had **two distinct looping problems** mixed together:
   1) **HQ-mode crackle at loop** (mostly at high sample rates like 96k/192k).
@@ -9,14 +11,42 @@ Date context: I’m assuming **Germany (CET/CEST)**. The chat system time may di
 - The “too early loop” symptom points strongly to **EOF being signaled early** (or treated as final too aggressively), causing the AudioWorklet to mark the “last chunk” too soon → loop triggers before actual audio ends.
 - The session became confusing because **the deployed copies** in `bin/win_bin/*` and `bin/linux_bin/*` were repeatedly overwritten by `scripts/sync-ffmpeg-napi.ps1`, while SoundApp’s own logic stayed in `js/*`. In practice, the **submodule is the source of truth**, and `bin/*` is “what the app actually runs”.
 
+## Status / What we implemented (Dec 23, 2025)
+Outcome:
+- **Gapless looping is working again** across formats in both “HQ” and non-HQ toggles (user-confirmed).
+- The fix set was implemented by **rebuilding from a known-good baseline (`v1.1.3`)** and then replacing the upstream state with the repaired code.
+
+Key technical changes (high level):
+1) **Streaming JS: time-based chunk sizing + real prebuffering**
+   - Implemented “Option A”: chunk sizes are derived from a target *time* (e.g. 100ms) instead of fixed frame counts.
+   - Queue fill is driven by target queue depth (prebuffer size), which stabilizes behavior across sample rates and reduces underruns.
+
+2) **AudioWorklet: safer ended/telemetry behavior**
+   - Tightened EOF/ended gating to avoid “false ended” when the queue runs dry briefly.
+   - Ensured periodic telemetry (position/queue depth) so the main thread can recover from starvation without deadlocks.
+
+3) **Native decoder: proper end-of-stream draining + resampler reset on seek**
+   - Added codec flush/drain at EOF (send null packet) and drain delayed samples from libswresample.
+   - Reset resampler state on `seek()` to avoid stale-delay artifacts and truncation issues.
+
+4) **Metadata: restored `getMetadata` export**
+   - After rebuilding from the older baseline, `getMetadata` was missing from the addon exports.
+   - Reintroduced metadata extraction and exported `getMetadata` again to match SoundApp’s expectations.
+
+Important note about HQ mode:
+- The current native decoder output is **fixed to float32 stereo @ 44100 Hz** (resampled via libswresample).
+- Because of that, SoundApp’s AudioContext is also held at **44100 Hz**, and the **HQ toggle no longer increases output sample rate**.
+- In other words: **this solution intentionally removes/disables “HQ == max sample rate” functionality** to preserve correct pitch/speed and stable streaming.
+
 ## What is currently known (high confidence)
 ### A. Baseline behavior
 - With `libs/ffmpeg-napi-interface` checked out at **tag `v1.1.3`** and synced into `bin/*`, looping is reported as **correct / “perfect again”**.
 - With newer versions (observed around `v1.1.8` and a specific commit mentioned in the prior session), looping can become **early** (loop triggers before the true end).
 
 #### Verified repo state (Dec 23, 2025)
-- In this workspace, `libs/ffmpeg-napi-interface` is currently at **`v1.1.3`** (HEAD tagged `v1.1.3`).
-- The version range `v1.1.3..v1.1.8` includes changes in the streaming player/worklet (EOF gating + feed-loop restart) and large native changes (metadata/cover art extraction).
+- The repair work started from **`v1.1.3`** as the known-good looping baseline.
+- The resulting repaired code has been pushed so that the **remote “latest” state matches this fixed implementation**.
+- The native addon currently outputs **44100 Hz** (fixed), and SoundApp aligns the AudioContext to that rate.
 
 ### B. Looping mechanism (FFmpeg streaming path)
 - The FFmpeg streaming player uses an AudioWorklet processor and a queue of float32 chunks.
@@ -91,6 +121,12 @@ Important: H2 is “sound quality at loop”, while H1 is “loop point wrong”
 
 ## Strong recommendation for the next session
 Start with **fixing “loops too early” (H1)** first, using a controlled regression test and instrumentation. Once the loop point is correct across versions, then tackle HQ crackle separately.
+
+### Reality check (post-fix)
+- The “loops too early” symptom was addressed by a combination of:
+   - time-based buffering (reduces starvation-induced edge cases), and
+   - native EOF + resampler drain (prevents losing tail audio, especially in FLAC-like cases).
+- We **did not** implement an explicit `eof`/`error` flag in the JS `read()` return contract yet; the native drain fix removed the observed early-loop behavior without changing that interface.
 
 ---
 
@@ -196,6 +232,12 @@ Only start this once early-loop is solved.
    - Consider preserving/resuming resampler priming (native) rather than hard restarting.
 
 No crossfade unless explicitly desired (it was tried and rejected).
+
+### HQ follow-up (what “real HQ” would require)
+To bring back “HQ == max sample rate” safely with the current AudioWorklet streaming design:
+- Make the native decoder output sample rate configurable (instead of fixed 44100).
+- Create the AudioContext at the chosen rate (e.g. detected max supported), and ensure decoded PCM matches it.
+- Only then should the UI label/behavior revert to “use max sample rate”.
 
 ---
 
