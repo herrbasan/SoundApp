@@ -1,7 +1,7 @@
 # SoundApp - Project Overview
 
 ## What This Is
-A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
+A cross-platform desktop audio player built with Electron. Beside supporting all common formats, it supports tracker/module music and legacy audio formats.
 
 ![SoundApp Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot.png)
 

@@ -1239,9 +1239,9 @@ async function openWindow(type) {
 	
 	// Window size configurations per type
 	const windowSizes = {
-		help: { width: 800, height: 600 },
-		settings: { width: 500, height: 800 },
-		playlist: { width: 960, height: 800 }
+		help: { width: 800, height: 700 },
+		settings: { width: 500, height: 700 },
+		playlist: { width: 960, height: 700 }
 	};
 	
 	// Position window in center of the same display

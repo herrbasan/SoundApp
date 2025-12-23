@@ -63,9 +63,9 @@
                         <div class="setting-description" style="margin-bottom: 1rem;">
                             Register SoundApp as the default handler for supported audio file types in Windows Explorer.
                         </div>
-                        <div class="button-row">
+                        <div class="nui-button-container">
                             <button id="registerFilesBtn" type="button" class="nui-button">Register File Types</button>
-                            <button id="unregisterFilesBtn" type="button" class="nui-button secondary">Unregister File Types</button>
+                            <button id="unregisterFilesBtn" type="reset" class="nui-button secondary">Unregister File Types</button>
                         </div>
                         <div class="restart-notice" id="registryNotice">
                             Done!
@@ -182,38 +182,31 @@
     <script type="module">
         import ut from '../libs/nui/nui_ut.js';
         import superSelect from '../libs/nui/nui_select.js';
-        
-        const isElectron = typeof process !== 'undefined' && process.versions && process.versions.electron;
-        
-        // Use window-loader bridge if in Electron, mock otherwise
-        let bridge;
-        if (isElectron) {
-            const loader = require('../js/window-loader.js');
+        window.ut = ut;
+        window.superSelect = superSelect;
+    </script>
+    <script src="../js/window-loader.js"></script>
+    <script>
+        // Settings window initialization
+        window.addEventListener('bridge-ready', (e) => {
+            const data = e.detail;
+            const bridge = window.bridge;
             
-            // Wait for bridge to be ready
-            window.addEventListener('bridge-ready', (e) => {
-                bridge = window.bridge;
-                
-                // Load shortcuts module and handle keyboard shortcuts
+            // Load shortcuts module (only in Electron)
+            if (bridge.isElectron) {
                 const shortcuts = require('../js/shortcuts.js');
+                
+                // Handle keyboard shortcuts
                 window.addEventListener('keydown', (keyEvent) => {
                     shortcuts.handleShortcut(keyEvent, 'settings');
                 });
-                
-                initSettings(e.detail);
-            });
-        } else {
-            // Mock bridge for browser preview
-            bridge = {
-                sendToStage: (channel, data) => console.log('Mock sendToStage:', channel, data),
-                on: (channel, cb) => console.log('Mock on:', channel),
-                closeWindow: () => console.log('Mock close')
-            };
-            // Initialize with mock data
-            setTimeout(() => initSettings({ config: { hqMode: false, defaultDir: '' } }), 0);
-        }
+            }
+            
+            initSettings(data);
+        });
 
         function initSettings(data) {
+            const bridge = window.bridge;
             const config = data.config || {};
             
             // Display audio system info
