@@ -18,15 +18,10 @@ function squirrel_startup() {
             if (cmd === '--squirrel-install' || cmd === '--squirrel-updated') {
                 await write_log('Creating Shortcut at: ' + target);
                 await runCommand(['--createShortcut=' + target + '']);
-                if (cmd === '--squirrel-updated') {
-                    await write_log('Cleaning up old registry entries');
-                    await write_log('exe_path: ' + app_exe);
-                    await write_log('icon_path will be: ' + path.join(path.dirname(app_exe), 'resources', 'icons'));
-                    await registry('unregister', app_exe, app_path);
-                    await write_log('Registering file types with new version');
-                    await registry('register', app_exe, app_path);
-                    await write_log('Registry update completed');
-                }
+                // Re-register on both install and update to ensure icon paths are current
+                // No need to unregister first - re-registering overwrites existing entries
+                await write_log('Registering file types');
+                await registry('register', app_exe, app_path);
                 await write_log('Install Done');
                 ret = true;
             }
