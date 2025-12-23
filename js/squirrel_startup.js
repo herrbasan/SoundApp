@@ -18,6 +18,12 @@ function squirrel_startup() {
             if (cmd === '--squirrel-install' || cmd === '--squirrel-updated') {
                 await write_log('Creating Shortcut at: ' + target);
                 await runCommand(['--createShortcut=' + target + '']);
+                if (cmd === '--squirrel-updated') {
+                    await write_log('Cleaning up old registry entries');
+                    await registry('unregister', app_exe, app_path);
+                    await write_log('Registering file types with new version');
+                    await registry('register', app_exe, app_path);
+                }
                 await write_log('Install Done');
                 ret = true;
             }
@@ -33,7 +39,7 @@ function squirrel_startup() {
                 ret = true;
             }
             if (cmd === '--squirrel-firstrun') {
-                await write_log('Squirrel Firstrun');
+                await write_log('Squirrel Firstrun - Registering file types');
                 await registry('register', app_exe, app_path);
             }
         }

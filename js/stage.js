@@ -417,7 +417,8 @@ async function appStart(){
 	'.nst', '.okt', '.plm', '.psm', '.pt36', '.ptm', '.sfx', '.sfx2', '.st26', '.stk', '.stm', '.stx', '.stp', '.symmod', 
 	'.ult', '.wow', '.gdm', '.mo3', '.oxm', '.umx', '.xpk', '.ppm', '.mmcmp'];
 	g.supportedChrome = ['.mp3','.wav','.flac','.ogg', '.m4a', '.m4b', '.aac','.webm'];
-	g.supportedFFmpeg = ['.mpg','.mp2', '.aif', '.aiff','.aa'];
+	g.supportedFFmpeg = ['.mpg','.mp2', '.aif', '.aiff','.aa', '.wma', '.asf', '.ape', '.wv', '.wvc', '.tta', '.mka', 
+	'.amr', '.3ga', '.ac3', '.eac3', '.dts', '.dtshd', '.caf', '.au', '.snd', '.voc', '.tak', '.mpc', '.mp+'];
 
 
 	g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedMpt]

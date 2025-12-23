@@ -115,19 +115,60 @@ SoundApp leverages FFmpeg's extensive format support to handle nearly all audio 
 
 ### FFmpeg-Decoded Formats (via NAPI Decoder)
 All standard audio formats are decoded through the FFmpeg NAPI decoder and played via Web Audio API:
-- **Lossless:** `.wav`, `.flac`, `.alac`, `.ape`, `.wv` (WavPack), `.tta`
-- **Lossy:** `.mp3`, `.aac`, `.m4a`, `.ogg`, `.opus`, `.wma`
-- **Legacy/Professional:** `.aif`, `.aiff`, `.au`, `.snd`, `.voc`, `.amr`
-- **Video Audio Streams:** `.mp4`, `.mkv`, `.avi`, `.mov`, `.wmv`, `.mpg`, `.mp2`
-- **Other:** `.ac3`, `.dts`, `.ra` (RealAudio), `.mka`
 
-**Playback modes:**
-- Stream mode: Real-time decoding via AudioWorklet for memory efficiency
-- Loop mode: Full buffer decode for true gapless looping
+**Lossless Compressed:**
+- FLAC (`.flac`)
+- ALAC - Apple Lossless (`.m4a` with ALAC codec)
+- APE - Monkey's Audio (`.ape`)
+- WavPack (`.wv`, `.wvc`)
+- TTA - True Audio (`.tta`)
+- TAK (`.tak`)
+
+**Lossy Compressed:**
+- MP3 (`.mp3`)
+- MP2 (`.mp2`, `.mpa`, `.mpg`)
+- AAC/M4A (`.aac`, `.m4a`, `.m4b`, `.aa`)
+- Ogg Vorbis (`.ogg`, `.oga`)
+- Opus (`.opus`, `.ogm`, `.mogg`)
+- WMA - Windows Media Audio (`.wma`, `.asf`)
+- WebM (`.webm`)
+
+**Uncompressed PCM:**
+- WAV (`.wav`)
+- AIFF/AIF (`.aif`, `.aiff`, `.pcm`)
+- AU/SND (`.au`, `.snd`)
+- VOC (`.voc`)
+- CAF - Core Audio Format (`.caf`)
+
+**Other Formats:**
+- Matroska Audio (`.mka`)
+- AMR (`.amr`, `.3ga`)
+- AC3/E-AC3 - Dolby Digital (`.ac3`, `.eac3`)
+- DTS (`.dts`, `.dtshd`)
+- Musepack (`.mpc`, `.mp+`)
+
+**Playback mode:**
+- Streaming playback via AudioWorklet with chunk-based decoding for memory efficiency
+- Gapless looping support (when enabled) via stored loop chunk - no mode switching required
 
 ### Tracker/Module Formats (via libopenmpt)
 Dedicated handling for tracker music formats via libopenmpt AudioWorklet player:
-- **Formats:** `.mod`, `.xm`, `.it`, `.s3m`, `.mptm`, `.umx`, `.mo3`, `.mtm`, `.dbm`, `.far`, `.mdl`, and more
+
+**Common Formats:**
+- ProTracker/FastTracker (`.mod`, `.xm`)
+- Scream Tracker (`.s3m`)
+- Impulse Tracker (`.it`)
+- OpenMPT (`.mptm`)
+- MO3 - Compressed modules (`.mo3`)
+
+**Extended Formats:**
+- `.669`, `.amf`, `.ams`, `.c67`, `.dbm`, `.digi`, `.dmf`, `.dsm`, `.dsym`, `.dtm`
+- `.far`, `.fmt`, `.gdm`, `.ice`, `.imf`, `.j2b`, `.m15`, `.mdl`, `.med`, `.mms`
+- `.mt2`, `.mtm`, `.mus`, `.nst`, `.okt`, `.plm`, `.psm`, `.pt36`, `.ptm`
+- `.sfx`, `.sfx2`, `.st26`, `.stk`, `.stm`, `.stx`, `.stp`, `.symmod`
+- `.ult`, `.wow`, `.oxm`, `.umx`, `.xpk`, `.ppm`, `.mmcmp`
+
+**Total:** 70+ tracker/module format variants supported
 
 **Note:** While FFmpeg can decode tracker formats, we use libopenmpt directly for superior playback quality and authenticity to the original tracker sound.
 
