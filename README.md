@@ -169,18 +169,35 @@ Dedicated handling for tracker music formats via libopenmpt AudioWorklet player:
 - `html/` - Window templates
 - `css/` - Styling
 
-## Current Architecture Notes (v1.1.3+)
+## Current Architecture Notes (v1.2+)
 - **FFmpeg NAPI decoder** handles all audio formats except tracker formats:
   - Chunk-based streaming via AudioWorklet for memory efficiency
+  - Configurable output sample rate (44.1kHz to 192kHz) for high-quality playback
+  - Multi-threaded decoding support (configurable thread count)
   - Gapless looping support via stored loop chunk (toggle feature, not a separate mode)
   - Direct seeking support via native FFmpeg APIs
   - No temp file overhead
 - **libopenmpt player** handles tracker/module formats separately for superior quality
 - Configuration persisted to user config file via electron_helper
 
+## Recent Updates
+
+### Version 1.2 (December 2025)
+- **HQ Mode Restored** - Configurable max output sample rate (44.1kHz to 192kHz) for high-quality playback
+  - Native FFmpeg decoder outputs at exact AudioContext sample rate to prevent pitch/speed errors
+  - Time-based chunking (0.1s per chunk) maintains stability across all sample rates
+  - Gapless looping verified working at all sample rates (44.1k, 96k, 192k)
+- **Decoder Threading** - FFmpeg multi-threaded decoding support
+  - Configurable thread count (0=auto, 1-8=specific count)
+  - Frame + slice threading for parallel decoding
+  - Settings UI with buffer size timing estimates
+- **Backward Compatibility** - Comprehensive configuration defaults ensure smooth updates
+  - All settings have fallback values in code and UI
+  - Empty/missing config files work correctly with defaults
+
 ## Feature Roadmap
 
-### Short-Term Updates (Next Releases)
+### Short-Term Updates
 
 #### 1. Playback Speed Control
 - **Time Stretching:** Change playback speed while preserving pitch

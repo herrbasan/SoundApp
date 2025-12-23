@@ -92,9 +92,24 @@ Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via
 - **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
 - **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
 
-## Backlog / Future Refactors
+## Release History
 
-### Short term Updates / Features
+### Version 1.2 (December 2025)
+- **HQ Mode Restored** - Configurable max output sample rate (44.1kHz to 192kHz) for high-quality playback
+  - Native FFmpeg decoder outputs at exact AudioContext sample rate to prevent pitch/speed errors
+  - Time-based chunking (0.1s per chunk) maintains stability across all sample rates
+  - Gapless looping verified working at all sample rates (44.1k, 96k, 192k)
+- **Decoder Threading** - FFmpeg multi-threaded decoding support
+  - Configurable thread count (0=auto, 1-8=specific count)
+  - Frame + slice threading for parallel decoding
+  - Settings UI with buffer size timing estimates
+- **Backward Compatibility** - Comprehensive configuration defaults ensure smooth updates
+  - All settings have fallback values in code and UI
+  - Empty/missing config files work correctly with defaults
+
+## Backlog / Future Features
+
+### Short Term Updates
 
 1. **Playback Speed Control**
    - Time Stretching: Change speed while preserving pitch
