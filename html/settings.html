@@ -98,15 +98,15 @@
                         <div class="nui-input">
                             <label>Buffer Size (chunks)</label>
                             <select id="bufferSizeSelect">
-                                <option value="5">5 (~1 sec)</option>
-                                <option value="10" selected>10 (~2 sec) - Default</option>
-                                <option value="15">15 (~3 sec)</option>
-                                <option value="20">20 (~4 sec)</option>
-                                <option value="25">25 (~5 sec)</option>
-                                <option value="30">30 (~6 sec)</option>
+                                <option value="5">5 (~0.5 sec)</option>
+                                <option value="10" selected>10 (~1 sec) - Default</option>
+                                <option value="15">15 (~1.5 sec)</option>
+                                <option value="20">20 (~2 sec)</option>
+                                <option value="25">25 (~2.5 sec)</option>
+                                <option value="30">30 (~3 sec)</option>
                             </select>
                             <div class="setting-description">
-                                Amount of audio pre-buffered for smooth playback. Higher values prevent dropouts during CPU spikes but use more memory. Lower values reduce memory usage. Most systems work well with the default (10 chunks).
+                                Amount of audio buffered ahead during streaming playback. Higher values prevent dropouts on slower systems or during CPU spikes, but use slightly more memory. Lower values reduce latency. Default works well for most systems.
                             </div>
                         </div>
 
