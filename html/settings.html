@@ -337,10 +337,8 @@
             const bufferSizeSelect = document.getElementById('bufferSizeSelect');
             let bufferSizeWidget = null;
             
-            // Set current value from config
-            if (config.bufferSize !== undefined) {
-                bufferSizeSelect.value = config.bufferSize;
-            }
+            // Set current value from config (default: 10)
+            bufferSizeSelect.value = config.bufferSize !== undefined ? config.bufferSize : 10;
             
             // Initialize superSelect
             bufferSizeWidget = superSelect(bufferSizeSelect, {
@@ -361,10 +359,8 @@
             const decoderThreadsSelect = document.getElementById('decoderThreadsSelect');
             let decoderThreadsWidget = null;
             
-            // Set current value from config
-            if (config.decoderThreads !== undefined) {
-                decoderThreadsSelect.value = config.decoderThreads;
-            }
+            // Set current value from config (default: 0 = auto)
+            decoderThreadsSelect.value = config.decoderThreads !== undefined ? config.decoderThreads : 0;
             
             // Initialize superSelect
             decoderThreadsWidget = superSelect(decoderThreadsSelect, {
@@ -385,10 +381,8 @@
             const modStereoSeparationSelect = document.getElementById('modStereoSeparationSelect');
             let modStereoSeparationWidget = null;
             
-            // Set current value from config
-            if (config.modStereoSeparation !== undefined) {
-                modStereoSeparationSelect.value = config.modStereoSeparation;
-            }
+            // Set current value from config (default: 100)
+            modStereoSeparationSelect.value = config.modStereoSeparation !== undefined ? config.modStereoSeparation : 100;
             
             // Initialize superSelect
             modStereoSeparationWidget = superSelect(modStereoSeparationSelect, {
@@ -409,10 +403,8 @@
             const modInterpolationFilterSelect = document.getElementById('modInterpolationFilterSelect');
             let modInterpolationFilterWidget = null;
             
-            // Set current value from config
-            if (config.modInterpolationFilter !== undefined) {
-                modInterpolationFilterSelect.value = config.modInterpolationFilter;
-            }
+            // Set current value from config (default: 0)
+            modInterpolationFilterSelect.value = config.modInterpolationFilter !== undefined ? config.modInterpolationFilter : 0;
             
             // Initialize superSelect
             modInterpolationFilterWidget = superSelect(modInterpolationFilterSelect, {

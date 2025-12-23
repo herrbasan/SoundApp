@@ -60,7 +60,13 @@ async function init(){
 		win_min_height:217,
 		volume: 0.5,
 		theme: 'dark',
-		hqMode: false
+		hqMode: false,
+		bufferSize: 10,
+		decoderThreads: 0,
+		modStereoSeparation: 100,
+		modInterpolationFilter: 0,
+		outputDeviceId: '',
+		defaultDir: ''
 	}
 	
 	g.config_obj = await helper.config.initRenderer('user', (newData) => {
@@ -70,8 +76,12 @@ async function init(){
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
 	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
+	if(g.config.bufferSize === undefined) { g.config.bufferSize = 10; }
+	if(g.config.decoderThreads === undefined) { g.config.decoderThreads = 0; }
 	if(g.config.modStereoSeparation === undefined) { g.config.modStereoSeparation = 100; }
 	if(g.config.modInterpolationFilter === undefined) { g.config.modInterpolationFilter = 0; }
+	if(g.config.outputDeviceId === undefined) { g.config.outputDeviceId = ''; }
+	if(g.config.defaultDir === undefined) { g.config.defaultDir = ''; }
 	
 	// Apply theme at startup
 	if(g.config.theme === 'dark') {
