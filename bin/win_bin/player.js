@@ -23,6 +23,8 @@
 
 const path = require('path');
 
+const DEBUG = !!(process && process.env && process.env.FFMPEG_NAPI_DEBUG);
+
 /**
  * Get the path to the AudioWorklet processor file.
  * This file must be served/accessible to load via audioContext.audioWorklet.addModule()
@@ -55,7 +57,7 @@ class FFmpegStreamPlayer {
    * @param {AudioContext} audioContext - Playback clock for the AudioWorklet (its sampleRate drives time)
    * @param {string} [workletPath] - Path to worklet file (for custom serving scenarios)
    * @param {number} [prebufferSize] - Target queue depth in chunks (takes effect on next open/play)
-   * @param {number} [threadCount] - Reserved for future native decoder threading (no-op for now)
+   * @param {number} [threadCount] - Number of decoder threads (0 = auto, uses all CPU cores)
    */
   constructor(audioContext, workletPath = null, prebufferSize = 10, threadCount = 0) {
     this.audioContext = audioContext;
@@ -172,7 +174,8 @@ class FFmpegStreamPlayer {
 
     this.decoder = new FFmpegDecoder();
     const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
-    if (!this.decoder.open(filePath, ctxRate)) {
+    const threads = (this.threadCount | 0);
+    if (!this.decoder.open(filePath, ctxRate, threads)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }
 
@@ -182,14 +185,14 @@ class FFmpegStreamPlayer {
       throw new Error('Decoder output sample rate (' + decRate + 'Hz) does not match AudioContext sampleRate (' + ctxRate + 'Hz)');
     }
 
-    console.log('[FFmpegStreamPlayer] open:', { ctxRate, decRate, chunkSeconds: this.chunkSeconds });
+    if (DEBUG) console.log('[FFmpegStreamPlayer] open:', { ctxRate, decRate, chunkSeconds: this.chunkSeconds });
 
     this.filePath = filePath;
     this.duration = this.decoder.getDuration();
     this._sampleRate = decRate;
     this._channels = this.decoder.getChannels();
     this._recomputeChunkSize();
-    console.log('[FFmpegStreamPlayer] chunk:', { chunkFrames: this.chunkFrames, chunkSize: this.chunkSize, channels: this._channels });
+    if (DEBUG) console.log('[FFmpegStreamPlayer] chunk:', { chunkFrames: this.chunkFrames, chunkSize: this.chunkSize, channels: this._channels });
     this.totalFramesInFile = Math.floor(this.duration * this._sampleRate);
     this.decoderEOF = false;
     this.currentFrames = 0;
@@ -493,9 +496,11 @@ class FFmpegBufferedPlayer {
 
   /**
    * @param {AudioContext} audioContext
+   * @param {number} [threadCount] - Number of decoder threads (0 = auto)
    */
-  constructor(audioContext) {
+  constructor(audioContext, threadCount = 0) {
     this.audioContext = audioContext;
+    this.threadCount = threadCount | 0;
     this.audioBuffer = null;
     this.sourceNode = null;
     this.gainNode = audioContext.createGain();
@@ -540,7 +545,8 @@ class FFmpegBufferedPlayer {
 
     const decoder = new FFmpegDecoder();
     const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
-    if (!decoder.open(filePath, ctxRate)) {
+    const threads = (this.threadCount | 0);
+    if (!decoder.open(filePath, ctxRate, threads)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }
 
@@ -551,7 +557,7 @@ class FFmpegBufferedPlayer {
       throw new Error('Decoder output sample rate (' + this._sampleRate + 'Hz) does not match AudioContext sampleRate (' + ctxRate + 'Hz)');
     }
 
-    console.log('[FFmpegBufferedPlayer] open:', { ctxRate, decRate: this._sampleRate });
+    if (DEBUG) console.log('[FFmpegBufferedPlayer] open:', { ctxRate, decRate: this._sampleRate });
     const channels = decoder.getChannels();
 
     // Decode entire file
