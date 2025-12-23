@@ -1,5 +1,15 @@
 # SoundApp - Project Overview
 
+## About The Author (Context For LLM)
+
+- Name/handle: herrbasan (also GitHub username)
+- Background: German, 50+, residing in Germany
+- Experience: Web developer since ~1996; very strong in JS/CSS/HTML
+- Lower experience: relatively little hands-on practice with C/C++/C#
+- Domain: musician; SoundApp is built primarily as a practical tool for personal music work
+- Product direction: long-used private tool now being prepared for public release
+- Major architecture shift: moved from using the FFmpeg CLI to a native NAPI implementation
+
 ## What This Is
 A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
 

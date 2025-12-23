@@ -70,6 +70,8 @@ async function init(){
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
 	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
+	if(g.config.modStereoSeparation === undefined) { g.config.modStereoSeparation = 100; }
+	if(g.config.modInterpolationFilter === undefined) { g.config.modInterpolationFilter = 0; }
 	
 	// Apply theme at startup
 	if(g.config.theme === 'dark') {
@@ -109,17 +111,39 @@ async function init(){
 	g.maxSampleRate = await detectMaxSampleRate();
 	console.log('Max supported sample rate:', g.maxSampleRate);
 	
-	/* Init Web Audio Context - use max rate in HQ mode, 44100Hz otherwise */
-	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
+	/*
+		Init Web Audio Context
+		NOTE:
+		- FFmpeg AudioWorklet streaming requires the decoded PCM rate to match the AudioContext rate.
+		- The current native FFmpeg decoder outputs a fixed 44100 Hz stream, so forcing a higher
+		  AudioContext sample rate causes pitch/speed errors.
+		- HQ mode is therefore decoupled from AudioContext sample rate until the native addon
+		  supports configurable output sample rates.
+	*/
+	const targetRate = 44100;
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('AudioContext sample rate:', g.audioContext.sampleRate);
+	
+	/* Apply saved output device if configured */
+	if (g.config.outputDeviceId) {
+		try {
+			await g.audioContext.setSinkId(g.config.outputDeviceId);
+			console.log('Output device set to:', g.config.outputDeviceId);
+		} catch (err) {
+			console.error('Failed to set output device, using system default:', err);
+			g.config.outputDeviceId = '';
+			g.config_obj.set(g.config);
+		}
+	}
 
 	/* FFmpeg NAPI Player - unified streaming with gapless looping */
 	const { FFmpegDecoder, getMetadata } = require(g.ffmpeg_napi_path);
 	g.getMetadata = getMetadata;
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
-	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path);
+	const bufferSize = g.config.bufferSize !== undefined ? g.config.bufferSize : 10;
+	const threadCount = g.config.decoderThreads !== undefined ? g.config.decoderThreads : 0;
+	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	try {
 		await g.ffmpegPlayer.init();
 	} catch (err) {
@@ -127,7 +151,13 @@ async function init(){
 	}
 
 	/* Mod Player */
-	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0, context: g.audioContext});
+	const modConfig = {
+		repeatCount: 0,
+		stereoSeparation: g.config.modStereoSeparation !== undefined ? g.config.modStereoSeparation : 100,
+		interpolationFilter: g.config.modInterpolationFilter !== undefined ? g.config.modInterpolationFilter : 0,
+		context: g.audioContext
+	};
+	player = new window.chiptune(modConfig);
 	player.onMetadata(async (meta) => {
 		if(g.currentAudio){
 			g.currentAudio.duration = player.duration;
@@ -181,6 +211,113 @@ async function init(){
 		}
 	});
 	
+	ipcRenderer.on('set-output-device', async (e, data) => {
+		const deviceId = data.deviceId;
+		
+		// Store in config
+		g.config.outputDeviceId = deviceId || '';
+		g.config_obj.set(g.config);
+		
+		// Apply to AudioContext
+		try {
+			if (deviceId) {
+				await g.audioContext.setSinkId(deviceId);
+				console.log('Output device changed to:', deviceId);
+			} else {
+				await g.audioContext.setSinkId('');
+				console.log('Output device reset to system default');
+			}
+		} catch (err) {
+			console.error('Failed to set output device:', err);
+			// Fallback to default
+			g.config.outputDeviceId = '';
+			g.config_obj.set(g.config);
+			
+			// Notify user
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'device-change-failed', {
+					error: 'Device not available, using system default'
+				});
+			}
+		}
+	});
+	
+	ipcRenderer.on('set-buffer-size', async (e, data) => {
+		const bufferSize = data.bufferSize;
+		
+		// Store in config
+		g.config.bufferSize = bufferSize;
+		g.config_obj.set(g.config);
+		
+		// Update player's prebuffer size (takes effect on next file load)
+		if (g.ffmpegPlayer) {
+			g.ffmpegPlayer.prebufferSize = bufferSize;
+			console.log('Buffer size changed to:', bufferSize, 'chunks');
+		}
+	});
+	
+	ipcRenderer.on('set-decoder-threads', async (e, data) => {
+		const threadCount = data.threadCount;
+		
+		// Store in config
+		g.config.decoderThreads = threadCount;
+		g.config_obj.set(g.config);
+		
+		// Update player's thread count
+		if (g.ffmpegPlayer) {
+			const wasPlaying = g.ffmpegPlayer.isPlaying;
+			const currentFile = g.ffmpegPlayer.filePath;
+			const currentTime = g.ffmpegPlayer.getCurrentTime();
+			
+			g.ffmpegPlayer.threadCount = threadCount;
+			console.log('Decoder threads changed to:', threadCount === 0 ? 'Auto' : threadCount);
+			
+			// Reload current file if one is loaded to apply new thread count
+			if (currentFile) {
+				await g.ffmpegPlayer.stop();
+				await g.ffmpegPlayer.open(currentFile);
+				
+				// Restore position and playback state
+				if (currentTime > 0) {
+					await g.ffmpegPlayer.seek(currentTime);
+				}
+				if (wasPlaying) {
+					await g.ffmpegPlayer.play();
+				}
+			}
+		}
+	});
+	
+	ipcRenderer.on('set-mod-stereo-separation', async (e, data) => {
+		const stereoSeparation = data.stereoSeparation;
+		
+		// Store in config
+		g.config.modStereoSeparation = stereoSeparation;
+		g.config_obj.set(g.config);
+		
+		console.log('MOD stereo separation changed to:', stereoSeparation + '%');
+		
+		// Update running player if playing MOD file
+		if (player && g.currentAudio?.isMod) {
+			player.setStereoSeparation(stereoSeparation);
+		}
+	});
+	
+	ipcRenderer.on('set-mod-interpolation-filter', async (e, data) => {
+		const interpolationFilter = data.interpolationFilter;
+		
+		// Store in config
+		g.config.modInterpolationFilter = interpolationFilter;
+		g.config_obj.set(g.config);
+		
+		console.log('MOD interpolation filter changed to:', interpolationFilter);
+		
+		// Update running player if playing MOD file
+		if (player && g.currentAudio?.isMod) {
+			player.setInterpolationFilter(interpolationFilter);
+		}
+	});
+	
 	ipcRenderer.on('toggle-hq-mode', async (e, data) => {
 		await toggleHQMode();
 		// Send updated sample rate to settings window
@@ -223,6 +360,21 @@ async function init(){
 		// Save theme preference to config (stage window is responsible for persistence)
 		g.config.theme = data.dark ? 'dark' : 'light';
 		g.config_obj.set(g.config);
+		
+		// Broadcast to all open windows
+		if (g.windows.settings) {
+			tools.sendToId(g.windows.settings, 'theme-changed', data);
+		}
+		if (g.windows.help) {
+			tools.sendToId(g.windows.help, 'theme-changed', data);
+		}
+		if (g.windows.playlist) {
+			tools.sendToId(g.windows.playlist, 'theme-changed', data);
+		}
+	});
+	
+	ipcRenderer.on('toggle-theme', (e, data) => {
+		tools.sendToMain('command', { command: 'toggle-theme' });
 	});
 	
 }
@@ -692,19 +844,25 @@ async function toggleHQMode(){
 	g.config.hqMode = !g.config.hqMode;
 	g.config_obj.set(g.config);
 	
-	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
-	console.log('Switching to', g.config.hqMode ? 'HQ mode' : 'Standard mode', '(' + targetRate + 'Hz)');
+	const targetRate = 44100;
+	console.log('Switching to', g.config.hqMode ? 'HQ mode' : 'Standard mode', '(' + targetRate + 'Hz)', '(fixed output rate)');
 	
-	const wasPlaying = g.isPlaying;
+	const wasPlaying = !g.currentAudio?.paused;
 	const currentFile = g.music[g.idx];
-	const currentTime = g.currentAudio?.player?.getCurrentTime() || 0;
+	const wasMod = g.currentAudio?.isMod;
+	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0);
 	
-	if(g.currentAudio && g.currentAudio.player){
-		if(typeof g.currentAudio.player.stop === 'function'){
-			g.currentAudio.player.stop();
-		}
-		if(typeof g.currentAudio.player.close === 'function'){
-			await g.currentAudio.player.close();
+	// Stop current playback
+	if(g.currentAudio){
+		if(g.currentAudio.isMod){
+			player.stop();
+		} else if(g.currentAudio.player){
+			if(typeof g.currentAudio.player.stop === 'function'){
+				g.currentAudio.player.stop();
+			}
+			if(typeof g.currentAudio.player.close === 'function'){
+				await g.currentAudio.player.close();
+			}
 		}
 		g.currentAudio = null;
 	}
@@ -719,17 +877,55 @@ async function toggleHQMode(){
 	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
-	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path);
+	const bufferSize = g.config.bufferSize !== undefined ? g.config.bufferSize : 10;
+	const threadCount = g.config.decoderThreads !== undefined ? g.config.decoderThreads : 0;
+	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	await g.ffmpegPlayer.init();
 	
-	player = new window.chiptune({repeatCount: 0, stereoSeparation: 100, interpolationFilter: 0, context: g.audioContext});
+	const modConfig = {
+		repeatCount: 0,
+		stereoSeparation: g.config.modStereoSeparation !== undefined ? g.config.modStereoSeparation : 100,
+		interpolationFilter: g.config.modInterpolationFilter !== undefined ? g.config.modInterpolationFilter : 0,
+		context: g.audioContext
+	};
+	player = new window.chiptune(modConfig);
+	
+	// Wait for player to initialize before continuing
+	await new Promise((resolve) => {
+		player.onInitialized(() => {
+			console.log('Player Initialized after HQ toggle');
+			player.gain.connect(g.audioContext.destination);
+			resolve();
+		});
+	});
+	
+	// Now set up remaining handlers
+	player.onMetadata(async (meta) => {
+		if(g.currentAudio){
+			g.currentAudio.duration = player.duration;
+			g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
+			await renderInfo(g.currentAudio.fp, meta);
+		}
+		g.blocky = false;
+	});
+	player.onProgress((e) => {
+		if(g.currentAudio){
+			g.currentAudio.currentTime = e.pos || 0;
+		}
+	});
+	player.onEnded(audioEnded);
+	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
 	
 	if(currentFile){
 		await playAudio(currentFile);
-		if(currentTime > 0 && g.currentAudio && g.currentAudio.player){
-			await g.currentAudio.player.seek(currentTime);
+		if(currentTime > 0 && g.currentAudio){
+			if(g.currentAudio.isMod){
+				player.seek(currentTime);
+			} else if(g.currentAudio.player?.seek){
+				await g.currentAudio.player.seek(currentTime);
+			}
 		}
-		if(wasPlaying && g.currentAudio){
+		if(wasPlaying && g.currentAudio?.play){
 			g.currentAudio.play();
 		}
 	}
@@ -992,9 +1188,16 @@ async function openWindow(type) {
 		stageBounds.y < d.bounds.y + d.bounds.height
 	) || displays[0];
 	
+	// Window size configurations per type
+	const windowSizes = {
+		help: { width: 800, height: 600 },
+		settings: { width: 500, height: 800 },
+		playlist: { width: 960, height: 800 }
+	};
+	
 	// Position window in center of the same display
-	let windowWidth = 960;
-	let windowHeight = 800;
+	let windowWidth = windowSizes[type]?.width || 960;
+	let windowHeight = windowSizes[type]?.height || 800;
 	let x = targetDisplay.bounds.x + Math.round((targetDisplay.bounds.width - windowWidth) / 2);
 	let y = targetDisplay.bounds.y + Math.round((targetDisplay.bounds.height - windowHeight) / 2);
 	

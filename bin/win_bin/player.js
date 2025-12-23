@@ -8,10 +8,10 @@
  * @example
  * const { FFmpegDecoder, FFmpegStreamPlayer } = require('ffmpeg-napi-interface');
  * 
- * // Create AudioContext at desired sample rate
- * const audioContext = new AudioContext({ sampleRate: 192000 });
+ * // Create AudioContext at 44100Hz (must match decoder output)
+ * const audioContext = new AudioContext({ sampleRate: 44100 });
  * 
- * // Create player (decoder will match AudioContext rate)
+ * // Create player
  * FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
  * const player = new FFmpegStreamPlayer(audioContext);
  * 
@@ -52,12 +52,15 @@ class FFmpegStreamPlayer {
   }
 
   /**
-   * @param {AudioContext} audioContext - AudioContext at any supported sample rate
+   * @param {AudioContext} audioContext - Playback clock for the AudioWorklet (its sampleRate drives time)
    * @param {string} [workletPath] - Path to worklet file (for custom serving scenarios)
+   * @param {number} [prebufferSize] - Target queue depth in chunks (takes effect on next open/play)
+   * @param {number} [threadCount] - Reserved for future native decoder threading (no-op for now)
    */
-  constructor(audioContext, workletPath = null) {
+  constructor(audioContext, workletPath = null, prebufferSize = 10, threadCount = 0) {
     this.audioContext = audioContext;
     this.workletPath = workletPath;
+    this.threadCount = threadCount | 0;
     this.decoder = null;
     this.workletNode = null;
     this.gainNode = audioContext.createGain();
@@ -72,15 +75,18 @@ class FFmpegStreamPlayer {
     this.duration = 0;
     this._sampleRate = 44100;
     this._channels = 2;
-    this._targetVolume = 1;
-    this._rampTime = 0.030;
     
     // Position tracking
     this.currentFrames = 0;
     this.totalFramesInFile = 0;
     
-    // Chunk settings
-    this.chunkSize = 8820; // samples per chunk (stereo interleaved)
+    // Chunk + buffering settings (time-based to behave consistently across sample rates)
+    this.chunkSeconds = 0.10;
+    this.chunkFrames = 0;
+    this.chunkSize = 0; // samples per chunk (interleaved)
+    this._prebufferSize = (prebufferSize | 0) > 0 ? (prebufferSize | 0) : 10;
+    this._queuedChunks = 0;
+    this._queueEstimate = 0;
     
     // Loop chunk tracking
     this.loopChunkFrames = 0; // actual frames in loop chunk
@@ -90,30 +96,43 @@ class FFmpegStreamPlayer {
   }
 
   /** @type {number} */
+  get prebufferSize() {
+    return this._prebufferSize;
+  }
+
+  set prebufferSize(val) {
+    const n = val | 0;
+    this._prebufferSize = n > 0 ? n : 1;
+  }
+
+  _recomputeChunkSize() {
+    const sr = (this.audioContext && this.audioContext.sampleRate) ? this.audioContext.sampleRate : this._sampleRate;
+    const frames = Math.max(256, Math.round(sr * this.chunkSeconds));
+    this.chunkFrames = frames;
+    this.chunkSize = frames * this._channels;
+  }
+
+  _fillQueue(targetChunks) {
+    if (!this.decoder || !this.workletNode || this.decoderEOF) return;
+    let queued = this._queueEstimate | 0;
+    const target = targetChunks | 0;
+    const maxBurst = 64;
+    for (let i = 0; i < maxBurst && queued < target && !this.decoderEOF; i++) {
+      const eofBefore = this.decoderEOF;
+      this._decodeAndSendChunk();
+      if (this.decoderEOF && !eofBefore) break;
+      queued++;
+    }
+    this._queueEstimate = queued;
+  }
+
+  /** @type {number} */
   get volume() {
-    return this._targetVolume;
+    return this.gainNode.gain.value;
   }
 
   set volume(val) {
-    this._targetVolume = val;
-    const now = this.audioContext.currentTime;
-    this.gainNode.gain.cancelScheduledValues(now);
-    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
-    this.gainNode.gain.linearRampToValueAtTime(val, now + this._rampTime);
-  }
-
-  _fadeIn() {
-    const now = this.audioContext.currentTime;
-    this.gainNode.gain.cancelScheduledValues(now);
-    this.gainNode.gain.setValueAtTime(0, now);
-    this.gainNode.gain.linearRampToValueAtTime(this._targetVolume, now + this._rampTime);
-  }
-
-  _fadeOut() {
-    const now = this.audioContext.currentTime;
-    this.gainNode.gain.cancelScheduledValues(now);
-    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
-    this.gainNode.gain.linearRampToValueAtTime(0, now + this._rampTime);
+    this.gainNode.gain.value = val;
   }
 
   /**
@@ -151,7 +170,7 @@ class FFmpegStreamPlayer {
       throw new Error('FFmpegDecoder not set. Call FFmpegStreamPlayer.setDecoder(FFmpegDecoder) first.');
     }
 
-    this.decoder = new FFmpegDecoder(this.audioContext.sampleRate);
+    this.decoder = new FFmpegDecoder();
     if (!this.decoder.open(filePath)) {
       throw new Error('Failed to open file with FFmpeg decoder');
     }
@@ -160,10 +179,13 @@ class FFmpegStreamPlayer {
     this.duration = this.decoder.getDuration();
     this._sampleRate = this.decoder.getSampleRate();
     this._channels = this.decoder.getChannels();
+    this._recomputeChunkSize();
     this.totalFramesInFile = Math.floor(this.duration * this._sampleRate);
     this.decoderEOF = false;
     this.currentFrames = 0;
     this.isLoaded = true;
+    this._queuedChunks = 0;
+    this._queueEstimate = 0;
 
     // Create worklet node
     this.workletNode = new AudioWorkletNode(this.audioContext, 'ffmpeg-stream', {
@@ -176,28 +198,23 @@ class FFmpegStreamPlayer {
       switch (event.data.type) {
         case 'position':
           this.currentFrames = event.data.frames;
+          if (event.data.queuedChunks !== undefined) {
+            this._queuedChunks = event.data.queuedChunks | 0;
+            this._queueEstimate = this._queuedChunks;
+          }
           break;
           
         case 'loopStarted':
           // Worklet is playing loop chunk (chunk 0)
           // Seek to start and skip first chunk to ensure sample-accurate positioning
-          if (!this.decoder.seek(0)) {
-            console.error('Failed to seek to start for loop');
-            break;
-          }
+          this.decoder.seek(0);
           // Read and discard first chunk (same as loopChunk) to get to chunk 1 position
-          const skipResult = this.decoder.read(this.loopChunkFrames * this._channels);
-          if (skipResult.samplesRead === 0) {
-            console.error('Failed to skip loop chunk');
-            break;
-          }
+          this.decoder.read(this.loopChunkFrames * this._channels);
           this.decoderEOF = false;
-          // Burst chunks to refill queue
-          for (let i = 0; i < 15; i++) {
-            this._decodeAndSendChunk();
-          }
-          // Restart feed loop (it stopped at EOF)
-          this._startFeedLoop();
+          this._queuedChunks = 0;
+          this._queueEstimate = 0;
+          // Burst-fill queue while loopChunk is playing
+          this._fillQueue(this._prebufferSize);
           break;
           
         case 'ended':
@@ -248,6 +265,10 @@ class FFmpegStreamPlayer {
         type: 'chunk',
         samples: loopChunk
       });
+
+      // Worklet queue now has at least the first chunk enqueued
+      this._queuedChunks = 1;
+      this._queueEstimate = 1;
     }
     
     // Decoder is now positioned at chunk 1
@@ -271,19 +292,15 @@ class FFmpegStreamPlayer {
     // Connect audio graph
     this.workletNode.connect(this.gainNode);
     
-    // Fade in to prevent clicks
-    this._fadeIn();
-    
-    // Restore position from pause if resuming
-    if (this._pausedAtFrames !== undefined) {
-      this.currentFrames = this._pausedAtFrames;
-      this._pausedAtFrames = undefined;
-    }
+    // Reset position
+    this.workletNode.port.postMessage({ type: 'resetPosition' });
+    this.currentFrames = 0;
 
-    // Pre-buffer chunks
-    for (let i = 0; i < 10; i++) {
-      this._decodeAndSendChunk();
-    }
+    // Reset queue tracking
+    this._queuedChunks = this._queueEstimate = this.loopChunkFrames > 0 ? 1 : 0;
+
+    // Pre-buffer to target queue depth
+    this._fillQueue(this._prebufferSize);
 
     this.isPlaying = true;
     this._startFeedLoop();
@@ -316,9 +333,14 @@ class FFmpegStreamPlayer {
    */
   _startFeedLoop() {
     if (!this.isPlaying) return;
-    if (this.decoderEOF) return;
-    
-    this._decodeAndSendChunk();
+
+    if (!this.decoderEOF) {
+      // Keep queue around the configured target depth
+      if ((this._queueEstimate | 0) < (this._prebufferSize | 0)) {
+        this._fillQueue(this._prebufferSize);
+      }
+    }
+
     this.decodeTimer = setTimeout(() => this._startFeedLoop(), 20);
   }
 
@@ -335,8 +357,7 @@ class FFmpegStreamPlayer {
    * @returns {number}
    */
   getCurrentTime() {
-    const frames = this.isPlaying ? this.currentFrames : (this._pausedAtFrames ?? this.currentFrames);
-    const time = frames / this._sampleRate;
+    const time = this.currentFrames / this._sampleRate;
     
     if (this.isLoop && this.duration > 0) {
       return time % this.duration;
@@ -350,21 +371,16 @@ class FFmpegStreamPlayer {
    */
   pause() {
     if (this.isPlaying) {
-      this._fadeOut();
       this.isPlaying = false;
-      this._pausedAtFrames = this.currentFrames;
 
       if (this.decodeTimer) {
         clearTimeout(this.decodeTimer);
         this.decodeTimer = null;
       }
 
-      // Delay disconnect to allow fade out
-      setTimeout(() => {
-        if (!this.isPlaying && this.workletNode) {
-          this.workletNode.disconnect();
-        }
-      }, this._rampTime * 1000 + 5);
+      if (this.workletNode) {
+        this.workletNode.disconnect();
+      }
     }
   }
 
@@ -382,65 +398,13 @@ class FFmpegStreamPlayer {
    */
   seek(seconds) {
     if (!this.decoder) return false;
-    
-    seconds = Math.max(0, Math.min(seconds, this.duration));
-
-    // Rate limit seeks - ignore if too soon after last seek
-    const now = performance.now();
-    if (this._lastSeekTime && (now - this._lastSeekTime) < 80) {
-      this._pendingSeek = seconds;
-      if (!this._seekThrottleTimer) {
-        this._seekThrottleTimer = setTimeout(() => {
-          this._seekThrottleTimer = null;
-          if (this._pendingSeek !== null) {
-            const pos = this._pendingSeek;
-            this._pendingSeek = null;
-            this._lastSeekTime = performance.now();
-            this._executeSeek(pos);
-          }
-        }, 80);
-      }
-      return true;
-    }
-    this._lastSeekTime = now;
-    this._pendingSeek = null;
-
-    this._executeSeek(seconds);
-    return true;
-  }
-
-  /**
-   * Execute a seek with fade out/in
-   * @private
-   */
-  _executeSeek(seconds) {
-    // Stop feed loop during seek
-    if (this.decodeTimer) {
-      clearTimeout(this.decodeTimer);
-      this.decodeTimer = null;
-    }
-
-    // Fade out before seek to prevent clicks
-    if (this.isPlaying) {
-      this._fadeOut();
-    }
-
-    // Delay the actual seek to allow fade out to complete
-    setTimeout(() => {
-      this._doSeek(seconds);
-    }, this._rampTime * 1000);
-  }
-
-  /**
-   * Internal seek implementation (called after fade out)
-   * @private
-   */
-  _doSeek(seconds) {
-    if (!this.decoder) return;
 
     const success = this.decoder.seek(seconds);
     if (success) {
       this.decoderEOF = false;
+
+      this._queuedChunks = 0;
+      this._queueEstimate = 0;
 
       if (this.workletNode) {
         this.workletNode.port.postMessage({ type: 'clear' });
@@ -449,16 +413,13 @@ class FFmpegStreamPlayer {
         this.workletNode.port.postMessage({ type: 'setPosition', frames: frames });
         this.currentFrames = frames;
         
-        // Pre-buffer and restart feed loop
+        // Pre-buffer
         if (this.isPlaying) {
-          for (let i = 0; i < 10; i++) {
-            this._decodeAndSendChunk();
-          }
-          this._fadeIn();
-          this._startFeedLoop();
+          this._fillQueue(this._prebufferSize);
         }
       }
     }
+    return success;
   }
 
   /**

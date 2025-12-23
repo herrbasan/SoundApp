@@ -27,15 +27,46 @@
             <main>
                 <div class="nui-card">
                     <section class="settings-section">
-                        <h3>Audio</h3>
+                        <h2>Appearance</h2>
+                        <div class="nui-checkbox">
+                            <input type="checkbox" id="darkThemeToggle">
+                            <label for="darkThemeToggle">
+                                <strong>Dark Theme</strong>
+                            </label>
+                        </div>
+                        <div class="setting-description">
+                            Switch between dark and light theme. Alternative to the Ctrl+X keyboard shortcut.
+                        </div>
+                    </section>
+                </div>
+
+                <div class="nui-card">
+                    <section class="settings-section">
+                        <h2>Start-Up</h2>
+                        <div class="nui-input">
+                            <div>
+                                <label>Default Directory</label>
+                                <div class="browse-input">
+
+                                    <input type="text" id="defaultDirInput" readonly placeholder="No directory set">
+
+                                    <button id="browseBtn" type="button">Browse...</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="nui-card">
+                    <section class="settings-section">
+                        <h2>Audio / Quality</h2>
                         
                         <div class="nui-checkbox">
                             <input type="checkbox" id="hqModeToggle">
                             <label for="hqModeToggle">
-                                <strong>HQ Mode</strong> — Use maximum sample rate (192kHz) for playback
+                                <strong>HQ Mode</strong><span style="padding-left: 0.5rem;">(stable streaming)</span>
                             </label>
                         </div>
-
                         <div class="restart-notice" id="hqRestartNotice">
                             Switching audio system...
                         </div>
@@ -43,30 +74,98 @@
                         <div class="info-box">
                             <strong>Audio System Info</strong><br>
                             Max supported sample rate: <strong id="maxSampleRate">--</strong><br>
-                            Current AudioContext rate: <strong id="currentSampleRate">--</strong>
+                            Current AudioContext rate (fixed): <strong id="currentSampleRate">--</strong>
                         </div>
-                    </section>
-                </div>
 
-                <div class="nui-card">
-                    <section class="settings-section">
-                        <h3>General</h3>
-                        
-                        <div class="nui-input with-button">
-                            <div style="flex: 1;">
-                                <label>Default Directory</label>
-                                <input type="text" id="defaultDirInput" readonly placeholder="No directory set">
+                        <div class="nui-input">
+                            <label>Output Device</label>
+                            <select id="outputDeviceSelect">
+                                <option value="">System Default</option>
+                            </select>
+                            <div class="setting-description">
+                                Choose which audio interface to use for playback. Useful for professionals with multiple interfaces (monitors, headphones, external DACs). Changes take effect immediately.
                             </div>
-                            <button id="browseBtn">Browse...</button>
+                        </div>
+                        
+                        <div class="restart-notice" id="deviceChangeNotice">
+                            Switching output device...
                         </div>
                     </section>
                 </div>
+                <div class="nui-card">
+                    <section>
+                        <h2>Streaming</h2>
+                        <div class="nui-input">
+                            <label>Buffer Size (chunks)</label>
+                            <select id="bufferSizeSelect">
+                                <option value="5">5 (~1 sec)</option>
+                                <option value="10" selected>10 (~2 sec) - Default</option>
+                                <option value="15">15 (~3 sec)</option>
+                                <option value="20">20 (~4 sec)</option>
+                                <option value="25">25 (~5 sec)</option>
+                                <option value="30">30 (~6 sec)</option>
+                            </select>
+                            <div class="setting-description">
+                                Amount of audio pre-buffered for smooth playback. Higher values prevent dropouts during CPU spikes but use more memory. Lower values reduce memory usage. Most systems work well with the default (10 chunks).
+                            </div>
+                        </div>
+
+                        <div class="nui-input">
+                            <label>Decoder Threads</label>
+                            <select id="decoderThreadsSelect">
+                                <option value="0" selected>Auto (detect CPU cores)</option>
+                                <option value="1">1 thread (minimal CPU)</option>
+                                <option value="2">2 threads</option>
+                                <option value="4">4 threads</option>
+                                <option value="8">8 threads</option>
+                            </select>
+                            <div class="setting-description">
+                                Number of CPU threads used for audio decoding. Auto mode uses all available cores. Lower values reduce CPU load on older/slower systems. Most modern systems won't notice a difference. Changing this reloads the current file.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                <div class="nui-card">
+                    <section>
+                        <h2>Module / Tracker</h2>
+                        <div class="nui-input">
+                            <label>MOD Stereo Separation</label>
+                            <select id="modStereoSeparationSelect">
+                                <option value="0">0% (Mono)</option>
+                                <option value="25">25%</option>
+                                <option value="50">50%</option>
+                                <option value="75">75%</option>
+                                <option value="100" selected>100% (Full Amiga stereo)</option>
+                            </select>
+                            <div class="setting-description">
+                                Stereo width control for tracker/module formats (MOD, XM, S3M, IT). 0% = mono, 100% = full Amiga-style hard stereo panning. Affects MOD files only. Changing this reloads the current file.
+                            </div>
+                        </div>
+
+                        <div class="nui-input">
+                            <label>MOD Interpolation Filter</label>
+                            <select id="modInterpolationFilterSelect">
+                                <option value="0" selected>Internal default</option>
+                                <option value="1">No interpolation (zero order hold)</option>
+                                <option value="2">Linear interpolation</option>
+                                <option value="4">Cubic interpolation</option>
+                                <option value="8">Windowed sinc (8 taps, highest quality)</option>
+                            </select>
+                            <div class="setting-description">
+                                Sample interpolation quality for tracker/module formats. Higher quality reduces aliasing artifacts at the cost of slightly more CPU usage. Affects MOD files only. Changing this reloads the current file.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                <div style="height: 4rem"></div>
             </main>
         </div>
+        <div class="nui-status-bar"></div>
     </div>
 
     <script type="module">
         import ut from '../libs/nui/nui_ut.js';
+        import superSelect from '../libs/nui/nui_select.js';
         
         const isElectron = typeof process !== 'undefined' && process.versions && process.versions.electron;
         
@@ -125,11 +224,209 @@
                 }, 3000);
             });
 
+            // Dark Theme Toggle
+            const darkThemeToggle = document.getElementById('darkThemeToggle');
+            if (config.theme === 'dark') {
+                darkThemeToggle.checked = true;
+            }
+
+            darkThemeToggle.addEventListener('change', () => {
+                bridge.sendToStage('toggle-theme', {});
+            });
+
+            // Listen for theme changes from main process
+            bridge.on('theme-changed', (data) => {
+                darkThemeToggle.checked = data.dark;
+                if (data.dark) {
+                    document.body.classList.add('dark');
+                } else {
+                    document.body.classList.remove('dark');
+                }
+            });
+
             // Listen for sample rate updates
             bridge.on('sample-rate-updated', (data) => {
                 if (data.currentSampleRate) {
                     document.getElementById('currentSampleRate').textContent = data.currentSampleRate + ' Hz';
                 }
+            });
+
+            // Output Device Selection
+            const deviceSelect = document.getElementById('outputDeviceSelect');
+            const deviceNotice = document.getElementById('deviceChangeNotice');
+            let deviceSelectWidget = null;
+            
+            // Enumerate audio devices
+            async function loadAudioDevices() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const audioOutputs = devices.filter(d => {
+                        if (d.kind !== 'audiooutput') return false;
+                        // Filter out Communications devices
+                        if (d.label && d.label.toLowerCase().includes('communications')) return false;
+                        return true;
+                    });
+                    
+                    // Build options array for superSelect
+                    const options = [
+                        { name: 'System Default', value: '', selected: !config.outputDeviceId }
+                    ];
+                    
+                    audioOutputs.forEach(device => {
+                        // Skip if it's a duplicate "System Default" or "Default" device
+                        const label = device.label || `Device ${device.deviceId.substring(0, 8)}`;
+                        if (label.toLowerCase().includes('system default') || label.toLowerCase() === 'default') {
+                            return;
+                        }
+                        
+                        options.push({
+                            name: label,
+                            value: device.deviceId,
+                            selected: device.deviceId === config.outputDeviceId
+                        });
+                    });
+                    
+                    // Clear and rebuild select
+                    deviceSelect.innerHTML = '';
+                    options.forEach(opt => {
+                        const option = document.createElement('option');
+                        option.value = opt.value;
+                        option.textContent = opt.name;
+                        if (opt.selected) option.selected = true;
+                        deviceSelect.appendChild(option);
+                    });
+                    
+                    // Initialize or update superSelect widget
+                    if (!deviceSelectWidget) {
+                        deviceSelectWidget = superSelect(deviceSelect, {
+                            searchable: false
+                        });
+                    } else {
+                        deviceSelectWidget.reRender();
+                    }
+                    
+                    // Check if configured device still exists
+                    if (config.outputDeviceId) {
+                        const deviceExists = audioOutputs.some(d => d.deviceId === config.outputDeviceId);
+                        if (!deviceExists) {
+                            console.log('Configured output device not found, using system default');
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to enumerate devices:', err);
+                }
+            }
+            
+            loadAudioDevices();
+            
+            // Listen for device changes
+            navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices);
+            
+            // Handle device selection
+            deviceSelect.addEventListener('change', () => {
+                const deviceId = deviceSelect.value;
+                bridge.sendToStage('set-output-device', { deviceId });
+                deviceNotice.classList.add('visible');
+                
+                setTimeout(() => {
+                    deviceNotice.classList.remove('visible');
+                }, 2000);
+            });
+
+            // Buffer Size Selection
+            const bufferSizeSelect = document.getElementById('bufferSizeSelect');
+            let bufferSizeWidget = null;
+            
+            // Set current value from config
+            if (config.bufferSize !== undefined) {
+                bufferSizeSelect.value = config.bufferSize;
+            }
+            
+            // Initialize superSelect
+            bufferSizeWidget = superSelect(bufferSizeSelect, {
+                searchable: false
+            });
+            
+            // Handle buffer size change with debounce
+            let bufferChangeTimeout = null;
+            bufferSizeSelect.addEventListener('change', () => {
+                clearTimeout(bufferChangeTimeout);
+                bufferChangeTimeout = setTimeout(() => {
+                    const bufferSize = parseInt(bufferSizeSelect.value);
+                    bridge.sendToStage('set-buffer-size', { bufferSize });
+                }, 200); // 200ms debounce
+            });
+
+            // Decoder Threads Selection
+            const decoderThreadsSelect = document.getElementById('decoderThreadsSelect');
+            let decoderThreadsWidget = null;
+            
+            // Set current value from config
+            if (config.decoderThreads !== undefined) {
+                decoderThreadsSelect.value = config.decoderThreads;
+            }
+            
+            // Initialize superSelect
+            decoderThreadsWidget = superSelect(decoderThreadsSelect, {
+                searchable: false
+            });
+            
+            // Handle decoder threads change with debounce
+            let threadsChangeTimeout = null;
+            decoderThreadsSelect.addEventListener('change', () => {
+                clearTimeout(threadsChangeTimeout);
+                threadsChangeTimeout = setTimeout(() => {
+                    const threadCount = parseInt(decoderThreadsSelect.value);
+                    bridge.sendToStage('set-decoder-threads', { threadCount });
+                }, 200); // 200ms debounce
+            });
+
+            // MOD Stereo Separation Selection
+            const modStereoSeparationSelect = document.getElementById('modStereoSeparationSelect');
+            let modStereoSeparationWidget = null;
+            
+            // Set current value from config
+            if (config.modStereoSeparation !== undefined) {
+                modStereoSeparationSelect.value = config.modStereoSeparation;
+            }
+            
+            // Initialize superSelect
+            modStereoSeparationWidget = superSelect(modStereoSeparationSelect, {
+                searchable: false
+            });
+            
+            // Handle stereo separation change with debounce
+            let stereoSeparationChangeTimeout = null;
+            modStereoSeparationSelect.addEventListener('change', () => {
+                clearTimeout(stereoSeparationChangeTimeout);
+                stereoSeparationChangeTimeout = setTimeout(() => {
+                    const stereoSeparation = parseInt(modStereoSeparationSelect.value);
+                    bridge.sendToStage('set-mod-stereo-separation', { stereoSeparation });
+                }, 200); // 200ms debounce
+            });
+
+            // MOD Interpolation Filter Selection
+            const modInterpolationFilterSelect = document.getElementById('modInterpolationFilterSelect');
+            let modInterpolationFilterWidget = null;
+            
+            // Set current value from config
+            if (config.modInterpolationFilter !== undefined) {
+                modInterpolationFilterSelect.value = config.modInterpolationFilter;
+            }
+            
+            // Initialize superSelect
+            modInterpolationFilterWidget = superSelect(modInterpolationFilterSelect, {
+                searchable: false
+            });
+            
+            // Handle interpolation filter change with debounce
+            let interpolationFilterChangeTimeout = null;
+            modInterpolationFilterSelect.addEventListener('change', () => {
+                clearTimeout(interpolationFilterChangeTimeout);
+                interpolationFilterChangeTimeout = setTimeout(() => {
+                    const interpolationFilter = parseInt(modInterpolationFilterSelect.value);
+                    bridge.sendToStage('set-mod-interpolation-filter', { interpolationFilter });
+                }, 200); // 200ms debounce
             });
 
             // Default Directory

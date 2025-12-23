@@ -30,6 +30,12 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     this.framesPlayed = 0;
     this.hasEnded = false;  // Track if we've already fired the 'ended' event
     this.reachedEOF = false;  // True after playing the last (EOF-marked) chunk
+
+    // Position reporting (time-based; sampleRate is the AudioContext rate)
+    this._posEveryFrames = Math.max(256, Math.round(sampleRate * 0.05));
+    this._lastPosFrames = 0;
+    this._blockCounter = 0;
+    this._posEveryBlocks = Math.max(1, Math.round(this._posEveryFrames / 128));
     
     this.port.onmessage = this.onMessage.bind(this);
   }
@@ -97,6 +103,7 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
   }
   
   process(inputs, outputs, parameters) {
+    this._blockCounter++;
     const output = outputs[0];
     if (!output || output.length < 2) return true;
     
@@ -135,13 +142,14 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
           if (this.currentChunkIsLast) {
             this.reachedEOF = true;
           }
-          
+
           if (this.currentChunkIsLast && this.loopEnabled && this.loopChunk) {
             // This was the last chunk and looping is on - play loop chunk
             this.playingLoopChunk = true;
             this.loopChunkIndex = 0;
             this.framesPlayed = 0;
             this.currentChunkIsLast = false;
+            this.reachedEOF = false;
             
             // Notify main thread
             this.port.postMessage({ type: 'loopStarted' });
@@ -184,7 +192,10 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     }
     
     // Report position periodically
-    if (this.framesPlayed % 4410 < 128) {
+    // IMPORTANT: also report while outputting silence so the main thread can observe
+    // queue depth and refill, otherwise streaming can deadlock after underruns.
+    if ((this.framesPlayed - this._lastPosFrames >= this._posEveryFrames) || (this._blockCounter % this._posEveryBlocks === 0)) {
+      if (this.framesPlayed > this._lastPosFrames) this._lastPosFrames = this.framesPlayed;
       this.port.postMessage({ 
         type: 'position',
         frames: this.framesPlayed,

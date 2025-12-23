@@ -99,7 +99,7 @@ body.electron {
  * ============================================================ */
 
 .settings-section {
-	margin-bottom: 2rem;
+	
 }
 
 .settings-section h3 {
@@ -116,6 +116,8 @@ body.electron {
 	border-radius: var(--border-radius1);
 	font-size: 0.9rem;
 	line-height: 1.6;
+	margin-top: 1rem;
+	margin-bottom: 1rem;
 }
 
 .info-box strong {
@@ -136,16 +138,25 @@ body.electron {
 	display: block;
 }
 
-.nui-input.with-button {
-	display: flex;
-	gap: 0.5rem;
-	align-items: stretch;
+.browse-input {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 1rem;
 }
 
-.nui-input.with-button input {
-	flex: 1;
+.browse-input button {
+	min-height: 0;
+	height: 100%;
 }
 
-.nui-input.with-button button {
-	white-space: nowrap;
+
+
+
+.setting-description {
+	margin-top: 1rem;
+	font-size: 0.85rem;
+	line-height: 1.5;
+	color: rgba(var(--color-text), 0.7);
+	background-color: rgb(var(--color-shade3));
+	padding: 1rem;
 }
