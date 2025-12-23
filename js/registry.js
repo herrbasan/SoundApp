@@ -4,7 +4,15 @@ const reg = require('../libs/native-registry/dist/native-registry.js');
 
 async function registry(task, exe_path, app_path) {
     return new Promise(async (resolve, reject) => {
-        let icon_path = path.join(process.resourcesPath || path.dirname(app_path), 'icons');
+        let icon_path;
+        // Check if this is a packaged app by looking at app_path (ASAR location)
+        if (app_path.includes('app.asar')) {
+            // Packaged app: app_path is at app-X.X.X/resources/app.asar, icons at app-X.X.X/resources/icons
+            icon_path = path.join(path.dirname(app_path), 'icons');
+        } else {
+            // Dev mode: derive from app_path
+            icon_path = path.join(path.dirname(app_path), 'build', 'icons');
+        }
         let registry_data = {
             app: {
                 name: 'SoundApp',
@@ -101,19 +109,27 @@ async function registry(task, exe_path, app_path) {
      
         if (task === 'register') {
             for (let key in registry_data.filetypes) {
-                await reg.registerProgID({
-                    progID: key,
-                    description: registry_data.filetypes[key].description,
-                    app_name: registry_data.app.name,
-                    icon_path: path.resolve(icon_path, registry_data.filetypes[key].icon),
-                    command: exe_path,
-                    extensions: registry_data.filetypes[key].extensions,
-                })
+                try {
+                    await reg.registerProgID({
+                        progID: key,
+                        description: registry_data.filetypes[key].description,
+                        app_name: registry_data.app.name,
+                        icon_path: path.resolve(icon_path, registry_data.filetypes[key].icon),
+                        command: exe_path,
+                        extensions: registry_data.filetypes[key].extensions,
+                    })
+                } catch (err) {
+                    console.error(`Failed to register ${key}:`, err);
+                }
             }
         }
         else if (task === 'unregister') {
             for (let key in registry_data.filetypes) {
-                await reg.removeProgID({ progID: key, extensions: registry_data.filetypes[key].extensions});
+                try {
+                    await reg.removeProgID({ progID: key, extensions: registry_data.filetypes[key].extensions});
+                } catch (err) {
+                    console.error(`Failed to unregister ${key}:`, err);
+                }
             }
         }
   
