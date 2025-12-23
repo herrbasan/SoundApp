@@ -676,7 +676,7 @@ async function playAudio(fp, n){
 				ffPlayer.onEnded(audioEnded);
 				
 				const metadata = await ffPlayer.open(fp);
-				console.log('File sample rate:', metadata.sampleRate, 'AudioContext rate:', g.audioContext.sampleRate);
+				//console.log('File sample rate:', metadata.sampleRate, 'AudioContext rate:', g.audioContext.sampleRate);
 				ffPlayer.setLoop(g.isLoop);
 				
 				g.currentAudio = {
@@ -766,6 +766,7 @@ function renderInfo(fp, metadata){
 			let bitrateStr = meta.bitrate ? Math.round(meta.bitrate/1000) + ' kbps' : '';
 			let channelStr = meta.channels == 2 ? 'stereo' : (meta.channels == 1 ? 'mono' : (meta.channels ? meta.channels + ' ch' : ''));
 			let sampleStr = meta.sampleRate ? meta.sampleRate + ' Hz' : '';
+			if(meta.bitsPerSample && sampleStr) sampleStr += ' @ ' + meta.bitsPerSample + ' Bit';
 			let infoLine = [bitrateStr, channelStr, sampleStr].filter(s => s).join(' / ');
 			if(infoLine) g.text.appendChild(renderInfoItem(' ', infoLine))
 			
