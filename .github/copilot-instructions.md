@@ -92,6 +92,29 @@ Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via
 - **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
 - **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
 
+### Release Workflow
+When the user asks to create a release, **always use the release script**:
+
+```powershell
+# Standard release workflow:
+1. npm version patch   # (or minor/major) - bumps version in package.json
+2. git add -A && git commit -m "Description (vX.X.X)"
+3. git push origin main
+4. .\scripts\create-release.ps1   # Builds and creates GitHub release with all artifacts
+```
+
+The script (`scripts/create-release.ps1`) handles:
+- Building the app with `npm run make`
+- Uploading all required artifacts: `soundApp_Setup.exe`, `*-full.nupkg`, `RELEASES`
+- Creating the GitHub release with proper tagging
+
+**Never manually run `gh release create`** - the nupkg and RELEASES files are required for Squirrel auto-updates to work.
+
+Options:
+- `.\scripts\create-release.ps1 -Clean` - Clean old builds first
+- `.\scripts\create-release.ps1 -Draft` - Create as draft (won't trigger auto-updates)
+- `.\scripts\create-release.ps1 -Notes "changelog text"` - Custom release notes
+
 ## Release History
 
 ### Version 1.2 (December 2025)
