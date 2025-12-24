@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+	<head>
+		<meta charset="UTF-8">
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<title>n000b_UI</title>
+		<link rel='stylesheet' href='../libs/nui/css/nui_main.css'>
+		<link rel='stylesheet' href='../libs/nui/css/nui_select.css'>
+		<link rel='stylesheet' href='css/main.css'>
+	</head>
+	
+	<body class="noselect dark">
+		<div id="content" class="nui-content">
+			
+			<div id="mixer-page" class="mixer-page">
+				<div class="file-select">
+					<select class="nui-hide">
+						<option disabled selected>Select Song ...</option>
+					</select>
+				</div>
+				<div class="mixer-container">
+					<div class="mixer">
+						<div class="channels">
+							<div class="dummy"></div>
+						</div>
+						<div class="transport">
+							<div class="bar"><div class="inner"></div></div>
+							<div class="time">
+								<div class="current">0:00</div>
+								<div class="mid"></div>
+								<div class="duration">0:00</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="">
+					<div class="nui-button-container left">
+						<div id="btn_start" class="nui-button">
+							<button>Play</button>
+						</div>
+						<div id="btn_stop" class="nui-button-5 nui-button-flash">
+							<button>stop</button>
+						</div>
+						<div id="btn_load" class="nui-button-3 nui-button-flash nui-hide">
+							<label>Load</label>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			
+
+		</div>
+	</body>
+	<script type="module">
+		import { main } from './js/main.js';
+		document.addEventListener("DOMContentLoaded", function (event) {
+			main.init();
+		});
+	</script>
+
+</html>
