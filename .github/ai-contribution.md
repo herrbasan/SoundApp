@@ -1,176 +1,5 @@
 # AI Contribution Notes
 
-## Session: December 21, 2025 - FFmpeg NAPI Integration Complete
-
-### What We Accomplished
-
-**FFmpeg NAPI Player Integration - COMPLETE ✅**
-- Integrated `ffmpeg-napi-interface` package (v1.1.3) with SoundApp
-- Unified streaming player with gapless looping in all modes
-- No more separate "loop mode" requiring full file decode
-
-**Key Files Added/Modified:**
-- `bin/win_bin/player.js` - FFmpegStreamPlayer class
-- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk streaming
-- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder
-- `js/stage.js` - Integrated new player
-- `scripts/update-napi-binaries.ps1` - Updated to copy .js files
-
-**Bug Fixes Applied Locally (carry to ffmpeg-napi-interface repo):**
-All documented in `bin/LOCAL_FIXES.md`:
-
-1. **Fix 1: Pause doesn't freeze time display**
-   - Added `_pausedAtFrames` caching in player.js
-   - `getCurrentTime()` returns cached value when paused
-
-2. **Fix 2: Resume resets time to 0**
-   - Removed position reset from `play()`
-   - Restore `currentFrames` from `_pausedAtFrames` on resume
-
-3. **Fix 3: Seeking causes file skip**
-   - Root cause: Worklet fired `ended` when buffer temporarily empty during seek
-   - Solution: Added `reachedEOF` flag in worklet
-   - Only fire `ended` after playing through EOF-marked chunk
-
-**Performance Review Created:**
-See `docs/ffmpeg-player-review.md` for critical analysis:
-- Memory leak: Transferable ArrayBuffers not used
-- Feed loop runs even after EOF
-- Queue can grow unbounded
-- Seek range not validated
-- Recommendations for future fixes
-
-### Technical Insights
-
-**Gapless Looping Strategy:**
-- First chunk stored as "loop chunk" in worklet
-- When last chunk finishes and loop enabled, immediately play loop chunk
-- Main thread notified via `loopStarted` message to refill queue
-- Sample-accurate looping without full file buffering
-
-**End Detection Fix (critical learning):**
-```javascript
-// Wrong: fires when buffer empty for ANY reason (including seek)
-} else if (!this.loopEnabled && !this.hasEnded) {
-  this.port.postMessage({ type: 'ended' });
-}
-
-// Right: only fire after actually reaching EOF-marked chunk
-} else if (this.reachedEOF && !this.loopEnabled && !this.hasEnded) {
-  this.port.postMessage({ type: 'ended' });
-}
-```
-
-### Files to Clean Up
-- `libs/howler/` - No longer needed (can remove entire directory)
-- `js/ffmpeg_player.js` - Old implementation (superseded by bin/win_bin/player.js)
-
-### Next Steps for Future Sessions
-1. Apply fixes from `bin/LOCAL_FIXES.md` to ffmpeg-napi-interface repo
-2. Implement improvements from `docs/ffmpeg-player-review.md`
-3. Remove unused howler.js library
-4. Consider removing FFmpegBufferedPlayer class (unused)
-
----
-
-## Session: December 20, 2025 - v1.1.2 Phase 1 Complete: Unified Audio Controller
-
-### What We Accomplished
-
-**Howler.js Removal - COMPLETE ✅**
-- Created `js/audio_controller.js` - Unified AudioController class using Web Audio API
-- Removed all Howler.js dependencies from codebase
-- Merged `playAudio()` and `playAudioLoop()` into single function with mode switching
-- Version bumped to 1.1.2 in package.json
-
-**AudioController Architecture:**
-- Dual-mode operation:
-  - **BufferSource** (loop mode): Loads entire file into AudioBuffer for gapless looping
-  - **MediaElement** (streaming mode): Uses HTML5 audio element for efficient playback
-- Unified interface: `play()`, `pause()`, `stop()`, `seek()`, `volume` properties
-- Proper state tracking with `sourceStarted` flag (no try/catch for control flow)
-- Ready for future features: gain node foundation for speed control, effects chain
-
-**Technical Fixes Implemented:**
-1. **Chiptune playback issue** - Connected player.gain to audioContext.destination (was disconnected when passing custom context)
-2. **Progress bar tracking** - Fixed currentTime getter with null checks and edge case handling
-3. **Gapless looping** - Used `buffer.duration` for loopEnd, 86400s duration parameter (matches Howler.js pattern)
-4. **Seeking in loop mode** - Works correctly with loopStart/loopEnd boundaries
-5. **State management** - Used explicit `sourceStarted` flag instead of try/catch blocks
-
-**Code Philosophy Updates:**
-- Added rules to copilot-instructions.md:
-  - Avoid try/catch for control flow - use explicit state tracking
-  - Graceful error handling - report fail states in UI, don't silently swallow
-- Emphasized surgical, self-critical approach with context awareness
-
-**Files Modified:**
-- `js/audio_controller.js` (new file - 208 lines)
-- `js/stage.js` (refactored playback logic, removed Howler.js)
-- `package.json` (version 1.1.2)
-- `.github/copilot-instructions.md` (added error handling rules)
-
-### Key Technical Insights
-
-**Why Looping Was Clicking:**
-- BufferSource with loop=true needs `loopStart` and `loopEnd` properties
-- Must use `buffer.duration` not `this.duration` for precise looping
-- Duration parameter in `start(0, offset, duration)` should be 86400 (effectively infinite) for looped playback
-- This prevents clicks at loop boundary and allows seeking while maintaining gapless loop
-
-**State Tracking Pattern:**
-```javascript
-// Instead of try/catch for stopped sources
-this.sourceStarted = false; // Track state explicitly
-if (this.source && this.sourceStarted) {
-    this.source.stop(); // Only stop if actually started
-}
-```
-
-**Chiptune Context Issue:**
-```javascript
-// When passing custom context to chiptune player:
-player = new chiptune({context: g.audioContext});
-// Must manually connect in onInitialized:
-player.gain.connect(g.audioContext.destination);
-```
-
-### What's Ready for v1.1.2 Next Steps
-
-**Remaining v1.1.2 Features:**
-1. GitHub Releases for Updates (migrate from HTTP server)
-2. Playlist Window (use nui_list.js)
-3. Help/Documentation Window
-
-**Foundation Now In Place For v1.2:**
-- Unified audio routing through Web Audio API ✅
-- Gain nodes ready for effects chain ✅
-- Architecture supports speed control, multi-track mixer ✅
-- Ready for FFmpeg streaming implementation ✅
-
-### State of the Codebase
-
-**What's Working:**
-- All playback modes: native formats, chiptune, FFmpeg transcoding ✅
-- Loop mode with gapless playback ✅
-- Seeking in all modes including loop ✅
-- Volume control ✅
-- Progress bar tracking ✅
-- Play/pause/stop controls ✅
-
-**Performance Characteristics:**
-- Loop mode: Higher memory (full AudioBuffer), instant seeking
-- Streaming mode: Lower memory, efficient for long files
-- Automatic mode selection based on `g.isLoop` state
-
-**Next Immediate Steps (for future sessions):**
-1. GitHub Releases integration for auto-updates
-2. Create playlist window with nui_list.js
-3. Create help window with keyboard shortcuts
-4. Consider removing `libs/howler/` directory (no longer needed)
-
----
-
 ## Session: December 20, 2025 - Project Foundation & Roadmap
 
 ### What We Accomplished
@@ -283,6 +112,177 @@ User prefers:
 - No unnecessary explanations unless asked
 - Code that follows existing patterns in the project
 - Working code over perfect code
+
+---
+
+## Session: December 20, 2025 - v1.1.2 Phase 1 Complete: Unified Audio Controller
+
+### What We Accomplished
+
+**Howler.js Removal - COMPLETE ✅**
+- Created `js/audio_controller.js` - Unified AudioController class using Web Audio API
+- Removed all Howler.js dependencies from codebase
+- Merged `playAudio()` and `playAudioLoop()` into single function with mode switching
+- Version bumped to 1.1.2 in package.json
+
+**AudioController Architecture:**
+- Dual-mode operation:
+  - **BufferSource** (loop mode): Loads entire file into AudioBuffer for gapless looping
+  - **MediaElement** (streaming mode): Uses HTML5 audio element for efficient playback
+- Unified interface: `play()`, `pause()`, `stop()`, `seek()`, `volume` properties
+- Proper state tracking with `sourceStarted` flag (no try/catch for control flow)
+- Ready for future features: gain node foundation for speed control, effects chain
+
+**Technical Fixes Implemented:**
+1. **Chiptune playback issue** - Connected player.gain to audioContext.destination (was disconnected when passing custom context)
+2. **Progress bar tracking** - Fixed currentTime getter with null checks and edge case handling
+3. **Gapless looping** - Used `buffer.duration` for loopEnd, 86400s duration parameter (matches Howler.js pattern)
+4. **Seeking in loop mode** - Works correctly with loopStart/loopEnd boundaries
+5. **State management** - Used explicit `sourceStarted` flag instead of try/catch blocks
+
+**Code Philosophy Updates:**
+- Added rules to copilot-instructions.md:
+  - Avoid try/catch for control flow - use explicit state tracking
+  - Graceful error handling - report fail states in UI, don't silently swallow
+- Emphasized surgical, self-critical approach with context awareness
+
+**Files Modified:**
+- `js/audio_controller.js` (new file - 208 lines)
+- `js/stage.js` (refactored playback logic, removed Howler.js)
+- `package.json` (version 1.1.2)
+- `.github/copilot-instructions.md` (added error handling rules)
+
+### Key Technical Insights
+
+**Why Looping Was Clicking:**
+- BufferSource with loop=true needs `loopStart` and `loopEnd` properties
+- Must use `buffer.duration` not `this.duration` for precise looping
+- Duration parameter in `start(0, offset, duration)` should be 86400 (effectively infinite) for looped playback
+- This prevents clicks at loop boundary and allows seeking while maintaining gapless loop
+
+**State Tracking Pattern:**
+```javascript
+// Instead of try/catch for stopped sources
+this.sourceStarted = false; // Track state explicitly
+if (this.source && this.sourceStarted) {
+    this.source.stop(); // Only stop if actually started
+}
+```
+
+**Chiptune Context Issue:**
+```javascript
+// When passing custom context to chiptune player:
+player = new chiptune({context: g.audioContext});
+// Must manually connect in onInitialized:
+player.gain.connect(g.audioContext.destination);
+```
+
+### What's Ready for v1.1.2 Next Steps
+
+**Remaining v1.1.2 Features:**
+1. GitHub Releases for Updates (migrate from HTTP server)
+2. Playlist Window (use nui_list.js)
+3. Help/Documentation Window
+
+**Foundation Now In Place For v1.2:**
+- Unified audio routing through Web Audio API ✅
+- Gain nodes ready for effects chain ✅
+- Architecture supports speed control, multi-track mixer ✅
+- Ready for FFmpeg streaming implementation ✅
+
+### State of the Codebase
+
+**What's Working:**
+- All playback modes: native formats, chiptune, FFmpeg transcoding ✅
+- Loop mode with gapless playback ✅
+- Seeking in all modes including loop ✅
+- Volume control ✅
+- Progress bar tracking ✅
+- Play/pause/stop controls ✅
+
+**Performance Characteristics:**
+- Loop mode: Higher memory (full AudioBuffer), instant seeking
+- Streaming mode: Lower memory, efficient for long files
+- Automatic mode selection based on `g.isLoop` state
+
+**Next Immediate Steps (for future sessions):**
+1. GitHub Releases integration for auto-updates
+2. Create playlist window with nui_list.js
+3. Create help window with keyboard shortcuts
+4. Consider removing `libs/howler/` directory (no longer needed)
+
+---
+
+## Session: December 21, 2025 - FFmpeg NAPI Integration Complete
+
+### What We Accomplished
+
+**FFmpeg NAPI Player Integration - COMPLETE ✅**
+- Integrated `ffmpeg-napi-interface` package (v1.1.3) with SoundApp
+- Unified streaming player with gapless looping in all modes
+- No more separate "loop mode" requiring full file decode
+
+**Key Files Added/Modified:**
+- `bin/win_bin/player.js` - FFmpegStreamPlayer class
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk streaming
+- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder
+- `js/stage.js` - Integrated new player
+- `scripts/update-napi-binaries.ps1` - Updated to copy .js files
+
+**Bug Fixes Applied Locally (carry to ffmpeg-napi-interface repo):**
+All documented in `bin/LOCAL_FIXES.md`:
+
+1. **Fix 1: Pause doesn't freeze time display**
+   - Added `_pausedAtFrames` caching in player.js
+   - `getCurrentTime()` returns cached value when paused
+
+2. **Fix 2: Resume resets time to 0**
+   - Removed position reset from `play()`
+   - Restore `currentFrames` from `_pausedAtFrames` on resume
+
+3. **Fix 3: Seeking causes file skip**
+   - Root cause: Worklet fired `ended` when buffer temporarily empty during seek
+   - Solution: Added `reachedEOF` flag in worklet
+   - Only fire `ended` after playing through EOF-marked chunk
+
+**Performance Review Created:**
+See `docs/ffmpeg-player-review.md` for critical analysis:
+- Memory leak: Transferable ArrayBuffers not used
+- Feed loop runs even after EOF
+- Queue can grow unbounded
+- Seek range not validated
+- Recommendations for future fixes
+
+### Technical Insights
+
+**Gapless Looping Strategy:**
+- First chunk stored as "loop chunk" in worklet
+- When last chunk finishes and loop enabled, immediately play loop chunk
+- Main thread notified via `loopStarted` message to refill queue
+- Sample-accurate looping without full file buffering
+
+**End Detection Fix (critical learning):**
+```javascript
+// Wrong: fires when buffer empty for ANY reason (including seek)
+} else if (!this.loopEnabled && !this.hasEnded) {
+  this.port.postMessage({ type: 'ended' });
+}
+
+// Right: only fire after actually reaching EOF-marked chunk
+} else if (this.reachedEOF && !this.loopEnabled && !this.hasEnded) {
+  this.port.postMessage({ type: 'ended' });
+}
+```
+
+### Files to Clean Up
+- `libs/howler/` - No longer needed (can remove entire directory)
+- `js/ffmpeg_player.js` - Old implementation (superseded by bin/win_bin/player.js)
+
+### Next Steps for Future Sessions
+1. Apply fixes from `bin/LOCAL_FIXES.md` to ffmpeg-napi-interface repo
+2. Implement improvements from `docs/ffmpeg-player-review.md`
+3. Remove unused howler.js library
+4. Consider removing FFmpegBufferedPlayer class (unused)
 
 ---
 
@@ -430,6 +430,7 @@ let targetDisplay = displays.find(d =>
 - Use window-loader.js bridge API for IPC communication
 
 ---
+
 ## Session: December 22, 2025 - Settings Window & HQ Mode Implementation
 
 ### What We Accomplished
@@ -607,3 +608,45 @@ if (g.windowsVisible[type]) {
 3. Playlist window implementation
 
 ---
+
+## Session: December 24, 2025 - Multi-Track Mixer Prototype
+
+### What We Accomplished
+
+**Multi-Track Mixer Prototype - COMPLETE ✅**
+- Created a standalone mixer prototype in `mixer/` folder.
+- Implemented a custom `AudioWorklet` mixing engine (`soundapp-mixer`) supporting 128 tracks.
+- Designed a compact, responsive UI with channel strips that wrap and fill space.
+- Implemented drag-and-drop for adding and replacing tracks.
+- Added track removal, solo/mute logic, and metering.
+- Refactored the control bar (Play/Pause, Reset, Master Volume).
+- Implemented a dynamic "empty state" for the Add zone.
+- Established collaboration rules for Gemini 3 Flash in `copilot-instructions.md`.
+
+**Key Files Added/Modified:**
+- `mixer/js/main.js` - Main UI controller and logic.
+- `mixer/js/mixer_engine.js` - Audio context and node management.
+- `mixer/css/main.css` - Mixer styling (Grid layout, tooltips, controls).
+- `mixer/index.html` - Standalone prototype entry point.
+- `.github/copilot-instructions.md` - Added collaboration rules.
+
+### Technical Insights
+
+**CSS Grid for Responsive Strips:**
+- Switched from Flexbox to CSS Grid for channel strips.
+- Used `grid-template-columns: repeat(auto-fit, minmax(2.7rem, 1fr))` to ensure consistent widths across rows while filling available space.
+- This solved the issue where wrapped items in Flexbox would not align vertically with the row above.
+
+**AudioWorklet Mixing:**
+- Implemented a custom `AudioWorkletProcessor` for mixing.
+- Used `setTargetAtTime` for smooth master volume control.
+- Direct parameter control via `AudioParam` or message passing is essential for smooth audio manipulation.
+
+**Collaboration & Workflow:**
+- **Lesson Learned:** It is crucial to announce intentions and wait for user confirmation before creating new files or making major architectural changes (e.g., the premature `mixer.html` creation).
+- Added specific rules to `.github/copilot-instructions.md` to enforce this behavior for Gemini 3 Flash.
+
+### Next Steps
+1.  **SoundApp Integration:** Create `html/mixer.html` and `js/mixer.js` to integrate the mixer into the main Electron app.
+2.  **Playlist Handoff:** Implement logic to transfer the main stage playlist to the mixer.
+3.  **Refinement:** Polish the UI and add more advanced mixing features (EQ, Pan, etc.).

@@ -188,6 +188,12 @@ class MixerEngine {
 		this.mixNode.port.postMessage({ t:'trk', i: idx|0, lg: +lg, rg: +rg, m: !!mute });
 	}
 
+	setMasterGain(v){
+		if(this.masterGain){
+			this.masterGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+		}
+	}
+
 	createTrack(){
 		const idx = this.tracks.length | 0;
 		if(idx >= this.maxTracks){

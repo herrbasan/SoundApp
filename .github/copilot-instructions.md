@@ -92,6 +92,12 @@ Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via
 - **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
 - **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
 
+### Collaboration Rules for Gemini 3 Flash (Preview)
+- **Announce Before Action**: Always describe the specific changes you intend to make (files, functions, logic) before using any edit tools.
+- **Wait for Confirmation**: If a change is complex or involves visual/UI styling, wait for user approval before proceeding.
+- **No Unsolicited Changes**: Do not fix "extra" things or add unrequested features (like standard D&D visuals) without explicit instruction.
+- **Respect Styling**: Do not revert or modify user-defined CSS colors or layouts unless specifically asked to "fix" or "improve" them.
+
 ### Release Workflow
 When the user asks to create a release, **always use the release script**:
 

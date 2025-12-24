@@ -6,13 +6,16 @@ class MixerProcessor extends AudioWorkletProcessor {
 		this.rg = new Float32Array(this.maxTracks);
 		this.mute = new Uint8Array(this.maxTracks);
 		this.meters = new Float32Array(this.maxTracks);
+		this.m1 = new Float32Array(this.maxTracks); // HPF state
+		this.m2 = new Float32Array(this.maxTracks); // LPF state
+		this.m3 = new Float32Array(this.maxTracks); // Last input state
 		for(let i=0; i<this.maxTracks; i++){
 			this.lg[i] = 1;
 			this.rg[i] = 1;
 		}
 		this._meterCountdown = 0;
-		this._meterIntervalFrames = (sampleRate / 30) | 0;
-		if(this._meterIntervalFrames < 256) this._meterIntervalFrames = 256;
+		this._meterIntervalFrames = (sampleRate / 60) | 0;
+		if(this._meterIntervalFrames < 128) this._meterIntervalFrames = 128;
 
 		this.port.onmessage = (e) => {
 			const d = e.data;
@@ -25,6 +28,9 @@ class MixerProcessor extends AudioWorkletProcessor {
 					this.rg = new Float32Array(this.maxTracks);
 					this.mute = new Uint8Array(this.maxTracks);
 					this.meters = new Float32Array(this.maxTracks);
+					this.m1 = new Float32Array(this.maxTracks);
+					this.m2 = new Float32Array(this.maxTracks);
+					this.m3 = new Float32Array(this.maxTracks);
 					for(let i=0; i<this.maxTracks; i++){
 						this.lg[i] = 1;
 						this.rg[i] = 1;
@@ -70,18 +76,37 @@ class MixerProcessor extends AudioWorkletProcessor {
 			const in1 = ch.length > 1 ? ch[1] : ch[0];
 			const lg = this.lg[i];
 			const rg = this.rg[i];
-			let peak = 0;
+			let m1 = this.m1[i];
+			let m2 = this.m2[i];
+			let m3 = this.m3[i];
+
+			let blockPeak = 0;
 			for(let j=0; j<n; j++){
 				const l = in0[j] * lg;
 				const r = in1[j] * rg;
 				out0[j] += l;
 				out1[j] += r;
-				const al = l < 0 ? -l : l;
-				const ar = r < 0 ? -r : r;
-				const a = al > ar ? al : ar;
-				if(a > peak) peak = a;
+
+				// Simple band-pass for metering (approx 200Hz - 5kHz)
+				// This reduces sensitivity to sub-bass and extreme highs (hi-hats)
+				const s = (l + r) * 0.5;
+				m1 = s - m3 + 0.97 * m1; // HPF
+				m3 = s;
+				m2 = m2 + 0.35 * (m1 - m2); // LPF
+
+				const a = m2 < 0 ? -m2 : m2;
+				if(a > blockPeak) blockPeak = a;
 			}
-			this.meters[i] = peak;
+			this.m1[i] = m1;
+			this.m2[i] = m2;
+			this.m3[i] = m3;
+			
+			if(blockPeak > this.meters[i]){
+				this.meters[i] = blockPeak;
+			} else {
+				this.meters[i] *= 0.985; // Smooth decay
+				if(this.meters[i] < 0.0001) this.meters[i] = 0;
+			}
 		}
 
 		this._meterCountdown -= n;

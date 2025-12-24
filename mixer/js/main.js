@@ -11,6 +11,15 @@ let g = {};
 let engine;
 let Transport;
 
+function fileBaseName(fp){
+	if(!fp) return '';
+	let s = '' + fp;
+	s = s.replace(/\\/g, '/');
+	let i = s.lastIndexOf('/');
+	if(i >= 0) s = s.substring(i+1);
+	return s;
+}
+
 async function init(){
 	console.log('Main init')
 	engine = new MixerEngine();
@@ -19,22 +28,64 @@ async function init(){
 	g.mixer_container = g.content.el('.mixer-container');
 	g.mixer = g.content.el('.mixer');
 	g.channels = g.mixer.el('.channels');
+	g.add_zone = g.channels.el('.add-zone');
+	g.name_tooltip = g.mixer.el('.name-tooltip');
 
-	g.transport = g.mixer.el('.transport');
+	g.transport = ut.el('.transport');
 	g.transport_current = g.transport.el('.time .current');
 	g.transport_duration = g.transport.el('.time .duration');
 	g.transport_bar = g.transport.el('.bar .inner');
-	g.btn_play = ut.el('#btn_start');
-	g.btn_play_label = g.btn_play.el('label');
-	g.btn_stop = ut.el('#btn_stop');
+	g.btn_play = ut.el('#btn_play');
+	g.btn_reset = ut.el('#btn_reset');
+	g.master_slider = ut.el('#master_slider');
+	g.master_bar = g.master_slider.el('.inner');
 
 	g.duration = 0;
+	g.channels.classList.add('empty');
 
-	ut.el('#btn_load').addEventListener('click', initTone);
+	if(g.add_zone){
+		g.add_zone.addEventListener('dragover', (e) => {
+			e.preventDefault();
+			e.dataTransfer.dropEffect = 'copy';
+			g.add_zone.classList.add('dragover');
+		});
+		g.add_zone.addEventListener('dragleave', () => {
+			g.add_zone.classList.remove('dragover');
+		});
+		g.add_zone.addEventListener('drop', async (e) => {
+			e.preventDefault();
+			g.add_zone.classList.remove('dragover');
+			const files = e.dataTransfer.files;
+			if(files.length > 0){
+				if(!g.currentChannels) {
+					engine.start();
+					g.currentChannels = [];
+					ut.killMe(ut.el('.channels .dummy'));
+					g.channels.classList.remove('empty');
+					loop();
+				}
+				for(let i=0; i<files.length; i++){
+					const file = files[i];
+					const url = URL.createObjectURL(file);
+					const track = engine.createTrack();
+					const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, file.name, g.currentChannels.length + 1), g.add_zone);
+					await track.load(url);
+					if(Transport.state === 'started') track._startAt(Transport.seconds);
+					g.currentChannels.push({el, track});
+					if(track.duration > g.duration) g.duration = track.duration;
+				}
+			}
+		});
+	}
 
 	ut.dragSlider(g.transport, (e) => { seekProz(e.prozX) }, 120)
+	ut.dragSlider(g.master_slider, (e) => { 
+		engine.setMasterGain(e.prozX);
+		g.master_bar.style.width = (e.prozX * 100) + '%';
+	});
+
 	g.btn_play.addEventListener("click", async () =>  {
-		if(g.currentChannels && !g.isLoading){
+		if(g.currentChannels){
 			await engine.start();
 			if(Transport.state == 'started'){
 				Transport.pause();
@@ -44,92 +95,10 @@ async function init(){
 			}
 		}
 	});
-	g.btn_stop.addEventListener("click", () => Transport.stop());
-	
-	
-
-	g.files = [
-		{name:'Mist', dir:'mist', length:6, ext:'m4a'},
-		{name:'Play 11', dir:'play11', length:14, ext:'m4a'},
-		{name:'Rejam 2017', dir:'rejam', length:11, ext:'m4a'},
-		{name:'Skipping Fantasy', dir:'skipping', length:11, ext:'m4a'},
-		{name:'Anew', dir:'Anew', length:9, ext:'m4a'},
-		{name:'Browsing UVI', dir:'Browsing_UVI', length:8, ext:'m4a'},
-		{name:'Chip', dir:'Chip', length:8, ext:'m4a'},
-		{name:'Does it really need a name?', dir:'doesit', length:12, ext:'m4a'},
-		{name:'First move', dir:'first_move', length:6, ext:'m4a'},
-		{name:'Groovlik', dir:'groovelik', length:6, ext:'m4a'},
-		{name:'Hell is where the Heart is', dir:'hell', length:6, ext:'m4a'},
-		{name:'Hussle', dir:'hussle', length:7, ext:'m4a'},
-		{name:'KGroove', dir:'kgroove', length:7, ext:'m4a'},
-		{name:'Omni', dir:'omni', length:15, ext:'m4a'},
-		{name:'Freakin Freak', dir:'Freakinfreak', length:12, ext:'m4a'},
-		{name:'The Game', dir:'tp_game', length:17, ext:'m4a'},
-		{name:'Brattle', dir:'brattle', length:9, ext:'m4a'},
-		{name:'Shits and Giggles', dir:'shits', length:10, ext:'m4a'},
-		{name:'Speedo', dir:'speedo', length:7, ext:'m4a'},
-		{name:'Again and Again', dir:'Again', length:13, ext:'m4a'},
-		{name:'WeWriWa', dir:'wewriwa', length:10, ext:'m4a'}
-	]
-
-	g.fileSelect = ut.el('.file-select select');
-	for(let i=0; i<g.files.length; i++){
-		let html = ut.createElement('option', {attributes:{value:i}, inner:g.files[i].name})
-		g.fileSelect.appendChild(html);
-	}
-	g.fileSelect = superSelect(g.fileSelect)
-	g.fileSelect.container.addEventListener('click', firstClick)
-	g.fileSelect.addEventListener('change', (e) => {
-		let val = parseInt(e.detail.option.value);
-		if(g.currentFile != g.files[val]){
-			g.currentFile = g.files[val];
-			console.log(g.currentFile);
-			initTone();
-		}
-	})
-	
-}
-
-function wait(ms){
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// NUI's app chrome / navigation is intentionally not used in this prototype.
-
-function firstClick(e){
-	console.log('First Click');
-	e.currentTarget.removeEventListener('click', firstClick)
-	//Tone.start();
-}
-
-function initTone(){
-	if(!g.isLoading){
-		engine.start();
-		g.fileSelect.disable();
-		if(g.currentChannels){
-			cleanUp(g.currentChannels);
-		}
-		let loader = loaderShow(g.channels);
-		ut.killMe(ut.el('.channels .dummy'));
-		g.isLoading = true;
-		makeChannels(loadList(g.currentFile.dir,g.currentFile.length,g.currentFile.ext), g.channels).then((ret) => {
-			console.log('All Tracks Loaded', ret)
-			
-			g.currentChannels = ret;
-			Transport.start();
-			loop();
-			
-			for(let i=0; i<g.currentChannels.length; i++){
-				if(g.currentChannels[i].track.duration > g.duration){
-					g.duration = g.currentChannels[i].track.duration;
-				}
-			}
-			console.log(g.duration);
-			g.isLoading = false;
-			nui.animate_away(loader);
-			g.fileSelect.enable();
-		})
-	}
+	g.btn_reset.addEventListener("click", () => {
+		seek(0);
+		Transport.stop();
+	});
 }
 
 function seekProz(proz){ if(g.currentChannels){ seek(g.duration * proz); }}
@@ -143,7 +112,7 @@ function makeChannels(prop, target) {
 			console.log('Create Channel for ' + prop[i])
 			let track = engine.createTrack();
 			
-			let el = target.appendChild(renderChannel(i));
+			let el = target.appendChild(renderChannel(i, prop[i], prop.length));
 			promises.push(track.load(prop[i]));
 			tracks.push({el, track})
 		}
@@ -171,7 +140,7 @@ function cleanUp(ar){
 	g.duration = 0;
 }
 
-function renderChannel(idx){
+function renderChannel(idx, fp, total){
 	let html = ut.htmlObject(/*html*/ `
 		<div class="strip">
 			<div class="mute">M</div>
@@ -187,6 +156,13 @@ function renderChannel(idx){
 			</div>
 			<div class="pan">
 				<div class="line"></div>
+			</div>
+			<div class="info">
+				<img class="fileicon" src="../build/icons/pcm.ico" draggable="false">
+				<svg class="close" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M0 0h24v24H0V0z" fill="none"/>
+					<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+				</svg>
 			</div>
 		</div>
 	`)
@@ -207,14 +183,56 @@ function renderChannel(idx){
 	html.meter = html.el('.meter .bar');
 	html.pan = html.el('.pan');
 	html.gain = html.el('.gain');
+	html.info = html.el('.info');
 	html.slider = html.el('.gain .slider');
 	html.slider_num = html.el('.gain .slider .num');
 	html.pan_line = html.pan.el('.line');
 	html.mute = html.el('.mute');
 	html.solo = html.el('.solo');
+	html.btn_close = html.el('.info .close');
+	html.filename = fileBaseName(fp);
+
+	html.info.addEventListener('mouseenter', () => showNameTooltip(html, html.info));
+	html.info.addEventListener('mouseleave', hideNameTooltip);
 	
+	html.addEventListener('dragover', (e) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'copy';
+		html.classList.add('dragover');
+	});
+	html.addEventListener('dragleave', () => {
+		html.classList.remove('dragover');
+	});
+	html.addEventListener('drop', async (e) => {
+		e.preventDefault();
+		html.classList.remove('dragover');
+		const files = e.dataTransfer.files;
+		if(files.length > 0){
+			const file = files[0];
+			html.filename = file.name;
+			const url = URL.createObjectURL(file);
+			const trackObj = g.currentChannels.find(c => c.el === html);
+			if(trackObj){
+				await trackObj.track.load(url);
+				if(Transport.state === 'started') {
+					trackObj.track._stopSource();
+					trackObj.track._startAt(Transport.seconds);
+				}
+				let maxD = 0;
+				for(let i=0; i<g.currentChannels.length; i++){
+					if(g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
+				}
+				g.duration = maxD;
+			}
+		}
+	});
+
 	html.mute.addEventListener('click', mute)
 	html.solo.addEventListener('click', solo)
+	html.btn_close.addEventListener('click', (e) => {
+		e.stopPropagation();
+		removeTrack(html);
+	})
 
 	function mute(){
 		if(soloCount() > 0){
@@ -282,6 +300,68 @@ function renderChannel(idx){
 	return html;
 }
 
+function removeTrack(el){
+	if(!g.currentChannels) return;
+	let idx = -1;
+	for(let i=0; i<g.currentChannels.length; i++){
+		if(g.currentChannels[i].el === el){
+			idx = i;
+			break;
+		}
+	}
+	if(idx >= 0){
+		const item = g.currentChannels[idx];
+		item.track.dispose();
+		ut.killMe(item.el);
+		g.currentChannels.splice(idx, 1);
+		
+		// Recalculate duration
+		let maxD = 0;
+		for(let i=0; i<g.currentChannels.length; i++){
+			if(g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
+		}
+		g.duration = maxD;
+		if(g.currentChannels.length === 0) g.channels.classList.add('empty');
+		hideNameTooltip();
+	}
+}
+
+
+function showNameTooltip(stripEl, infoEl){
+	if(!g.name_tooltip) return;
+	const name = stripEl && stripEl.filename ? stripEl.filename : '';
+	if(!name) return;
+	g.name_tooltip.innerHTML = `<div class="text">${name}</div>`;
+	g.name_tooltip.classList.add('active');
+
+	const rMixer = g.mixer.getBoundingClientRect();
+	const rInfo = (infoEl || stripEl).getBoundingClientRect();
+	
+	const tipW = g.name_tooltip.offsetWidth;
+	const tipH = g.name_tooltip.offsetHeight;
+
+	// Position below the info row
+	let top = (rInfo.bottom - rMixer.top) + 8;
+	let left = (rInfo.left + rInfo.width / 2 - rMixer.left) - tipW / 2;
+
+	// Clamp horizontal: keep within mixer bounds
+	if (left < 5) left = 5;
+	if (left + tipW > rMixer.width - 5) left = rMixer.width - tipW - 5;
+
+	g.name_tooltip.style.top = top + 'px';
+	g.name_tooltip.style.left = left + 'px';
+
+	// Center the spike on the info container
+	const infoCenterX = rInfo.left + rInfo.width / 2 - rMixer.left;
+	const spikeX = infoCenterX - left;
+	g.name_tooltip.style.setProperty('--spike-x', spikeX + 'px');
+}
+
+function hideNameTooltip(){
+	if(!g.name_tooltip) return;
+	g.name_tooltip.classList.remove('active');
+}
+
 function updateState(){
 	for(let i=0; i<g.currentChannels.length; i++){
 		let channel = g.currentChannels[i];
@@ -327,14 +407,6 @@ function updateState(){
 
 
 
-function loadList(dir,length, ext){
-	let out = [];
-	for(let i=1; i<length+1; i++){
-		out.push(`../_Material/mixer_media/${dir}/${ut.lz(i,2)}.${ext}`)
-	}
-	return out;
-}
-
 function loop(){
 	requestAnimationFrame(loop);
 	if(g.currentChannels){
@@ -371,6 +443,11 @@ function updateTransport(){
 	let state = Transport.state;
 	if(state != g.transport.last_state){
 		g.transport.last_state = state;
+		if(state === 'started'){
+			g.btn_play.classList.add('playing');
+		} else {
+			g.btn_play.classList.remove('playing');
+		}
 	}
 }
 
