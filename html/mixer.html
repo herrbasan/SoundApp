@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+	<title>Mixer - SoundApp</title>
+	<link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+	<link rel="stylesheet" href="../css/window.css">
+	<link rel="stylesheet" href="../css/mixer.css">
+</head>
+
+<body class="dark mixer-window">
+	<div class="nui-app">
+		<div class="nui-title-bar window-chrome">
+			<div class="title">
+				<div class="nui-icon-container">
+					<i>tune</i>
+				</div>
+				<div class="label">Mixer</div>
+			</div>
+			<div class="controls">
+				<div class="nui-icon-container close"><i>close</i></div>
+			</div>
+		</div>
+
+		<div class="content">
+			<main>
+				<div id="content" class="mixer-root">
+					<div id="mixer-page" class="mixer-page">
+						<div class="top">
+							<div id="btn_play" class="icon-btn">
+								<svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+								<svg class="pause-icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+							</div>
+							<div id="btn_reset" class="icon-btn">
+								<svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+							</div>
+
+							<div></div>
+
+							<div class="master-vol">
+								<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+								<div id="master_slider" class="slider-container">
+									<div class="inner"></div>
+								</div>
+							</div>
+						</div>
+
+						<div class="mixer-container">
+							<div class="mixer">
+								<div class="channels">
+									<div class="dummy"></div>
+									<div class="add-zone">
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+											<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+										</svg>
+									</div>
+								</div>
+								<div class="name-tooltip"></div>
+							</div>
+						</div>
+
+						<div class="transport">
+							<div class="bar"><div class="inner"></div></div>
+							<div class="time">
+								<div class="current">0:00</div>
+								<div class="mid"></div>
+								<div class="duration">0:00</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</main>
+		</div>
+		<div class="nui-status-bar window-chrome"></div>
+	</div>
+
+	<script type="module">
+		import ut from '../libs/nui/nui_ut.js';
+		import nui from '../libs/nui/nui.js';
+		window.ut = ut;
+		window.nui = nui;
+	</script>
+	<script src="../js/window-loader.js"></script>
+	<script type="module">
+		import { main } from '../js/mixer/main.js';
+
+		window.addEventListener('bridge-ready', async (e) => {
+			const data = e.detail || {};
+			await main.init(data);
+		});
+	</script>
+</body>
+
+</html>

@@ -56,7 +56,7 @@ if (isElectron) {
 	
 	// Listen for close window command
 	ipcRenderer.on('close-window', () => {
-		helper.window.close();
+		bridge.closeWindow();
 	});
 	
 	// Add global keyboard shortcuts
@@ -74,6 +74,16 @@ if (isElectron) {
 		stageId = data.stageId;
 		windowId = await helper.window.getId();
 		windowType = data.type;
+		let closedSent = false;
+		const sendClosedOnce = () => {
+			if(closedSent) return;
+			closedSent = true;
+			if(stageId && windowType){
+				tools.sendToId(stageId, 'window-closed', { type: windowType, windowId: windowId });
+			}
+		};
+		// If user closes via OS controls / Alt+F4, ensure stage gets the cleanup message.
+		window.addEventListener('beforeunload', sendClosedOnce);
 		
 		// Apply theme from config
 		if (data.config && data.config.theme === 'dark') {
@@ -195,6 +205,13 @@ function getMockInitData() {
 			type: 'playlist',
 			music: ['track1.mp3', 'track2.mp3', 'track3.mp3'],
 			idx: 0
+		},
+		mixer: {
+			type: 'mixer',
+			config: { theme: 'dark' },
+			playlist: {
+				paths: []
+			}
 		}
 	};
 	return mockData[pageName] || { type: pageName };

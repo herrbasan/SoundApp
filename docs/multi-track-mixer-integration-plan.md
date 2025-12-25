@@ -24,11 +24,14 @@ We currently have a committed **browser‑runnable prototype** in `mixer/` that 
 - Mixing runs inside an `AudioWorkletProcessor` (`soundapp-mixer`) with per-track gain/pan/mute and peak meters.
 - UI uses shared SoundApp NUI modules (`libs/nui/*`) and shared NUI CSS.
 
-**What is NOT implemented yet (still required):**
-- Rotated filename labels per strip
+**Already implemented in the prototype (confirmed in code):**
 - Per-track remove button (close/cross)
 - Drag & drop replace (drop onto strip)
 - Drag & drop add (trailing “+” drop zone)
+- Track name display via hover tooltip (shows filename)
+
+**What is NOT implemented yet (still required):**
+- No additional mixer UI changes are required beyond the current prototype.
 
 **What is NOT integrated into SoundApp yet (separate window):**
 - No `html/mixer.html` / `js/mixer.js` window.
@@ -48,11 +51,7 @@ Add a **separate multi‑track mixer window** that loads **the current SoundApp 
 
 Additions required beyond the prototype:
 
-- Track name labels (filename) shown vertically (rotated) beside each strip
-- Per-track remove button ("close" cross) to remove a track from the mixer
-- Drag & drop:
-  - Drop files onto an existing track to replace that track’s file
-  - Drop files onto a dedicated trailing "+" area to add new tracks (this add-path is not limited to 20)
+None. The current prototype UI behavior is the target.
 
 UI target: **Use the existing prototype UI from `mixer/` as-is** (layout and controls). Tone.js is already removed in the prototype.
 
@@ -76,17 +75,22 @@ The prototype in `mixer/` provides:
   - Mute + Solo logic with “mute memory” behavior
   - Transport bar seek + play/pause state
   - Meter animation loop
+  - Per-track remove (close/cross)
+  - Drag & drop replace on strip
+  - Drag & drop add via trailing “+” zone
+  - Track name tooltip (filename)
 
 What we replace:
-- Prototype-only “song select / demo loader” behavior.
-- Buffered decode sources (`fetch + decodeAudioData`) with SoundApp-native sources (FFmpeg streaming) during integration.
+- Prototype-only drag/drop file source behavior (browser `File` → `URL.createObjectURL`).
+- Buffered decode sources (`fetch + decodeAudioData`) with SoundApp-native sources (FFmpeg buffered/streaming) during integration.
 
 What we keep:
 - DOM structure and CSS (as close as possible)
 - Control behaviors and mapping
 
-What we do NOT keep from the prototype UI:
-- The top “folder/song select” control (it exists only for the standalone web demo). In SoundApp, the playlist comes from Stage.
+Notes:
+- The current prototype is driven by drag & drop (no “folder/song select” UI).
+- In SoundApp, the initial tracks come from Stage’s playlist; drag & drop remains useful for replace/add.
 
 ## Integration Architecture
 ### 1) New Mixer Window (Electron renderer)
@@ -186,7 +190,6 @@ Deliverable: a fast iteration target for UI/engine work.
 ### Phase 1 — Minimal SoundApp wiring + UI parity (NEXT)
 1. Add a new window page `mixer.html` and hook it into Stage’s `openWindow()`.
 2. Port the prototype HTML/CSS/JS into SoundApp’s window structure with minimal changes.
-3. Remove the prototype’s top select UI; mixer is driven by Stage playlist.
 3. Confirm all controls visually match the prototype.
 
 Deliverable: mixer window renders correctly with dummy channels.
@@ -207,16 +210,15 @@ Deliverable: one file plays, seeks, stops.
 Deliverable: playlist files play together, shared seek.
 
 ### Phase 4 — Track labels + remove (prototype first)
-1. Render a vertical (rotated) label per strip using the source filename.
-2. Add a per-strip “close” cross that removes the track from the mixer.
-3. Ensure remove cleans up audio nodes/players and updates duration if needed.
+1. Ensure remove cleans up audio nodes/players and updates duration if needed.
 
-Deliverable: track naming + remove track works.
+Deliverable: remove track works reliably in the integrated window.
 
 ### Phase 5 — Drag & drop replace / add (prototype first)
-1. Implement drop-on-strip: dropping one file replaces that strip’s source.
-2. Implement trailing “+” drop zone to append tracks.
-3. This add-track path is not limited to 20 tracks (best-effort; may be CPU heavy).
+Status: already implemented in the prototype. During SoundApp integration, we need to:
+1. Implement drop-on-strip using file paths (not `URL.createObjectURL`).
+2. Implement trailing “+” drop zone using file paths.
+3. Keep the >20 add-track behavior as best-effort (may be CPU heavy).
 
 Deliverable: drag/replace and drag/add are usable and reliable.
 
@@ -246,6 +248,10 @@ Deliverable: stable, no leaks, predictable CPU.
 - Mixer starts at 0:00.
 - Initial playlist load is capped at 20 tracks.
 - Add-track via the “+” drop zone can exceed 20 tracks.
+
+## Standalone Workflow (must remain true)
+The mixer window page `html/mixer.html` must remain runnable in a regular browser for fast UI iteration.
+It should detect Electron vs browser via `js/window-loader.js` (same pattern as help/settings).
 
 ## Files likely to be touched (when implementing)
 - `js/stage.js` (add `mixer` window type, send playlist in init_data)

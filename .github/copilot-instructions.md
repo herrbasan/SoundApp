@@ -19,6 +19,11 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/app.js` - Main process (Electron)
 - `js/registry.js` - Windows file association handling
 - `js/window-loader.js` - Shared window initialization and IPC bridge
+- `html/mixer.html` - Mixer secondary window (NUI chrome + mixer UI)
+- `css/mixer.css` - Mixer window styling
+- `js/mixer/main.js` - Mixer UI + playlist handover + cleanup
+- `js/mixer/mixer_engine.js` - Mixer engine (buffer decode + AudioWorklet mixer)
+- `js/mixer/mixer-worklet-processor.js` - AudioWorkletProcessor (`soundapp-mixer`)
 - `bin/win_bin/player.js` - FFmpegStreamPlayer class (NAPI decoder + AudioWorklet)
 - `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk-based streaming
 - `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
@@ -28,7 +33,7 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `css/` - Styling (window.css, fonts.css, etc.)
 
 ## Window System
-Secondary windows (help, settings, playlist) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.
+Secondary windows (help, settings, playlist, mixer) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.
 
 **Architecture:**
 - `html/*.html` - Complete pages with NUI chrome (`<div class="nui-app">`, `.nui-title-bar`, `.content`, `<main>`)
@@ -38,12 +43,19 @@ Secondary windows (help, settings, playlist) are complete standalone HTML pages 
 
 **Window Management (stage.js):**
 ```javascript
-g.windows = { help: null, settings: null, playlist: null };
+g.windows = { help: null, settings: null, playlist: null, mixer: null };
 async function openWindow(type) {
   // Reuse if open, create if not
   // Windows auto-cleanup on close via 'window-closed' IPC
 }
 ```
+
+**Mixer Window Integration (Current State):**
+- Shortcut: `M` opens the mixer window.
+- Playlist handover: Stage sends `init_data.playlist.paths = g.music.slice(0, 20)`.
+- Stage stops playback when opening mixer (mixer operates independently).
+- Mixer renderer loads dropped files via `File.arrayBuffer()` in browser preview; in Electron it loads playlist items via URL fetching.
+- Mixer resets/cleans up on close/unload and can reset when a new playlist is handed over to an existing window.
 
 **Global Settings Pattern:**
 Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via `ipcRenderer.on('theme-changed')` and apply on open via init_data.

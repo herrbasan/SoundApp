@@ -16,8 +16,8 @@ let g = {};
 g.test = {};
 g.audioContext = null;
 g.ffmpegPlayer = null;
-g.windows = { help: null, settings: null, playlist: null };
-g.windowsVisible = { help: false, settings: false, playlist: false };
+g.windows = { help: null, settings: null, playlist: null, mixer: null };
+g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false };
 g.lastNavTime = 0;
 
 // Init
@@ -394,6 +394,10 @@ async function init(){
 		else if (data.action === 'toggle-settings') {
 			openWindow('settings');
 		}
+		else if (data.action === 'toggle-mixer') {
+			clearAudio();
+			openWindow('mixer');
+		}
 		else if (data.action === 'toggle-theme') {
 			tools.sendToMain('command', { command: 'toggle-theme' });
 		}
@@ -418,6 +422,9 @@ async function init(){
 		}
 		if (g.windows.playlist) {
 			tools.sendToId(g.windows.playlist, 'theme-changed', data);
+		}
+		if (g.windows.mixer) {
+			tools.sendToId(g.windows.mixer, 'theme-changed', data);
 		}
 	});
 	
@@ -1140,6 +1147,10 @@ async function onKey(e) {
 	else if (shortcutAction === 'toggle-theme') {
 		tools.sendToMain('command', { command: 'toggle-theme' });
 	}
+	else if (shortcutAction === 'toggle-mixer') {
+		clearAudio();
+		openWindow('mixer');
+	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
@@ -1224,6 +1235,14 @@ async function openWindow(type) {
 		} else {
 			tools.sendToId(g.windows[type], 'show-window');
 			g.windowsVisible[type] = true;
+			// Refresh mixer playlist when showing an existing mixer window
+			if(type === 'mixer'){
+				const list = Array.isArray(g.music) ? g.music : [];
+				tools.sendToId(g.windows[type], 'mixer-playlist', {
+					paths: list.slice(0, 20),
+					idx: g.idx | 0
+				});
+			}
 		}
 		return;
 	}
@@ -1242,7 +1261,8 @@ async function openWindow(type) {
 	const windowSizes = {
 		help: { width: 800, height: 700 },
 		settings: { width: 500, height: 700 },
-		playlist: { width: 960, height: 700 }
+		playlist: { width: 960, height: 700 },
+		mixer: { width: 1100, height: 760 }
 	};
 	
 	// Position window in center of the same display
@@ -1251,6 +1271,22 @@ async function openWindow(type) {
 	let x = targetDisplay.bounds.x + Math.round((targetDisplay.bounds.width - windowWidth) / 2);
 	let y = targetDisplay.bounds.y + Math.round((targetDisplay.bounds.height - windowHeight) / 2);
 	
+	const init_data = {
+		type: type,
+		stageId: await g.win.getId(),
+		config: g.config,
+		maxSampleRate: g.maxSampleRate,
+		currentSampleRate: g.audioContext.sampleRate
+	};
+
+	if(type === 'mixer'){
+		const list = Array.isArray(g.music) ? g.music : [];
+		init_data.playlist = {
+			paths: list.slice(0, 20),
+			idx: g.idx | 0
+		};
+	}
+
 	g.windows[type] = await tools.browserWindow('frameless', {
 		file: `./html/${type}.html`,
 		show: false,
@@ -1258,13 +1294,7 @@ async function openWindow(type) {
 		height: windowHeight,
 		x: x,
 		y: y,
-		init_data: {
-			type: type,
-			stageId: await g.win.getId(),
-			config: g.config,
-			maxSampleRate: g.maxSampleRate,
-			currentSampleRate: g.audioContext.sampleRate
-		}
+		init_data: init_data
 	});
 	
 	// Mark window as visible after creation

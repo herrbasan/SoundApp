@@ -218,6 +218,33 @@ player.gain.connect(g.audioContext.destination);
 ### What We Accomplished
 
 **FFmpeg NAPI Player Integration - COMPLETE ✅**
+
+---
+
+## Session: December 25, 2025 - Mixer Window System Integration (WIP)
+
+### What We Accomplished
+
+**Mixer window added to the SoundApp window system (Electron + browser preview):**
+- Created a NUI-style mixer window page and assets:
+  - `html/mixer.html`
+  - `css/mixer.css`
+  - `js/mixer/main.js`, `js/mixer/mixer_engine.js`, `js/mixer/mixer-worklet-processor.js`
+- Ensured browser preview works via existing `js/window-loader.js` bridge pattern.
+
+**Stage integration + playlist handover:**
+- Added `M` shortcut to open mixer.
+- Stage hands over the current playlist (first 20 items) to the mixer via `init_data.playlist.paths`.
+- Stage stops its own playback when opening the mixer.
+
+**Stability + cleanup:**
+- Fixed a CSS class collision with NUI window layout that broke mixer rendering.
+- Added mixer reset/cleanup logic so mixer state does not leak between sessions.
+- Improved window close notification so Stage reliably cleans up `g.windows.*` even on OS-level close.
+
+### Notes / Limitations (Known)
+
+- Network-drive / custom-protocol loading for the mixer’s `fetch()` path is still under investigation; current mixer URL strategy was rolled back to keep local paths working.
 - Integrated `ffmpeg-napi-interface` package (v1.1.3) with SoundApp
 - Unified streaming player with gapless looping in all modes
 - No more separate "loop mode" requiring full file decode
