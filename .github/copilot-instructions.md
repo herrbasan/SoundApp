@@ -54,8 +54,13 @@ async function openWindow(type) {
 - Shortcut: `M` opens the mixer window.
 - Playlist handover: Stage sends `init_data.playlist.paths = g.music.slice(0, 20)`.
 - Stage stops playback when opening mixer (mixer operates independently).
-- Mixer renderer loads dropped files via `File.arrayBuffer()` in browser preview; in Electron it loads playlist items via URL fetching.
-- Mixer resets/cleans up on close/unload and can reset when a new playlist is handed over to an existing window.
+- Mixer renderer supports drag & drop:
+  - Browser preview: loads dropped files via `File.arrayBuffer()`.
+  - Electron: resolves dropped `File` objects to absolute filesystem paths so tracks use FFmpeg streaming.
+- Diagnostics overlay (hidden by default): toggle with `Ctrl+Shift+D`, Snapshot copies JSON to clipboard.
+- Seeking while playing: if all tracks are FFmpeg-streamed, seek in-place per track; otherwise fall back to restart behavior.
+- Stage → Mixer refresh: “Open in Mixer” force-shows existing mixer and always sends an updated `mixer-playlist`.
+- Mixer resets/cleans up on close/unload and can reset when a new playlist is handed over to an existing window (preserving init_data so FFmpeg remains available).
 
 **Global Settings Pattern:**
 Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via `ipcRenderer.on('theme-changed')` and apply on open via init_data.

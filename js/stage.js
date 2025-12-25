@@ -69,8 +69,37 @@ async function init(){
 		defaultDir: ''
 	}
 	
-	g.config_obj = await helper.config.initRenderer('user', (newData) => {
+	g.config_obj = await helper.config.initRenderer('user', async (newData) => {
+		const oldBuffer = g.config.bufferSize;
+		const oldThreads = g.config.decoderThreads;
 		g.config = newData;
+
+		// Broadcast config change to all windows (e.g. Mixer)
+		tools.broadcast('config-changed', g.config);
+
+		// If streaming settings changed, perform a clean reset of the player
+		if (g.ffmpegPlayer && (oldBuffer !== g.config.bufferSize || oldThreads !== g.config.decoderThreads)) {
+			if (g.currentAudio && g.currentAudio.isFFmpeg) {
+				console.log('Streaming settings changed, resetting player...');
+				const pos = g.ffmpegPlayer.getCurrentTime();
+				const wasPlaying = g.ffmpegPlayer.isPlaying;
+				
+				g.ffmpegPlayer.prebufferSize = g.config.bufferSize || 10;
+				g.ffmpegPlayer.threadCount = g.config.decoderThreads || 0;
+				
+				try {
+					await g.ffmpegPlayer.open(g.currentAudio.fp);
+					if (pos > 0) g.ffmpegPlayer.seek(pos);
+					if (wasPlaying) await g.ffmpegPlayer.play();
+				} catch (err) {
+					console.error('Failed to reset player after config change:', err);
+				}
+			} else {
+				// Just update parameters for next load
+				g.ffmpegPlayer.prebufferSize = g.config.bufferSize || 10;
+				g.ffmpegPlayer.threadCount = g.config.decoderThreads || 0;
+			}
+		}
 	});
 	g.config = g.config_obj.get();
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
@@ -506,7 +535,8 @@ function setupDragDrop(){
 	g.dropZone = window.nui_app.dropZone(
 		[
 			{ name:'drop_add', label:'Add to Playlist' }, 
-			{ name:'drop_replace', label:'Replace Playlist' }
+			{ name:'drop_replace', label:'Replace Playlist' },
+			{ name:'drop_mixer', label:'Open in Mixer' }
 		],
 		dropHandler,
 		document.body
@@ -522,6 +552,12 @@ function setupDragDrop(){
 			let files = fileListArray(e.dataTransfer.files);
 			await playListFromMulti(files, false, !e.ctrlKey);
 			playAudio(g.music[g.idx]);
+		}
+		if(e.target.id == 'drop_mixer'){
+			let files = fileListArray(e.dataTransfer.files);
+			await playListFromMulti(files, false, !e.ctrlKey);
+			clearAudio();
+			openWindow('mixer', true);
 		}
 		renderTopInfo();
 	}
@@ -1224,9 +1260,26 @@ async function onKey(e) {
 	// H and S shortcuts now handled globally in app.js
 }
 
-async function openWindow(type) {
+async function openWindow(type, forceShow = false) {
 	if (g.windows[type]) {
-		// Window exists - toggle visibility based on tracked state
+		// Window exists
+		if(forceShow){
+			if(!g.windowsVisible[type]){
+				tools.sendToId(g.windows[type], 'show-window');
+				g.windowsVisible[type] = true;
+			}
+			// Always refresh mixer playlist when explicitly opening from Stage actions (e.g. drag&drop)
+			if(type === 'mixer'){
+				const list = Array.isArray(g.music) ? g.music : [];
+				tools.sendToId(g.windows[type], 'mixer-playlist', {
+					paths: list.slice(0, 20),
+					idx: g.idx | 0
+				});
+			}
+			return;
+		}
+
+		// Default behavior: toggle visibility based on tracked state
 		if (g.windowsVisible[type]) {
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
@@ -1276,7 +1329,10 @@ async function openWindow(type) {
 		stageId: await g.win.getId(),
 		config: g.config,
 		maxSampleRate: g.maxSampleRate,
-		currentSampleRate: g.audioContext.sampleRate
+		currentSampleRate: g.audioContext.sampleRate,
+		ffmpeg_napi_path: g.ffmpeg_napi_path,
+		ffmpeg_player_path: g.ffmpeg_player_path,
+		ffmpeg_worklet_path: g.ffmpeg_worklet_path
 	};
 
 	if(type === 'mixer'){

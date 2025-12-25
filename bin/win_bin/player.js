@@ -58,15 +58,18 @@ class FFmpegStreamPlayer {
    * @param {string} [workletPath] - Path to worklet file (for custom serving scenarios)
    * @param {number} [prebufferSize] - Target queue depth in chunks (takes effect on next open/play)
    * @param {number} [threadCount] - Number of decoder threads (0 = auto, uses all CPU cores)
+   * @param {boolean} [connectDestination=true] - Whether to connect to audioContext.destination automatically
    */
-  constructor(audioContext, workletPath = null, prebufferSize = 10, threadCount = 0) {
+  constructor(audioContext, workletPath = null, prebufferSize = 10, threadCount = 0, connectDestination = true) {
     this.audioContext = audioContext;
     this.workletPath = workletPath;
     this.threadCount = threadCount | 0;
     this.decoder = null;
     this.workletNode = null;
     this.gainNode = audioContext.createGain();
-    this.gainNode.connect(audioContext.destination);
+    if (connectDestination) {
+      this.gainNode.connect(audioContext.destination);
+    }
     this.decodeTimer = null;
     this.isPlaying = false;
     this.isLoaded = false;
@@ -81,6 +84,9 @@ class FFmpegStreamPlayer {
     // Position tracking
     this.currentFrames = 0;
     this.totalFramesInFile = 0;
+    this._underrunFrames = 0;
+    this._posMsgAt = 0;
+    this._posMsgFrames = 0;
     
     // Chunk + buffering settings (time-based to behave consistently across sample rates)
     this.chunkSeconds = 0.10;
@@ -114,12 +120,16 @@ class FFmpegStreamPlayer {
     this.chunkSize = frames * this._channels;
   }
 
-  _fillQueue(targetChunks) {
+  _fillQueue(targetChunks, maxChunks = 64) {
     if (!this.decoder || !this.workletNode || this.decoderEOF) return;
     let queued = this._queueEstimate | 0;
     const target = targetChunks | 0;
-    const maxBurst = 64;
-    for (let i = 0; i < maxBurst && queued < target && !this.decoderEOF; i++) {
+    
+    // Limit how many chunks we decode in one burst to prevent blocking the main thread,
+    // especially when multiple players are active (mixer).
+    const burst = Math.min(maxChunks, target - queued);
+    
+    for (let i = 0; i < burst && queued < target && !this.decoderEOF; i++) {
       const eofBefore = this.decoderEOF;
       this._decodeAndSendChunk();
       if (this.decoderEOF && !eofBefore) break;
@@ -135,6 +145,16 @@ class FFmpegStreamPlayer {
 
   set volume(val) {
     this.gainNode.gain.value = val;
+  }
+
+  /**
+   * Connect the player's output to an AudioNode
+   * @param {AudioNode} node 
+   * @param {number} [outputIndex=0]
+   * @param {number} [inputIndex=0]
+   */
+  connect(node, outputIndex = 0, inputIndex = 0) {
+    this.gainNode.connect(node, outputIndex, inputIndex);
   }
 
   /**
@@ -196,6 +216,8 @@ class FFmpegStreamPlayer {
     this.totalFramesInFile = Math.floor(this.duration * this._sampleRate);
     this.decoderEOF = false;
     this.currentFrames = 0;
+    this._posMsgAt = 0;
+    this._posMsgFrames = 0;
     this.isLoaded = true;
     this._queuedChunks = 0;
     this._queueEstimate = 0;
@@ -211,9 +233,14 @@ class FFmpegStreamPlayer {
       switch (event.data.type) {
         case 'position':
           this.currentFrames = event.data.frames;
+          this._posMsgFrames = this.currentFrames;
+          this._posMsgAt = (this.audioContext && isFinite(this.audioContext.currentTime)) ? this.audioContext.currentTime : 0;
           if (event.data.queuedChunks !== undefined) {
             this._queuedChunks = event.data.queuedChunks | 0;
             this._queueEstimate = this._queuedChunks;
+          }
+          if (event.data.underrunFrames !== undefined) {
+            this._underrunFrames = event.data.underrunFrames | 0;
           }
           break;
           
@@ -305,15 +332,16 @@ class FFmpegStreamPlayer {
     // Connect audio graph
     this.workletNode.connect(this.gainNode);
     
-    // Reset position
-    this.workletNode.port.postMessage({ type: 'resetPosition' });
-    this.currentFrames = 0;
+    // If we are starting from 0, ensure worklet knows
+    if (this.currentFrames === 0) {
+      this.workletNode.port.postMessage({ type: 'resetPosition' });
+    }
 
-    // Reset queue tracking
-    this._queuedChunks = this._queueEstimate = this.loopChunkFrames > 0 ? 1 : 0;
-
-    // Pre-buffer to target queue depth
-    this._fillQueue(this._prebufferSize);
+    // Pre-buffer ONLY ONE chunk synchronously if we don't have any yet.
+    // If seek() was called just before play(), we already have a chunk (queueEstimate > 0).
+    if (this._queueEstimate === 0) {
+      this._fillQueue(this._prebufferSize, 1);
+    }
 
     this.isPlaying = true;
     this._startFeedLoop();
@@ -348,9 +376,10 @@ class FFmpegStreamPlayer {
     if (!this.isPlaying) return;
 
     if (!this.decoderEOF) {
-      // Keep queue around the configured target depth
+      // Keep queue around the configured target depth.
+      // Decode only one chunk per tick to keep the main thread responsive.
       if ((this._queueEstimate | 0) < (this._prebufferSize | 0)) {
-        this._fillQueue(this._prebufferSize);
+        this._fillQueue(this._prebufferSize, 1);
       }
     }
 
@@ -370,7 +399,21 @@ class FFmpegStreamPlayer {
    * @returns {number}
    */
   getCurrentTime() {
-    const time = this.currentFrames / this._sampleRate;
+    let frames = this.currentFrames | 0;
+    if (this.isPlaying && this.audioContext && isFinite(this.audioContext.currentTime)) {
+      const tNow = this.audioContext.currentTime;
+      const tMsg = this._posMsgAt;
+      // Worklet reports 'position' roughly every 50ms. Without compensation, different
+      // worklets will be out-of-phase and appear to drift by up to ~50ms.
+      // Extrapolate from the last received frame count using AudioContext time.
+      const dt = (tNow - tMsg);
+      // Only extrapolate when we recently received a position and the queue was not empty
+      // (queue empty increases underrun risk and framesPlayed may pause).
+      if (tMsg > 0 && dt > 0 && dt < 0.20 && (this._queuedChunks | 0) > 0) {
+        frames = (this._posMsgFrames | 0) + Math.floor(dt * this._sampleRate);
+      }
+    }
+    const time = frames / this._sampleRate;
     
     if (this.isLoop && this.duration > 0) {
       return time % this.duration;
@@ -425,11 +468,12 @@ class FFmpegStreamPlayer {
         const frames = Math.floor(seconds * this._sampleRate);
         this.workletNode.port.postMessage({ type: 'setPosition', frames: frames });
         this.currentFrames = frames;
+        this._posMsgFrames = frames;
+        this._posMsgAt = (this.audioContext && isFinite(this.audioContext.currentTime)) ? this.audioContext.currentTime : 0;
         
-        // Pre-buffer
-        if (this.isPlaying) {
-          this._fillQueue(this._prebufferSize);
-        }
+        // Pre-buffer ONLY ONE chunk synchronously to ensure immediate start without blocking.
+        // We do this even if not playing, so the worklet is "primed" for an atomic start.
+        this._fillQueue(this._prebufferSize, 1);
       }
     }
     return success;
@@ -475,6 +519,8 @@ class FFmpegStreamPlayer {
     this.isLoaded = false;
     this.decoderEOF = false;
     this.currentFrames = 0;
+    this._posMsgAt = 0;
+    this._posMsgFrames = 0;
   }
 }
 

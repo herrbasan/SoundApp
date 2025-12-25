@@ -18,7 +18,143 @@ if(typeof window !== 'undefined' && window.bridge && window.bridge.isElectron){
 	} catch(e) {}
 }
 
+let webUtils;
+if(typeof window !== 'undefined' && window.bridge && window.bridge.isElectron){
+	try {
+		webUtils = require('electron').webUtils;
+	} catch(e) {}
+}
+
+function _getElectronPathForFile(f){
+	if(!webUtils || !f) return '';
+	try {
+		const p = webUtils.getPathForFile(f);
+		return p ? ('' + p) : '';
+	} catch(e) {}
+	return '';
+}
+
 let _loopStarted = false;
+
+let DEBUG_DND = true;
+
+function _copyToClipboard(text){
+	if(text == null) return false;
+	text = '' + text;
+	if(typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText){
+		try {
+			navigator.clipboard.writeText(text);
+			return true;
+		} catch(e) {}
+	}
+	try {
+		const ta = document.createElement('textarea');
+		ta.value = text;
+		ta.setAttribute('readonly', '');
+		ta.style.position = 'fixed';
+		ta.style.left = '-9999px';
+		ta.style.top = '-9999px';
+		document.body.appendChild(ta);
+		ta.select();
+		const ok = document.execCommand && document.execCommand('copy');
+		document.body.removeChild(ta);
+		return !!ok;
+	} catch(e) {}
+	return false;
+}
+
+function _setSyncOverlayVisible(v){
+	v = !!v;
+	g.sync_overlay_visible = v;
+	if(g.sync_overlay){
+		g.sync_overlay.style.display = v ? 'block' : 'none';
+	}
+}
+
+function _buildSyncSnapshot(){
+	const snap = {
+		ts: Date.now(),
+		iso: new Date().toISOString(),
+		transportSeconds: Transport ? Transport.seconds : NaN,
+		refSeconds: NaN,
+		tracks: []
+	};
+
+	if(!g || !g.currentChannels || !g.currentChannels.length) return snap;
+
+	let refSec = snap.transportSeconds;
+	const tr0 = g.currentChannels[0] ? g.currentChannels[0].track : null;
+	if(tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function'){
+		refSec = tr0.ffPlayer.getCurrentTime();
+	}
+	snap.refSeconds = refSec;
+
+	for(let i=0; i<g.currentChannels.length; i++){
+		const item = g.currentChannels[i];
+		const tr = item ? item.track : null;
+		const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
+		const name = (item && item.el && item.el.filename) ? ('' + item.el.filename) : '';
+		const inIdx = tr ? (tr.idx | 0) : -1;
+		const entry = {
+			index: i + 1,
+			input: inIdx,
+			name,
+			type: fp ? 'ff' : 'buf',
+			timeSeconds: NaN,
+			driftTransportMs: NaN,
+			driftRefMs: NaN,
+			underrunFrames: null,
+			underrunMs: null,
+			queuedChunks: null,
+			frames: null,
+			lastLoadMode: tr && tr.lastLoadMode ? ('' + tr.lastLoadMode) : '',
+			lastLoadNote: tr && tr.lastLoadNote ? ('' + tr.lastLoadNote) : '',
+			lastLoadError: tr && tr.lastLoadError ? ('' + tr.lastLoadError) : ''
+		};
+
+		if(fp && typeof fp.getCurrentTime === 'function'){
+			const t = fp.getCurrentTime();
+			entry.timeSeconds = t;
+			entry.driftTransportMs = (t - snap.transportSeconds) * 1000;
+			entry.driftRefMs = (t - refSec) * 1000;
+			const ufr = (fp._underrunFrames !== undefined) ? (fp._underrunFrames | 0) : 0;
+			const usr = (fp._sampleRate | 0) > 0 ? (fp._sampleRate | 0) : 44100;
+			entry.underrunFrames = ufr;
+			entry.underrunMs = (ufr / usr) * 1000;
+			entry.queuedChunks = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
+			entry.frames = (fp.currentFrames | 0);
+		}
+		else {
+			let t = NaN;
+			if(tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0){
+				t = (tr.engine.ctx.currentTime - tr._bufStartCtxTime) + (tr._bufStartOffset || 0);
+			}
+			entry.timeSeconds = t;
+			entry.driftTransportMs = isFinite(t) ? ((t - snap.transportSeconds) * 1000) : NaN;
+			entry.driftRefMs = isFinite(t) ? ((t - refSec) * 1000) : NaN;
+		}
+		snap.tracks.push(entry);
+	}
+
+	return snap;
+}
+
+function _formatMs(v){
+	if(!isFinite(v)) return '---.-';
+	return (v >= 0 ? '+' : '') + v.toFixed(1);
+}
+
+function _padRight(s, n){
+	s = '' + (s == null ? '' : s);
+	if(s.length >= n) return s;
+	return s + ' '.repeat(n - s.length);
+}
+
+function _padLeft(s, n){
+	s = '' + (s == null ? '' : s);
+	if(s.length >= n) return s;
+	return ' '.repeat(n - s.length) + s;
+}
 
 function _resetUiToEmpty(){
 	if(!g || !g.channels || !g.add_zone) return;
@@ -78,7 +214,7 @@ async function _disposeEngine(){
 async function resetForNewPlaylist(paths){
 	_resetUiToEmpty();
 	await _disposeEngine();
-	engine = new MixerEngine();
+	engine = new MixerEngine(g && g.initData ? g.initData : null);
 	Transport = engine.Transport;
 	if(paths && paths.length) await loadPaths(paths);
 }
@@ -92,8 +228,102 @@ function fileBaseName(fp){
 	return s;
 }
 
+function _decodeFileUri(u){
+	let s = (u || '').trim();
+	if(!s) return '';
+	if(s.startsWith('file:///')) s = s.substring(8);
+	else if(s.startsWith('file://')) s = s.substring(7);
+	try { s = decodeURIComponent(s); } catch(e) {}
+	// Normalize slashes for Windows paths
+	s = s.replace(/\//g, '\\');
+	return s;
+}
+
+function getDroppedPaths(dt){
+	const out = [];
+	if(!dt || !dt.getData) return out;
+	let s = '';
+	try { s = '' + (dt.getData('text/uri-list') || ''); } catch(e) {}
+	if(!s){
+		try { s = '' + (dt.getData('text/plain') || ''); } catch(e) {}
+	}
+	if(!s) return out;
+	const lines = s.split(/\r?\n/);
+	for(let i=0; i<lines.length; i++){
+		let line = (lines[i] || '').trim();
+		if(!line) continue;
+		if(line[0] === '#') continue;
+		if(line.startsWith('file:')){
+			const p = _decodeFileUri(line);
+			if(p) out.push(p);
+		}
+		else {
+			// Plain paths (Windows) may appear here.
+			out.push(line);
+		}
+	}
+	return out;
+}
+
+function dumpDataTransfer(dt){
+	const o = {};
+	if(!dt) return o;
+	try {
+		if(dt.types && dt.types.length){
+			const ar = [];
+			for(let i=0; i<dt.types.length; i++) ar.push('' + dt.types[i]);
+			o.types = ar;
+		}
+	} catch(e) {}
+	try {
+		o.filesLen = dt.files ? (dt.files.length | 0) : 0;
+		if(o.filesLen > 0){
+			const f0 = dt.files[0];
+			const p0 = _getElectronPathForFile(f0);
+			o.file0 = {
+				name: '' + (f0 && f0.name ? f0.name : ''),
+				size: f0 && f0.size ? (f0.size | 0) : 0,
+				type: '' + (f0 && f0.type ? f0.type : ''),
+				hasPath: !!(f0 && f0.path),
+				path: f0 && f0.path ? ('' + f0.path) : '',
+				webUtilsPath: p0 ? p0 : ''
+			};
+		}
+	} catch(e) {}
+	if(dt.getData){
+		try {
+			let s = '' + (dt.getData('text/uri-list') || '');
+			s = s.replace(/\r/g, '');
+			if(s.length > 800) s = s.substring(0, 800) + '...';
+			o.uriList = s;
+		} catch(e) {}
+		try {
+			let s = '' + (dt.getData('text/plain') || '');
+			s = s.replace(/\r/g, '');
+			if(s.length > 800) s = s.substring(0, 800) + '...';
+			o.textPlain = s;
+		} catch(e) {}
+	}
+	return o;
+}
+
 function collectDroppedFiles(dt){
 	const out = [];
+	// In Electron, dt.files provides File objects with a .path property.
+	// dt.items.getAsFile() often drops .path, which forces us into the slower buffer decode path.
+	if(window.bridge && window.bridge.isElectron && dt && dt.files && dt.files.length){
+		const files = dt.files;
+		for(let i=0; i<files.length; i++){
+			const f = files[i];
+			if(!f) continue;
+			const name = '' + (f.name || '');
+			const hasExt = name.lastIndexOf('.') > 0;
+			// Heuristic: folders often come through with empty type, size=0, and no extension.
+			if(!f.type && !f.size && !hasExt) continue;
+			out.push(f);
+		}
+		return out;
+	}
 	if(dt && dt.items && dt.items.length){
 		const items = dt.items;
 		for(let i=0; i<items.length; i++){
@@ -129,8 +359,9 @@ function collectDroppedFiles(dt){
 
 async function init(initData){
 	console.log('Mixer init', initData);
+	g.initData = initData || {};
 
-	engine = new MixerEngine();
+	engine = new MixerEngine(g.initData);
 	Transport = engine.Transport;
 	g.content = ut.el('#content');
 	g.mixer_container = g.content.el('.mixer-container');
@@ -138,6 +369,45 @@ async function init(initData){
 	g.channels = g.mixer.el('.channels');
 	g.add_zone = g.channels.el('.add-zone');
 	g.name_tooltip = g.mixer.el('.name-tooltip');
+
+	// Floating sync debug overlay (kept separate from the strips for readability)
+	g.sync_overlay = document.createElement('div');
+	g.sync_overlay.className = 'sync-overlay';
+	g.sync_overlay_hdr = document.createElement('div');
+	g.sync_overlay_hdr.className = 'hdr';
+	g.sync_overlay_btn = document.createElement('button');
+	g.sync_overlay_btn.className = 'btn';
+	g.sync_overlay_btn.type = 'button';
+	g.sync_overlay_btn.textContent = 'Snapshot';
+	g.sync_overlay_hdr_info = document.createElement('div');
+	g.sync_overlay_hdr_info.className = 'hint';
+	g.sync_overlay_hdr_info.textContent = 'Ctrl+Shift+D';
+	g.sync_overlay_hdr.appendChild(g.sync_overlay_btn);
+	g.sync_overlay_hdr.appendChild(g.sync_overlay_hdr_info);
+	g.sync_overlay_pre = document.createElement('pre');
+	g.sync_overlay.appendChild(g.sync_overlay_hdr);
+	g.sync_overlay.appendChild(g.sync_overlay_pre);
+	document.body.appendChild(g.sync_overlay);
+
+	g.sync_overlay_btn.addEventListener('click', () => {
+		const snap = _buildSyncSnapshot();
+		_copyToClipboard(JSON.stringify(snap, null, 2));
+	});
+
+	g.sync_overlay_visible = false;
+	_setSyncOverlayVisible(false);
+
+	window.addEventListener('keydown', (e) => {
+		if(!e) return;
+		if(!e.ctrlKey || !e.shiftKey) return;
+		const code = '' + (e.code || '');
+		const key = ('' + (e.key || '')).toLowerCase();
+		if(code === 'KeyD' || key === 'd'){
+			e.preventDefault();
+			e.stopPropagation();
+			_setSyncOverlayVisible(!g.sync_overlay_visible);
+		}
+	});
 
 	g.transport = ut.el('.transport');
 	g.transport_current = g.transport.el('.time .current');
@@ -164,7 +434,9 @@ async function init(initData){
 		g.add_zone.addEventListener('drop', async (e) => {
 			e.preventDefault();
 			g.add_zone.classList.remove('dragover');
+			if(DEBUG_DND) console.log('[Mixer DnD] add-zone drop', dumpDataTransfer(e.dataTransfer));
 			const files = collectDroppedFiles(e.dataTransfer);
+			const dtPaths = (window.bridge && window.bridge.isElectron) ? getDroppedPaths(e.dataTransfer) : null;
 			if(files.length > 0){
 				if(!g.currentChannels) {
 					await engine.start();
@@ -173,19 +445,37 @@ async function init(initData){
 					g.channels.classList.remove('empty');
 					if(!_loopStarted){ _loopStarted = true; loop(); }
 				}
+				const promises = [];
 				for(let i=0; i<files.length; i++){
 					const file = files[i];
+					let src = file;
+					if(window.bridge && window.bridge.isElectron){
+						const p = _getElectronPathForFile(file);
+						if(p) src = p;
+						else if(dtPaths && dtPaths.length){
+							// Try order match first, otherwise fall back to first path.
+							src = dtPaths[i] || dtPaths[0];
+						}
+					}
+					if(DEBUG_DND) console.log('[Mixer DnD] add-zone item', { i, name: file && file.name ? file.name : '', hasFilePath: !!(file && file.path), webUtilsPath: _getElectronPathForFile(file), chosenSrcType: typeof src, chosenSrc: (typeof src === 'string' ? src : '[object]') });
 					const track = engine.createTrack();
 					const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, file.name, g.currentChannels.length + 1), g.add_zone);
-					try {
-						await track.load(file);
-						if(Transport.state === 'started') track._startAt(Transport.seconds);
-					} catch(err) {
-						console.error('Mixer load failed:', file && file.name ? file.name : file, err);
-					}
 					g.currentChannels.push({el, track});
-					if(track.duration > g.duration) g.duration = track.duration;
+					
+					promises.push((async () => {
+						try {
+							await track.load(src);
+							if(track.duration > g.duration) g.duration = track.duration;
+							if(Transport.state === 'started') {
+								if(track.ffPlayer) track.ffPlayer.seek(Transport.seconds);
+								track._startAt(Transport.seconds);
+							}
+						} catch(err) {
+							console.error('Mixer load failed:', file && file.name ? file.name : file, err);
+						}
+					})());
 				}
+				await Promise.all(promises);
 			}
 		});
 	}
@@ -223,8 +513,37 @@ async function init(initData){
 	if(window.bridge && window.bridge.isElectron && window.bridge.on){
 		window.bridge.on('mixer-playlist', async (data) => {
 			const p = data && Array.isArray(data.paths) ? data.paths : null;
-			if(p){
-				await resetForNewPlaylist(p);
+			if(!p) return;
+			// Keep initData (ffmpeg paths/config) but update playlist payload for consistency.
+			if(g && g.initData){
+				g.initData.playlist = { paths: p, idx: (data && (data.idx|0)) ? (data.idx|0) : 0 };
+			}
+			await resetForNewPlaylist(p);
+		});
+
+		window.bridge.on('config-changed', async (newConfig) => {
+			const oldBuffer = engine.initData.config.bufferSize;
+			const oldThreads = engine.initData.config.decoderThreads;
+			engine.initData.config = newConfig;
+
+			// If streaming settings changed, perform a clean reset of all tracks
+			if (g.currentChannels && (oldBuffer !== newConfig.bufferSize || oldThreads !== newConfig.decoderThreads)) {
+				console.log('Mixer: Streaming settings changed, resetting all tracks...');
+				const pos = Transport.seconds;
+				const wasPlaying = Transport.state === 'started';
+
+				// Stop all first
+				Transport.stop();
+
+				// Re-open all tracks with new settings
+				const tasks = g.currentChannels.map(c => c.track.load(c.track.src));
+				try {
+					await Promise.all(tasks);
+					if (pos > 0) seek(pos);
+					if (wasPlaying) Transport.start();
+				} catch (err) {
+					console.error('Mixer: Failed to reset tracks after config change:', err);
+				}
 			}
 		});
 	}
@@ -234,30 +553,6 @@ async function init(initData){
 		try { _resetUiToEmpty(); } catch(e) {}
 		try { _disposeEngine(); } catch(e) {}
 	});
-}
-
-function toPlayableUrl(fp){
-	if(!fp) return '';
-	let s = '' + fp;
-	if(s.startsWith('blob:') || s.startsWith('http:') || s.startsWith('https:') || s.startsWith('file:')) return s;
-
-	// Electron: use plain file:// URLs so local files work without relying on raum protocol.
-	if(window.bridge && window.bridge.isElectron){
-		// Prefer helper (it uses pathToFileURL and encodes '#', spaces, etc.).
-		if(tools && tools.getFileURL){
-			try { return tools.getFileURL(s); } catch(e) {}
-		}
-		// Fallback: build a file:/// URL.
-		let p = s.replace(/\\/g, '/');
-		// encodeURI does NOT encode '#', so patch that.
-		let enc = encodeURI(p).replace(/#/g, '%23');
-		if(/^[a-zA-Z]:\//.test(enc)) return 'file:///' + enc;
-		if(enc.startsWith('//')) return 'file:' + enc; // UNC: file://server/share/...
-		return 'file:///' + enc;
-	}
-
-	// Browser preview: only blob/http(s) are playable.
-	return s;
 }
 
 async function loadPaths(paths){
@@ -273,11 +568,10 @@ async function loadPaths(paths){
 
 	for(let i=0; i<paths.length; i++){
 		const fp = paths[i];
-		const url = toPlayableUrl(fp);
 		const track = engine.createTrack();
 		const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, fp, g.currentChannels.length + 1), g.add_zone);
 		try {
-			await track.load(url);
+			await track.load(fp);
 			if(track.duration > g.duration) g.duration = track.duration;
 		} catch(err) {
 			console.error('Mixer load failed:', fp, err);
@@ -355,14 +649,23 @@ function renderChannel(idx, fp, total){
 	html.addEventListener('drop', async (e) => {
 		e.preventDefault();
 		html.classList.remove('dragover');
+		if(DEBUG_DND) console.log('[Mixer DnD] strip drop', dumpDataTransfer(e.dataTransfer));
 		const files = collectDroppedFiles(e.dataTransfer);
+		const dtPaths = (window.bridge && window.bridge.isElectron) ? getDroppedPaths(e.dataTransfer) : null;
 		if(files.length > 0){
 			const file = files[0];
+			let src = file;
+			if(window.bridge && window.bridge.isElectron){
+				const p = _getElectronPathForFile(file);
+				if(p) src = p;
+				else if(dtPaths && dtPaths.length) src = dtPaths[0];
+			}
+			if(DEBUG_DND) console.log('[Mixer DnD] strip item', { name: file && file.name ? file.name : '', hasFilePath: !!(file && file.path), webUtilsPath: _getElectronPathForFile(file), chosenSrcType: typeof src, chosenSrc: (typeof src === 'string' ? src : '[object]') });
 			html.filename = file.name;
 			const trackObj = g.currentChannels.find(c => c.el === html);
 			if(trackObj){
 				try {
-					await trackObj.track.load(file);
+					await trackObj.track.load(src);
 					if(Transport.state === 'started') {
 						trackObj.track._stopSource();
 						trackObj.track._startAt(Transport.seconds);
@@ -462,6 +765,7 @@ function removeTrack(el){
 	}
 	if(idx >= 0){
 		const item = g.currentChannels[idx];
+		try { if(engine && engine.removeTrack) engine.removeTrack(item.track); } catch(e) {}
 		item.track.dispose();
 		ut.killMe(item.el);
 		g.currentChannels.splice(idx, 1);
@@ -552,6 +856,69 @@ function loop(){
 	requestAnimationFrame(loop);
 	if(g.currentChannels){
 		updateTransport();
+
+		// Floating sync debug overlay
+		if(g.sync_overlay_pre && g.sync_overlay_visible){
+			let refSec = Transport.seconds;
+			if(g.currentChannels.length){
+				const tr0 = g.currentChannels[0].track;
+				if(tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function'){
+					refSec = tr0.ffPlayer.getCurrentTime();
+				}
+			}
+
+			let out = '';
+			out += 'SYNC (N=' + g.currentChannels.length + ', ref=' + refSec.toFixed(3) + 's, T=' + Transport.seconds.toFixed(3) + 's)\n';
+			out += ' i  in  ty  name                 t(s)    dT(ms)   dR(ms)   u(ms)   q   frames\n';
+			const n = g.currentChannels.length;
+			let errOut = '';
+			for(let i=0; i<n; i++){
+				const item = g.currentChannels[i];
+				const tr = item ? item.track : null;
+				const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
+				let name = (item && item.el && item.el.filename) ? item.el.filename : '';
+				name = name.length > 20 ? (name.substring(0, 17) + '...') : name;
+				const inIdx = tr ? (tr.idx | 0) : -1;
+				if(fp && typeof fp.getCurrentTime === 'function'){
+					const t = fp.getCurrentTime();
+					const driftT = (t - Transport.seconds) * 1000;
+					const driftR = (t - refSec) * 1000;
+					const ufr = (fp._underrunFrames !== undefined) ? (fp._underrunFrames | 0) : 0;
+					const usr = (fp._sampleRate | 0) > 0 ? (fp._sampleRate | 0) : 44100;
+					const uMs = (ufr / usr) * 1000;
+					const q = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
+					const frames = fp.currentFrames | 0;
+					out += _padLeft(i+1, 2) + '  ' + _padLeft(inIdx, 2) + '  ff  ' + _padRight(name, 20) + '  ' + _padLeft(t.toFixed(3), 6) + '  ' + _padLeft(_formatMs(driftT), 7) + '  ' + _padLeft(_formatMs(driftR), 7) + '  ' + _padLeft(_formatMs(uMs), 7) + '  ' + _padLeft(q, 2) + '  ' + frames + '\n';
+				}
+				else {
+					let t = NaN;
+					if(tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0){
+						t = (tr.engine.ctx.currentTime - tr._bufStartCtxTime) + (tr._bufStartOffset || 0);
+					}
+					const driftT = isFinite(t) ? ((t - Transport.seconds) * 1000) : NaN;
+					const driftR = isFinite(t) ? ((t - refSec) * 1000) : NaN;
+					out += _padLeft(i+1, 2) + '  ' + _padLeft(inIdx, 2) + '  buf ' + _padRight(name, 20) + '  ' + _padLeft(isFinite(t) ? t.toFixed(3) : '-', 6) + '  ' + _padLeft(isFinite(driftT) ? _formatMs(driftT) : '-', 7) + '  ' + _padLeft(isFinite(driftR) ? _formatMs(driftR) : '-', 7) + '  ' + _padLeft('-', 7) + '  ' + _padLeft('-', 2) + '  -\n';
+					if(tr && (tr.lastLoadNote || tr.lastLoadError)){
+						let note = (tr.lastLoadNote || '').trim();
+						let msg = (tr.lastLoadError || '').replace(/\s+/g, ' ').trim();
+						if(msg.length > 140) msg = msg.substring(0, 137) + '...';
+						let line = '! ' + (i+1) + ' ' + name + ': ';
+						if(note) line += note;
+						if(note && msg) line += ' | ';
+						if(msg) line += msg;
+						errOut += line + '\n';
+					}
+				}
+			}
+			if(errOut){
+				out += '\n' + errOut;
+			}
+			g.sync_overlay_pre.textContent = out;
+		}
+		else if(g.sync_overlay_pre && g.sync_overlay_visible){
+			g.sync_overlay_pre.textContent = '';
+		}
+
 		for(let i=0; i<g.currentChannels.length; i++){
 			let item = g.currentChannels[i];
 			let level = item.track.getMeter();
@@ -560,6 +927,10 @@ function loop(){
 			if(proz < 1) { proz = 0; }
 			item.el.meter.style.height = proz + '%';
 		}
+	}
+	else if(g.sync_overlay_pre && g.sync_overlay_visible){
+		const t = Transport ? Transport.seconds : 0;
+		g.sync_overlay_pre.textContent = 'SYNC (N=0, ref=' + t.toFixed(3) + 's, T=' + t.toFixed(3) + 's)\n';
 	}
 }
 

@@ -677,3 +677,30 @@ if (g.windowsVisible[type]) {
 ### Notes / Limitations (Known)
 
 - Network-drive / custom-protocol loading for the mixer’s `fetch()` path is still under investigation; current mixer URL strategy was rolled back to keep local paths working.
+
+---
+
+## Session: December 25, 2025 - Mixer Sync Fixes + Diagnostics
+
+### What We Accomplished
+
+**Fixed “added track is permanently delayed” when drag & dropping into the mixer:**
+- Root cause: dropped items often lacked a usable filesystem path string, so the mixer fell back to buffer decoding (`buf`) instead of FFmpeg streaming (`ff`). Mixed pipelines led to a persistent offset.
+- Fix: in Electron, resolve dropped `File` objects to absolute filesystem paths (matching Stage’s drop strategy) so new tracks consistently load via the FFmpeg streaming path.
+
+**Added a timing/sync diagnostics overlay (hidden by default):**
+- Floating overlay with per-track mode (`ff`/`buf`), time, drift vs transport/reference, queue depth, and underrun metrics.
+- Toggle with `Ctrl+Shift+D`.
+- Snapshot button copies a JSON dump of current diagnostics to clipboard.
+
+**Reduced apparent drift caused by worklet message cadence:**
+- Worklet position updates arrive about every 50ms.
+- `FFmpegStreamPlayer` now extrapolates current time using `AudioContext.currentTime` since the last reported position, reducing “false” drift in the overlay.
+
+**Improved seeking sync when all tracks are FFmpeg-streamed:**
+- When seeking while playing and all tracks are `ff`, the mixer now seeks in-place per track (avoids stop/restart ordering seams).
+- If any track is `buf`, seeking falls back to the restart approach.
+
+**Stage → Mixer refresh reliability:**
+- “Open in Mixer” now force-shows the existing mixer window and always sends an updated `mixer-playlist`.
+- Mixer reset on new playlist preserves `initData` so FFmpeg stays available (prevents unexpected `buf` fallback after refresh).

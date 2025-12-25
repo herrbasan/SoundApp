@@ -31,6 +31,10 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     this.hasEnded = false;  // Track if we've already fired the 'ended' event
     this.reachedEOF = false;  // True after playing the last (EOF-marked) chunk
 
+    // Underrun tracking: number of silent frames output because no samples were available.
+    // This is the key metric for diagnosing "track starts late" issues in the mixer.
+    this.underrunFrames = 0;
+
     // Position reporting (time-based; sampleRate is the AudioContext rate)
     this._posEveryFrames = Math.max(256, Math.round(sampleRate * 0.05));
     this._lastPosFrames = 0;
@@ -78,14 +82,17 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
         this.playingLoopChunk = false;
         this.hasEnded = false;  // Reset the ended flag on clear
         this.reachedEOF = false;  // Reset EOF flag on clear (e.g., seek)
+        this.underrunFrames = 0;
         break;
         
       case 'resetPosition':
         this.framesPlayed = 0;
+        this.underrunFrames = 0;
         break;
         
       case 'setPosition':
         this.framesPlayed = event.data.frames;
+        this.underrunFrames = 0;
         break;
     }
   }
@@ -184,6 +191,10 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
       
       if (gotSample) {
         this.framesPlayed++;
+      } else if (!this.reachedEOF) {
+        // We are outputting silence because there is no data available yet.
+        // Count this so the UI can show how much "late start" happened.
+        this.underrunFrames++;
       } else if (this.reachedEOF && !this.loopEnabled && !this.hasEnded) {
         // No data, EOF reached, and not looping - we're done (fire only once)
         this.hasEnded = true;
@@ -199,7 +210,8 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
       this.port.postMessage({ 
         type: 'position',
         frames: this.framesPlayed,
-        queuedChunks: this.chunks.length
+        queuedChunks: this.chunks.length,
+        underrunFrames: this.underrunFrames
       });
     }
     
