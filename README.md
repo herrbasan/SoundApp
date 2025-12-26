@@ -89,7 +89,9 @@ A cross-platform desktop audio player built with Electron. Beside supporting all
 ## Mixer Mode (Beta)
 The new multi-track mixer allows you to play multiple audio files simultaneously, perfect for previewing stems or layering tracks.
 
-**To open the Mixer:** Press <kbd>M</kbd> in the main window.
+**To open the Mixer:** 
+- **Drag & Drop:** Drag a folder or multiple audio files onto the "Multitrack Preview" dropzone in the main window. This is the recommended way to use the mixer.
+- **Shortcut:** Press <kbd>M</kbd> in the main window (opens mixer with current playlist, which may not always be what you want).
 
 ### Mixer Shortcuts
 
@@ -146,6 +148,8 @@ Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/S
 - **Performance First:** Instant playback start, low memory footprint
 - **No Database:** Direct file system browsing, no library management overhead
 - **Keyboard-Driven:** Efficient workflow for power users
+
+**Note on Themes:** SoundApp is designed primarily for Dark Mode. A Light Mode exists (toggle with <kbd>X</kbd>), but it is currently considered beta/experimental and has not received the same level of polish as the default dark theme.
 
 ## Tech Stack
 - **Framework:** Electron
@@ -297,19 +301,13 @@ Separate window displaying the full playlist with enhanced management:
 - Search, sort, and scroll capabilities
 - Visual feedback of current track
 
-#### 3. Multi-Track Mixer
-Advanced feature for simultaneous playback of multiple tracks:
-- Open folder (max ~20 files) to trigger mixer mode
-- Synchronous playback with per-track volume and panning controls
-- **Use case:** Preview bounced stems/tracks from music production projects
-
-#### 4. File Format Converter
+#### 3. File Format Converter
 Built-in transcoding utility:
 - Convert currently playing file to different formats
 - Keyboard shortcut opens conversion window with format options
 - Powered by FFmpeg NAPI interface for high-quality transcoding
 
-### Version 2.0 (Future Vision)
+### Future Vision (Version 2.0+)
 
 #### Waveform Visualization
 Display audio waveform for visual reference and navigation (if performance constraints allow).
