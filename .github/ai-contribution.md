@@ -796,3 +796,28 @@ if (g.windowsVisible[type]) {
   - Layout logic uses logical pixels for consistent sizing across devices.
 - **Files Modified:** `js/mixer/main.js`, `css/mixer.css`.
 
+
+## Session: December 26, 2025 - Mixer Looping & Shortcuts
+
+### What We Accomplished
+
+**Mixer Looping & Sync:**
+- **Transport-Driven Looping:** Implemented a robust looping strategy where the Transport resets to 0 upon reaching the end of the longest track.
+- **Sync Priority:** This approach forces a full re-seek/restart of all tracks at the loop point, ensuring perfect synchronization across different file formats (FLAC, MP3, M4A) at the cost of a small gap.
+- **UI Update:** Added a "Loop" toggle button to the Mixer toolbar (enabled by default).
+
+**Mixer Shortcuts & Controls:**
+- **Playback Control:** `Space` toggles playback.
+- **Master Volume:** `Arrow Up` / `Arrow Down` controls master volume (+/- 5%).
+- **Seeking:** `Arrow Left` / `Arrow Right` skips backward/forward by 10%.
+- **Solo Shortcuts:**
+  - `F1` - `F10`: Toggle solo for tracks 1-10.
+  - `1` - `0`: Toggle solo for tracks 11-20.
+- **Exclusive Solo:** Holding `Shift` while clicking Solo or using a shortcut enters "Exclusive Solo" mode (mutes all others). Repeating the action restores the previous state.
+
+**Files Modified:**
+- `js/mixer/main.js`
+- `js/mixer/mixer_engine.js`
+- `html/mixer.html`
+- `css/mixer.css`
+
