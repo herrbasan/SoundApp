@@ -617,7 +617,11 @@ function setupDragDrop(){
 			// Don't clear audio of main player if we are just opening mixer?
 			// "clearAudio();" stops the main player.
 			// If we want to play in mixer, we probably want to stop main player.
-			clearAudio();
+			// clearAudio();
+			if(g.currentAudio && !g.currentAudio.paused){
+				g.currentAudio.pause();
+				checkState();
+			}
 			
 			// We need to pass the 'pl' array to openWindow.
 			// openWindow currently takes (type, show, file_path).
@@ -1007,6 +1011,13 @@ function playPrev(e){
 }
 
 function playPause(){
+	if(!g.currentAudio){
+		if(g.music && g.music.length > 0){
+			playAudio(g.music[g.idx]);
+		}
+		return;
+	}
+
 	if(g.currentAudio.paused){
 		g.currentAudio.play();
 	}
@@ -1281,7 +1292,11 @@ async function onKey(e) {
 	}
 	else if (shortcutAction === 'toggle-mixer') {
 		const fp = g.currentAudio ? g.currentAudio.fp : null;
-		clearAudio();
+		//clearAudio();
+		if(g.currentAudio && !g.currentAudio.paused){
+			g.currentAudio.pause();
+			checkState();
+		}
 		openWindow('mixer', false, fp);
 	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
