@@ -640,6 +640,9 @@ async function init(initData){
 				// Auto-play when dropping files into the add-zone if not already playing
 				if(Transport.state !== 'started' && g.currentChannels && g.currentChannels.length > 0){
 					Transport.start();
+				} else if(Transport.state === 'started'){
+					// Re-sync all tracks to current transport time to ensure alignment
+					seek(Transport.seconds);
 				}
 			}
 		});
@@ -1043,7 +1046,9 @@ function removeTrack(el){
 			if(g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
 		}
 		g.duration = maxD;
-		if(g.currentChannels.length === 0) g.channels.classList.add('empty');
+		if(g.currentChannels.length === 0) {
+			_resetUiToEmpty();
+		}
 		hideNameTooltip();
 		
 		updateState();

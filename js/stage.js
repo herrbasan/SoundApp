@@ -231,7 +231,8 @@ async function init(){
 		else {
 			await playListFromMulti(data, false, false);
 		}
-		playAudio(g.music[g.idx], 0, g.mixerPlaying)
+		playAudio(g.music[g.idx], 0, false);
+		g.win.focus();
 	})
 	console.log(g.main_env)
 	ipcRenderer.on('log', (e, data) => {
@@ -569,12 +570,14 @@ function setupDragDrop(){
 			let files = fileListArray(e.dataTransfer.files);
 			const wasEmpty = g.music.length === 0;
 			await playListFromMulti(files, true, !e.ctrlKey);
-			if(wasEmpty) playAudio(g.music[g.idx], 0, g.mixerPlaying);
+			if(wasEmpty) playAudio(g.music[g.idx], 0, false);
+			g.win.focus();
 		}
 		if(e.target.id == 'drop_replace'){
 			let files = fileListArray(e.dataTransfer.files);
 			await playListFromMulti(files, false, !e.ctrlKey);
-			playAudio(g.music[g.idx], 0, g.mixerPlaying);
+			playAudio(g.music[g.idx], 0, false);
+			g.win.focus();
 		}
 		if(e.target.id == 'drop_mixer'){
 			let files = fileListArray(e.dataTransfer.files);
@@ -1292,11 +1295,6 @@ async function onKey(e) {
 	}
 	else if (shortcutAction === 'toggle-mixer') {
 		const fp = g.currentAudio ? g.currentAudio.fp : null;
-		//clearAudio();
-		if(g.currentAudio && !g.currentAudio.paused){
-			g.currentAudio.pause();
-			checkState();
-		}
 		openWindow('mixer', false, fp);
 	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
@@ -1406,9 +1404,15 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			if(!g.windowsVisible[type]){
 				tools.sendToId(g.windows[type], 'show-window');
 				g.windowsVisible[type] = true;
+			} else {
+				tools.sendToId(g.windows[type], 'show-window');
 			}
 			// Always refresh mixer playlist when explicitly opening from Stage actions (e.g. drag&drop)
 			if(type === 'mixer'){
+				if(g.currentAudio && !g.currentAudio.paused){
+					g.currentAudio.pause();
+					checkState();
+				}
 				const playlist = await getMixerPlaylist(contextFile);
 				tools.sendToId(g.windows[type], 'mixer-playlist', {
 					paths: playlist.paths.slice(0, 20),
@@ -1429,6 +1433,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			g.windowsVisible[type] = true;
 			// Refresh mixer playlist when showing an existing mixer window
 			if(type === 'mixer'){
+				if(g.currentAudio && !g.currentAudio.paused){
+					g.currentAudio.pause();
+					checkState();
+				}
 				const playlist = await getMixerPlaylist(contextFile);
 				tools.sendToId(g.windows[type], 'mixer-playlist', {
 					paths: playlist.paths.slice(0, 20),
@@ -1475,6 +1483,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	};
 
 	if(type === 'mixer'){
+		if(g.currentAudio && !g.currentAudio.paused){
+			g.currentAudio.pause();
+			checkState();
+		}
 		const playlist = await getMixerPlaylist(contextFile);
 		init_data.playlist = {
 			paths: playlist.paths.slice(0, 20),
