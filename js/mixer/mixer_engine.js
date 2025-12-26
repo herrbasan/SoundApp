@@ -190,10 +190,10 @@ class MixerTrack {
 		this._meter = v;
 	}
 
-	dispose(){
+	async dispose(){
 		this._stopSource();
 		if(this.ffPlayer){
-			try { this.ffPlayer.stop(); } catch(e) {}
+			try { await this.ffPlayer.dispose(); } catch(e) {}
 			this.ffPlayer = null;
 		}
 		this.engine._setTrackParams(this.idx, 0, 0, true);
@@ -403,7 +403,7 @@ class MixerEngine {
 		return 0;
 	}
 
-	dispose(){
+	async dispose(){
 		this.Transport.stop();
 		const ar = this.tracks;
 		for(let i=0; i<ar.length; i++){
@@ -413,7 +413,7 @@ class MixerEngine {
 		this.tracks.length = 0;
 		try { if(this.mixNode) this.mixNode.disconnect(); } catch(e) {}
 		try { this.masterGain.disconnect(); } catch(e) {}
-		try { this.ctx.close(); } catch(e) {}
+		try { if(this.ctx && this.ctx.state !== 'closed') await this.ctx.close(); } catch(e) {}
 	}
 }
 

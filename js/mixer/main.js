@@ -156,11 +156,11 @@ function _padLeft(s, n){
 	return ' '.repeat(n - s.length) + s;
 }
 
-function _resetUiToEmpty(){
+async function _resetUiToEmpty(){
 	if(!g || !g.channels || !g.add_zone) return;
 	if(g.currentChannels){
 		for(let i=0; i<g.currentChannels.length; i++){
-			try { g.currentChannels[i].track.dispose(); } catch(e) {}
+			try { await g.currentChannels[i].track.dispose(); } catch(e) {}
 			try { ut.killMe(g.currentChannels[i].el); } catch(e) {}
 		}
 	}
@@ -194,25 +194,13 @@ function _resetUiToEmpty(){
 
 async function _disposeEngine(){
 	if(!engine) return;
-	try { if(Transport) Transport.stop(); } catch(e) {}
-	try {
-		if(g && g.currentChannels){
-			for(let i=0; i<g.currentChannels.length; i++){
-				try { g.currentChannels[i].track.dispose(); } catch(e) {}
-			}
-		}
-	} catch(e) {}
-	try { if(engine.mixNode){ engine.mixNode.port.onmessage = null; } } catch(e) {}
-	try { if(engine.mixNode){ engine.mixNode.disconnect(); } } catch(e) {}
-	try { if(engine.masterGain){ engine.masterGain.disconnect(); } } catch(e) {}
-	const ctx = engine.ctx;
+	try { await engine.dispose(); } catch(e) { console.error('Engine dispose error:', e); }
 	engine = null;
 	Transport = null;
-	try { if(ctx && ctx.state !== 'closed' && ctx.close) await ctx.close(); } catch(e) {}
 }
 
 async function resetForNewPlaylist(paths){
-	_resetUiToEmpty();
+	await _resetUiToEmpty();
 	await _disposeEngine();
 	engine = new MixerEngine(g && g.initData ? g.initData : null);
 	Transport = engine.Transport;
@@ -476,6 +464,10 @@ async function init(initData){
 					})());
 				}
 				await Promise.all(promises);
+				// Auto-play when dropping files into the add-zone if not already playing
+				if(Transport.state !== 'started' && g.currentChannels && g.currentChannels.length > 0){
+					Transport.start();
+				}
 			}
 		});
 	}
@@ -507,6 +499,10 @@ async function init(initData){
 	const paths = pl && Array.isArray(pl.paths) ? pl.paths : null;
 	if(paths && paths.length){
 		await loadPaths(paths);
+		// Auto-play when opened with tracks (e.g. "Open in Mixer")
+		if(g.currentChannels && g.currentChannels.length > 0){
+			Transport.start();
+		}
 	}
 
 	// Reset + reload when Stage hands over a new playlist to an already-open mixer window.
@@ -519,6 +515,16 @@ async function init(initData){
 				g.initData.playlist = { paths: p, idx: (data && (data.idx|0)) ? (data.idx|0) : 0 };
 			}
 			await resetForNewPlaylist(p);
+			// Auto-play when receiving new playlist via "M" key
+			if(g.currentChannels && g.currentChannels.length > 0){
+				Transport.start();
+			}
+		});
+
+		window.bridge.on('hide-window', async () => {
+			console.log('Mixer hidden, disposing resources...');
+			await _resetUiToEmpty();
+			await _disposeEngine();
 		});
 
 		window.bridge.on('config-changed', async (newConfig) => {
@@ -964,6 +970,9 @@ function updateTransport(){
 			g.btn_play.classList.add('playing');
 		} else {
 			g.btn_play.classList.remove('playing');
+		}
+		if(window.bridge && window.bridge.sendToStage){
+			window.bridge.sendToStage('mixer-state', { playing: state === 'started' });
 		}
 	}
 }

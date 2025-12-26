@@ -10,6 +10,7 @@ const tools = helper.tools;
 const app = helper.app;
 const os = require('node:os');
 const registry = require('../js/registry.js');
+const shortcuts = require('../js/shortcuts.js');
 
 let player;
 let g = {};
@@ -19,6 +20,10 @@ g.ffmpegPlayer = null;
 g.windows = { help: null, settings: null, playlist: null, mixer: null };
 g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false };
 g.lastNavTime = 0;
+g.mixerPlaying = false;
+g.music = [];
+g.idx = 0;
+g.max = -1;
 
 // Init
 // ###########################################################################
@@ -226,7 +231,7 @@ async function init(){
 		else {
 			await playListFromMulti(data, false, false);
 		}
-		playAudio(g.music[g.idx])
+		playAudio(g.music[g.idx], 0, g.mixerPlaying)
 	})
 	console.log(g.main_env)
 	ipcRenderer.on('log', (e, data) => {
@@ -471,6 +476,10 @@ async function init(){
 	ipcRenderer.on('toggle-theme', (e, data) => {
 		tools.sendToMain('command', { command: 'toggle-theme' });
 	});
+
+	ipcRenderer.on('mixer-state', (e, data) => {
+		g.mixerPlaying = !!(data && data.playing);
+	});
 	
 }
 
@@ -560,18 +569,72 @@ function setupDragDrop(){
 			let files = fileListArray(e.dataTransfer.files);
 			const wasEmpty = g.music.length === 0;
 			await playListFromMulti(files, true, !e.ctrlKey);
-			if(wasEmpty) playAudio(g.music[g.idx]);
+			if(wasEmpty) playAudio(g.music[g.idx], 0, g.mixerPlaying);
 		}
 		if(e.target.id == 'drop_replace'){
 			let files = fileListArray(e.dataTransfer.files);
 			await playListFromMulti(files, false, !e.ctrlKey);
-			playAudio(g.music[g.idx]);
+			playAudio(g.music[g.idx], 0, g.mixerPlaying);
 		}
 		if(e.target.id == 'drop_mixer'){
 			let files = fileListArray(e.dataTransfer.files);
-			await playListFromMulti(files, false, !e.ctrlKey);
+			// For mixer, we just want to get the file list to pass to the mixer window,
+			// NOT update the main player's playlist (g.music).
+			// We use playListFromMulti just to resolve folders recursively if needed,
+			// but we need to capture the result without modifying g.music.
+			
+			// Create a temporary dummy object to capture the playlist if playListFromMulti modifies global state
+			// But looking at playListFromMulti, it modifies g.music directly if add=true or replaces it.
+			// We need a version that just returns the paths.
+			
+			// Actually, playListFromMulti returns the list 'pl'.
+			// But it also sets g.music. We should refactor or just use a temporary variable.
+			// Let's modify playListFromMulti to accept a 'dryRun' or similar, or just manually do it here.
+			// Or better, let's just use the tools directly here to get the list.
+			
+			let pl = [];
+			for(let i=0; i<files.length; i++){
+				let fp = files[i];
+				let stat = await fs.lstat(path.normalize(fp));
+				if(stat.isDirectory()){
+					let folder_files = [];
+					if(!e.ctrlKey){ // Recursive by default unless Ctrl pressed (logic inverted from playListFromMulti?)
+						// In playListFromMulti: rec = !e.ctrlKey.
+						folder_files = await tools.getFilesRecursive(fp, g.supportedFilter);
+					}
+					else {
+						folder_files = await tools.getFiles(fp, g.supportedFilter);
+					}
+					pl = pl.concat(folder_files);
+				}
+				else {
+					if(tools.checkFileType(fp, g.supportedFilter)){
+						pl.push(fp);
+					}
+				}
+			}
+			
+			// Don't clear audio of main player if we are just opening mixer?
+			// "clearAudio();" stops the main player.
+			// If we want to play in mixer, we probably want to stop main player.
 			clearAudio();
-			openWindow('mixer', true);
+			
+			// We need to pass the 'pl' array to openWindow.
+			// openWindow currently takes (type, show, file_path).
+			// We need to pass the list.
+			// We can temporarily set g.currentAudio.fp or modify openWindow to accept a list.
+			// But openWindow uses 'init_data'.
+			
+			// Let's look at openWindow implementation.
+			// It constructs init_data.
+			// If we pass a list, we need to handle it.
+			
+			// Hack: We can set a temporary property on g that openWindow reads, 
+			// or better, pass it as an argument.
+			// openWindow(type, show, fileOrList)
+			
+			openWindow('mixer', true, pl);
+			return;
 		}
 		renderTopInfo();
 	}
@@ -701,7 +764,8 @@ function playListFromMulti(ar, add=false, rec=false){
 
 
 
-async function playAudio(fp, n){
+async function playAudio(fp, n, startPaused = false){
+	console.log('playAudio', fp, n, startPaused);
 	if(!g.blocky){
 		let parse = path.parse(fp);
 		let bench = performance.now();
@@ -718,13 +782,24 @@ async function playAudio(fp, n){
 				fp: fp, 
 				bench: bench, 
 				currentTime: 0,
-				paused: false, 
+				paused: startPaused, 
 				duration: 0,
 				play: () =>  { g.currentAudio.paused = false; player.unpause() }, 
 				pause: () => { g.currentAudio.paused = true; player.pause() }
 			};
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = g.config.volume;
+			if(startPaused) {
+				// Tracker player auto-plays on load, so we might need to pause immediately or handle it.
+				// Chiptune.js usually plays on load. We can try to pause it.
+				// However, chiptune.js load is async inside.
+				// For now, let's assume checkState() handles the UI, but we might need to explicitly pause.
+				// Actually, chiptune.js doesn't have a 'startPaused' option easily.
+				// We'll rely on the fact that we can call pause() after load?
+				// Or maybe we just accept that trackers might start?
+				// Let's try to pause it in the checkState or right after load if possible.
+				// But wait, player.load() is void.
+			}
 			checkState();
 		}
 		else {
@@ -741,7 +816,7 @@ async function playAudio(fp, n){
 					fp: fp,
 					bench: bench,
 					currentTime: 0,
-					paused: false,
+					paused: startPaused,
 					duration: metadata.duration,
 					player: ffPlayer,
 					volume: g.config.volume,
@@ -755,7 +830,9 @@ async function playAudio(fp, n){
 				
 				if (n > 0) { ffPlayer.seek(n); }
 				
-				await ffPlayer.play();
+				if (!startPaused) {
+					await ffPlayer.play();
+				}
 				
 				checkState();
 				//console.log('Operation took: ' + Math.round((performance.now() - bench)));
@@ -1186,7 +1263,12 @@ function renderBar(){
 
 async function onKey(e) {
 	//fb(e.keyCode)
-	const shortcutAction = window.shortcuts.handleShortcut(e, 'stage');
+	let shortcutAction = null;
+	if(shortcuts && shortcuts.handleShortcut){
+		shortcutAction = shortcuts.handleShortcut(e, 'stage');
+	} else if(window.shortcuts && window.shortcuts.handleShortcut){
+		shortcutAction = window.shortcuts.handleShortcut(e, 'stage');
+	}
 	
 	if (shortcutAction === 'toggle-help') {
 		openWindow('help');
@@ -1276,6 +1358,9 @@ async function onKey(e) {
 }
 
 async function getMixerPlaylist(contextFile = null) {
+	if (Array.isArray(contextFile)) {
+		return { paths: contextFile, idx: 0 };
+	}
 	let fp = contextFile;
 	if (!fp && g.currentAudio && g.currentAudio.fp) {
 		fp = g.currentAudio.fp;

@@ -101,6 +101,19 @@ class FFmpegStreamPlayer {
     
     // State
     this.decoderEOF = false;
+    this.isDisposed = false;
+  }
+
+  /**
+   * Dispose the player and release all resources permanently.
+   * After calling dispose(), the player instance cannot be used again.
+   */
+  dispose() {
+    if (this.isDisposed) return;
+    this.stop();
+    this.isDisposed = true;
+    this.audioContext = null;
+    this.gainNode = null;
   }
 
   /** @type {number} */
@@ -182,6 +195,7 @@ class FFmpegStreamPlayer {
    * @returns {Promise<{duration: number, sampleRate: number, channels: number}>}
    */
   async open(filePath, workletUrl = null) {
+    if (this.isDisposed) throw new Error('Player is disposed');
     if (!this.workletReady) {
       await this.init(workletUrl);
     }
@@ -320,6 +334,7 @@ class FFmpegStreamPlayer {
    * @param {number} [when=0] - AudioContext time to start playback
    */
   async play(when = 0) {
+    if (this.isDisposed) throw new Error('Player is disposed');
     if (!this.isLoaded) {
       throw new Error('No file loaded. Call open() first.');
     }
@@ -380,7 +395,7 @@ class FFmpegStreamPlayer {
    * @private
    */
   _startFeedLoop() {
-    if (!this.isPlaying) return;
+    if (this.isDisposed || !this.isPlaying) return;
 
     if (!this.decoderEOF) {
       // Keep queue around the configured target depth.
@@ -433,17 +448,15 @@ class FFmpegStreamPlayer {
    * Pause playback
    */
   pause() {
-    if (this.isPlaying) {
-      this.isPlaying = false;
+    this.isPlaying = false;
 
-      if (this.decodeTimer) {
-        clearTimeout(this.decodeTimer);
-        this.decodeTimer = null;
-      }
+    if (this.decodeTimer) {
+      clearTimeout(this.decodeTimer);
+      this.decodeTimer = null;
+    }
 
-      if (this.workletNode) {
-        this.workletNode.disconnect();
-      }
+    if (this.workletNode) {
+      try { this.workletNode.disconnect(); } catch(e) {}
     }
   }
 
@@ -514,12 +527,12 @@ class FFmpegStreamPlayer {
     if (this.workletNode) {
       // Clear message handler to break closure references and prevent memory leaks
       this.workletNode.port.onmessage = null;
-      this.workletNode.disconnect();
+      try { this.workletNode.disconnect(); } catch(e) {}
       this.workletNode = null;
     }
 
     if (this.decoder) {
-      this.decoder.close();
+      try { this.decoder.close(); } catch(e) { console.error('FFmpeg cleanup error:', e); }
       this.decoder = null;
     }
 

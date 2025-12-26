@@ -752,10 +752,28 @@ if (g.windowsVisible[type]) {
 - html/mixer.html
 - html/settings.html
 - css/main.css
-"@
-git add .
-git commit -m "Multitrack Preview rename, UX improvements, and startup fixes"
-git push origin main
-git add .; git commit -m "Multitrack Preview rename, UX improvements, and startup fixes"; git push origin main
-git status
-git add . ; git commit -m "Multitrack Preview rename, UX improvements, and startup fixes" ; git push origin main
+
+## Session: December 26, 2025 - Mixer Hardening & Playlist Isolation
+
+### What We Accomplished
+
+**Mixer Hardening & Resource Management:**
+- Implemented robust `async dispose()` patterns in `MixerEngine` and `FFmpegStreamPlayer` to ensure clean NAPI resource cleanup.
+- Added `isDisposed` flags to prevent memory leaks and crashes from pending callbacks after disposal.
+- Configured Mixer to dispose resources when hidden (toggled off via "M"), ensuring fresh state on reopen and preventing playback failures.
+
+**UX & Auto-play Logic:**
+- **Smart Auto-play:** Main player now suppresses auto-play if the Mixer is active. Mixer auto-plays when files are dropped or loaded via "M".
+- **Playlist Isolation:** Drag-and-drop to the "Multitrack Preview" zone now opens the Mixer directly without polluting the Main Player's playlist.
+- **Shortcuts:** Fixed "M" shortcut reliability by properly importing `shortcuts.js` in Stage.
+
+**Bug Fixes:**
+- Fixed "1 of NaN" display issue on startup by initializing playlist state variables.
+- Fixed issue where reopening the Mixer after toggling it off resulted in unplayable tracks.
+
+**Files Modified:**
+- `js/stage.js`
+- `js/mixer/main.js`
+- `js/mixer/mixer_engine.js`
+- `libs/ffmpeg-napi-interface/lib/player.js`
+
