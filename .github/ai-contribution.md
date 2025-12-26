@@ -198,6 +198,34 @@ player.gain.connect(g.audioContext.destination);
 - Seeking in all modes including loop ✅
 - Volume control ✅
 - Progress bar tracking ✅
+
+---
+
+## Session: December 26, 2025 - Mixer & Main Window Coordination
+
+### What We Accomplished
+
+**Playback Coordination:**
+- Implemented "independent but mutually exclusive" playback logic:
+  - Opening Mixer (via 'M' or drop) pauses Main Player.
+  - Main Player and Mixer can play simultaneously if user manually starts both.
+  - Main Player does *not* pause when Mixer starts playing (removed previous auto-pause logic).
+  - Main Player does *not* pause when dropping files onto Mixer (allows adding tracks while playing).
+
+**Focus Management:**
+- **Main Window:** Gets focus when:
+  - Files are opened via OS (double-click, drag to icon).
+  - Files are dropped onto "Add to Playlist" or "Replace Playlist" zones.
+- **Mixer Window:** Gets focus when:
+  - Files are dropped onto "Multitrack Preview" zone (even if window is already open).
+
+**Mixer Improvements:**
+- **Auto-Sync:** Dropping files into an active mixer session now automatically seeks all tracks to the current transport time, ensuring alignment.
+- **Clean Reset:** Removing all tracks now correctly resets the UI state (restores dummy placeholder, cleans up engine), fixing styling issues.
+
+**Files Modified:**
+- `js/stage.js` - Updated `openWindow`, `dropHandler`, and IPC handlers for focus and pause logic.
+- `js/mixer/main.js` - Added sync-on-drop logic and improved `removeTrack` cleanup.
 - Play/pause/stop controls ✅
 
 **Performance Characteristics:**
