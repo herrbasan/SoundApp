@@ -48,7 +48,7 @@ body.dark {
 }
 .mixer-root .top {
 	display: grid;
-	grid-template-columns: auto auto 1fr 16rem;
+	grid-template-columns: auto auto auto 1fr 16rem;
 	align-items: center;
 	gap: 0.5rem;
 	height: 3rem;
@@ -93,6 +93,23 @@ body.dark {
 
 .icon-btn.playing .pause-icon {
 	display: block;
+}
+
+.icon-btn.active svg {
+	fill: white;
+}
+
+#btn_loop {
+	
+}
+#btn_loop.active {
+	background-color: rgb(var(--color-shade4));
+}
+#btn_loop svg{
+	fill: rgba(255,255,255,0.5)
+}
+#btn_loop.active svg {
+	fill: rgba(255,255,255,1)
 }
 
 .master-vol {

@@ -182,6 +182,10 @@ class MixerTrack {
 		this._sendParams();
 	}
 
+	setLoop(loop){
+		// No-op for individual tracks in transport-driven loop mode
+	}
+
 	getMeter(){
 		return this._meter;
 	}
@@ -259,6 +263,11 @@ class MixerEngine {
 		this.Transport = new MixerTransport(this);
 		this.tracks = [];
 		this._isReady = false;
+		this.loop = true;
+	}
+
+	setLoop(loop){
+		this.loop = !!loop;
 	}
 
 	async start(){

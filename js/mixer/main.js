@@ -448,13 +448,82 @@ async function init(initData){
 
 	window.addEventListener('keydown', (e) => {
 		if(!e) return;
-		if(!e.ctrlKey || !e.shiftKey) return;
 		const code = '' + (e.code || '');
 		const key = ('' + (e.key || '')).toLowerCase();
-		if(code === 'KeyD' || key === 'd'){
+
+		if(e.ctrlKey && e.shiftKey){
+			if(code === 'KeyD' || key === 'd'){
+				e.preventDefault();
+				e.stopPropagation();
+				_setSyncOverlayVisible(!g.sync_overlay_visible);
+			}
+			return;
+		}
+
+		// Space: Toggle Playback
+		if(code === 'Space'){
 			e.preventDefault();
-			e.stopPropagation();
-			_setSyncOverlayVisible(!g.sync_overlay_visible);
+			g.btn_play.click();
+			return;
+		}
+
+		// Arrow Up/Down: Master Volume
+		if(code === 'ArrowUp'){
+			e.preventDefault();
+			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 1.0;
+			g.master_gain_val = Math.min(1.0, g.master_gain_val + 0.05);
+			engine.setMasterGain(g.master_gain_val);
+			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
+			return;
+		}
+		if(code === 'ArrowDown'){
+			e.preventDefault();
+			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 1.0;
+			g.master_gain_val = Math.max(0.0, g.master_gain_val - 0.05);
+			engine.setMasterGain(g.master_gain_val);
+			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
+			return;
+		}
+
+		// Arrow Left/Right: Skip 10%
+		if(code === 'ArrowLeft'){
+			e.preventDefault();
+			if(g.duration > 0){
+				const current = Transport.seconds;
+				const target = Math.max(0, current - (g.duration * 0.1));
+				seek(target);
+			}
+			return;
+		}
+		if(code === 'ArrowRight'){
+			e.preventDefault();
+			if(g.duration > 0){
+				const current = Transport.seconds;
+				const target = Math.min(g.duration, current + (g.duration * 0.1));
+				seek(target);
+			}
+			return;
+		}
+
+		// F1-F10: Solo Tracks 1-10 (Indices 0-9)
+		if(code.startsWith('F') && code.length >= 2 && code.length <= 3){
+			const fNum = parseInt(code.substring(1));
+			if(!isNaN(fNum) && fNum >= 1 && fNum <= 10){
+				e.preventDefault();
+				handleSolo(fNum - 1, e.shiftKey);
+				return;
+			}
+		}
+
+		// 1-0: Solo Tracks 11-20 (Indices 10-19)
+		if(key >= '0' && key <= '9'){
+			if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+			e.preventDefault();
+			let idx = -1;
+			if(key === '0') idx = 19;
+			else idx = 9 + parseInt(key);
+			handleSolo(idx, e.shiftKey);
+			return;
 		}
 	});
 
@@ -464,6 +533,7 @@ async function init(initData){
 	g.transport_bar = g.transport.el('.bar .inner');
 	g.btn_play = ut.el('#btn_play');
 	g.btn_reset = ut.el('#btn_reset');
+	g.btn_loop = ut.el('#btn_loop');
 	g.master_slider = ut.el('#master_slider');
 	g.master_bar = g.master_slider.el('.inner');
 
@@ -537,6 +607,7 @@ async function init(initData){
 	ut.dragSlider(g.master_slider, (e) => {
 		engine.setMasterGain(e.prozX);
 		g.master_bar.style.width = (e.prozX * 100) + '%';
+		g.master_gain_val = e.prozX;
 	});
 
 	g.btn_play.addEventListener("click", async () =>  {
@@ -554,6 +625,14 @@ async function init(initData){
 		seek(0);
 		Transport.stop();
 	});
+
+	g.btn_loop.addEventListener("click", () => {
+		const newState = !engine.loop;
+		engine.setLoop(newState);
+		if(newState) g.btn_loop.classList.add('active');
+		else g.btn_loop.classList.remove('active');
+	});
+	if(engine.loop) g.btn_loop.classList.add('active');
 
 	// If Stage provides playlist data later, this is where we will hook it in.
 	const pl = initData && initData.playlist ? initData.playlist : null;
@@ -649,6 +728,84 @@ async function loadPaths(paths){
 
 function seekProz(proz){ if(g.currentChannels){ seek(g.duration * proz); }}
 function seek(sec){ Transport.seconds = sec; }
+
+function handleSolo(index, exclusive){
+	if(!g.currentChannels || !g.currentChannels[index]) return;
+	const item = g.currentChannels[index];
+	const el = item.el;
+
+	if(exclusive){
+		if(g.exclusiveSoloTrack === item){
+			// Restore
+			if(g.soloSnapshot){
+				g.currentChannels.forEach((ch, i) => {
+					ch.el.state.solo = g.soloSnapshot[i].solo;
+					ch.el.state.mute = g.soloSnapshot[i].mute;
+					ch.el.state.mute_mem = g.soloSnapshot[i].mute_mem;
+				});
+				g.soloSnapshot = null;
+			}
+			g.exclusiveSoloTrack = null;
+		} else {
+			// Save snapshot if not already in exclusive mode
+			if(!g.exclusiveSoloTrack){
+				g.soloSnapshot = g.currentChannels.map(ch => ({
+					solo: ch.el.state.solo,
+					mute: ch.el.state.mute,
+					mute_mem: ch.el.state.mute_mem
+				}));
+			}
+			
+			// Exclusive solo: Solo this one, mute all others
+			g.currentChannels.forEach(ch => {
+				if(ch === item){
+					ch.el.state.solo = true;
+					ch.el.state.mute = false;
+				} else {
+					ch.el.state.solo = false;
+					ch.el.state.mute = true;
+				}
+			});
+			g.exclusiveSoloTrack = item;
+		}
+	} else {
+		// Standard Solo Logic (Toggle)
+		if(g.exclusiveSoloTrack){
+			 g.exclusiveSoloTrack = null;
+			 g.soloSnapshot = null;
+		}
+
+		let soloCount = 0;
+		g.currentChannels.forEach(ch => { if(ch.el.state.solo) soloCount++; });
+
+		if(el.state.solo){
+			// Un-soloing
+			if(soloCount === 1){
+				// Last solo being removed -> restore mutes
+				g.currentChannels.forEach(ch => {
+					ch.el.state.mute = ch.el.state.mute_mem;
+				});
+				el.state.solo = false;
+				el.state.mute = el.state.mute_mem;
+			} else {
+				// Still other solos -> just un-solo this one, it becomes muted
+				el.state.solo = false;
+				el.state.mute = true;
+			}
+		} else {
+			// Soloing
+			// Mute everyone who isn't soloed
+			g.currentChannels.forEach(ch => {
+				if(!ch.el.state.solo){
+					ch.el.state.mute = true;
+				}
+			});
+			el.state.mute = false;
+			el.state.solo = true;
+		}
+	}
+	updateState();
+}
 
 function renderChannel(idx, fp, total){
 	let html = ut.htmlObject(/*html*/ `
@@ -755,15 +912,20 @@ function renderChannel(idx, fp, total){
 	});
 
 	html.mute.addEventListener('click', mute);
-	html.solo.addEventListener('click', solo);
+	html.solo.addEventListener('click', (e) => {
+		const currentIdx = g.currentChannels.findIndex(c => c.el === html);
+		handleSolo(currentIdx, e.shiftKey);
+	});
 	html.btn_close.addEventListener('click', (e) => {
 		e.stopPropagation();
 		removeTrack(html);
 	});
 
 	function mute(){
-		if(soloCount() > 0){
-			solo();
+		const soloCount = g.currentChannels.filter(c => c.el.state.solo).length;
+		if(soloCount > 0){
+			const currentIdx = g.currentChannels.findIndex(c => c.el === html);
+			handleSolo(currentIdx, false);
 		}
 		else {
 			if(html.state.mute){
@@ -775,44 +937,6 @@ function renderChannel(idx, fp, total){
 			html.state.mute_mem = html.state.mute;
 			updateState();
 		}
-	}
-
-	function soloCount(){
-		let solo_count = 0;
-		for(let i=0; i<g.currentChannels.length; i++){
-			if(g.currentChannels[i].el.state.solo){
-				solo_count++;
-			}
-		}
-		return solo_count;
-	}
-
-	function solo(){
-		if(html.state.solo){
-			if(soloCount() == 1){
-				for(let i=0; i<g.currentChannels.length; i++){
-					let el = g.currentChannels[i].el;
-					el.state.mute = el.state.mute_mem;
-				}
-				html.state.solo = false;
-				html.state.mute = html.state.mute_mem;
-			}
-			else {
-				html.state.solo = false;
-				html.state.mute = true;
-			}
-		}
-		else {
-			for(let i=0; i<g.currentChannels.length; i++){
-				let el = g.currentChannels[i].el;
-				if(!el.state.solo){
-					el.state.mute = true;
-				}
-			}
-			html.state.mute = false;
-			html.state.solo = true;
-		}
-		updateState();
 	}
 
 	ut.dragSlider(html.pan, (e) => {
@@ -1126,7 +1250,13 @@ function updateTransport(){
 	}
 	let current = Transport.seconds;
 	if(g.duration > 0 && current >= g.duration){
-		Transport.stop();
+		if(engine.loop){
+			Transport.seconds = 0;
+			current = 0;
+		} else {
+			Transport.stop();
+			current = g.duration;
+		}
 	}
 	if(g.transport.current != current){
 		g.transport_current.innerText = ut.playTime(current*1000).minsec;
