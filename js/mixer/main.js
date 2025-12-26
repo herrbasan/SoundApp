@@ -601,7 +601,7 @@ function renderChannel(idx, fp, total){
 				<div class="line"></div>
 			</div>
 			<div class="info">
-				<img class="fileicon" src="../build/icons/pcm.ico" draggable="false">
+				<div class="trackno"></div>
 				<svg class="close" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
 					<path d="M0 0h24v24H0V0z" fill="none"/>
 					<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
@@ -627,6 +627,7 @@ function renderChannel(idx, fp, total){
 	html.pan = html.el('.pan');
 	html.gain = html.el('.gain');
 	html.info = html.el('.info');
+	html.trackno = html.el('.info .trackno');
 	html.slider = html.el('.gain .slider');
 	html.slider_num = html.el('.gain .slider .num');
 	html.pan_line = html.pan.el('.line');
@@ -634,6 +635,10 @@ function renderChannel(idx, fp, total){
 	html.solo = html.el('.solo');
 	html.btn_close = html.el('.info .close');
 	html.filename = fileBaseName(fp);
+	if(html.trackno){
+		const n = (total || (idx + 1)) | 0;
+		html.trackno.textContent = (n > 0 && n < 10 ? '0' : '') + n;
+	}
 
 	html.info.addEventListener('mouseenter', () => showNameTooltip(html, html.info));
 	html.info.addEventListener('mouseleave', hideNameTooltip);

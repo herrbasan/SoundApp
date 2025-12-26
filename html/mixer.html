@@ -89,6 +89,26 @@
 
 		window.addEventListener('bridge-ready', async (e) => {
 			const data = e.detail || {};
+
+			// Browser preview convenience: if no playlist is provided, preload a demo set so
+			// the mixer shows a full channel-strip layout without drag/drop.
+			// Electron mode stays fully driven by Stage IPC.
+			if(window.bridge && !window.bridge.isElectron){
+				const pl = data.playlist || (data.playlist = {});
+				const paths = Array.isArray(pl.paths) ? pl.paths : (pl.paths = []);
+				if(paths.length === 0){
+					pl.paths = [
+						'../_Material/mixer_media/play11/01.m4a',
+						'../_Material/mixer_media/play11/02.m4a',
+						'../_Material/mixer_media/play11/03.m4a',
+						'../_Material/mixer_media/play11/04.m4a',
+						'../_Material/mixer_media/play11/05.m4a',
+						'../_Material/mixer_media/play11/06.m4a',
+						'../_Material/mixer_media/play11/07.m4a',
+						'../_Material/mixer_media/play11/08.m4a'
+					];
+				}
+			}
 			await main.init(data);
 		});
 	</script>
