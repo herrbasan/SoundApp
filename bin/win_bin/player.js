@@ -356,6 +356,7 @@ class FFmpegStreamPlayer {
 
     // Set scheduled start time
     this.workletNode.port.postMessage({ type: 'startAt', time: when });
+    this.workletNode.port.postMessage({ type: 'pause', paused: false });
 
     if (this.isPlaying) return;
 
@@ -456,6 +457,7 @@ class FFmpegStreamPlayer {
     }
 
     if (this.workletNode) {
+      this.workletNode.port.postMessage({ type: 'pause', paused: true });
       try { this.workletNode.disconnect(); } catch(e) {}
     }
   }

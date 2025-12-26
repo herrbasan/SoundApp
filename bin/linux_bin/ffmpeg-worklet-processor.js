@@ -42,12 +42,17 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     this._posEveryBlocks = Math.max(1, Math.round(this._posEveryFrames / 128));
     
     this.startTime = 0;
+    this.paused = false;
 
     this.port.onmessage = this.onMessage.bind(this);
   }
   
   onMessage(event) {
     switch (event.data.type) {
+      case 'pause':
+        this.paused = event.data.paused;
+        break;
+
       case 'startAt':
         this.startTime = event.data.time;
         break;
@@ -131,6 +136,15 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
       now = currentFrame / sr;
     } else if (typeof currentTime === 'number') {
       now = currentTime;
+    }
+
+    // Paused state: output silence and hold position
+    if (this.paused) {
+      for (let i = 0; i < channel0.length; i++) {
+        channel0[i] = 0;
+        channel1[i] = 0;
+      }
+      return true;
     }
 
     // Sync start: output silence until startTime is reached
