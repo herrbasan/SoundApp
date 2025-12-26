@@ -59,6 +59,8 @@ async function openWindow(type) {
   - Electron: resolves dropped `File` objects to absolute filesystem paths so tracks use FFmpeg streaming.
 - Diagnostics overlay (hidden by default): toggle with `Ctrl+Shift+D`, Snapshot copies JSON to clipboard.
 - Seeking while playing: if all tracks are FFmpeg-streamed, seek in-place per track; otherwise fall back to restart behavior.
+- **Synchronization:** Uses a "Scheduled Start" strategy (200ms pre-roll) to ensure all tracks start exactly in sync.
+  - FFmpeg streaming is the primary and robust method; full-decode buffering is not required for standard playback.
 - Stage → Mixer refresh: “Open in Mixer” force-shows existing mixer and always sends an updated `mixer-playlist`.
 - Mixer resets/cleans up on close/unload and can reset when a new playlist is handed over to an existing window (preserving init_data so FFmpeg remains available).
 

@@ -704,3 +704,28 @@ if (g.windowsVisible[type]) {
 **Stage → Mixer refresh reliability:**
 - “Open in Mixer” now force-shows the existing mixer window and always sends an updated `mixer-playlist`.
 - Mixer reset on new playlist preserves `initData` so FFmpeg stays available (prevents unexpected `buf` fallback after refresh).
+
+## Session: December 26, 2025 - Mixer Synchronization & Robust Streaming
+
+### What We Accomplished
+
+**Mixer Synchronization:**
+- Implemented a **Scheduled Start** strategy for the multi-track mixer.
+- Added a 200ms pre-roll buffer:
+  - MixerEngine schedules playback to start at currentTime + 0.2s.
+  - FFmpegStreamProcessor outputs silence until the scheduled start time is reached.
+  - MixerTransport display logic updated to account for this offset, ensuring dT (delta Transport) shows ~0.0ms.
+- Result: Perfect synchronization between tracks and the visual transport, eliminating drift.
+
+**Robust FFmpeg Streaming:**
+- Fixed a critical regression in fmpeg-worklet-processor.js where currentFrame or sampleRate could be undefined in some AudioWorklet environments.
+- Added safety checks:
+  - sampleRate falls back to 44100 if global is missing.
+  - Time calculation checks currentFrame first, then falls back to currentTime.
+- Updated player.js to allow re-triggering play() for seamless seeking updates.
+- Verified that the streaming implementation is now robust enough to be the primary method, removing the need for a full-decode fallback experiment.
+
+**Codebase Maintenance:**
+- Synced the robust fmpeg-worklet-processor.js and player.js changes to the fmpeg-napi-interface submodule.
+- Updated in/win_bin and in/linux_bin via the sync-ffmpeg-napi.ps1 script.
+
