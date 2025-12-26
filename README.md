@@ -89,6 +89,8 @@ A cross-platform desktop audio player built with Electron. Beside supporting all
 ## Mixer Mode (Beta)
 The new multi-track mixer allows you to play multiple audio files simultaneously, perfect for previewing stems or layering tracks.
 
+![Multitrack Mixer Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/multitrack_screenshot.png)
+
 **To open the Mixer:** 
 - **Drag & Drop:** Drag a folder or multiple audio files onto the "Multitrack Preview" dropzone in the main window. This is the recommended way to use the mixer.
 - **Shortcut:** Press <kbd>M</kbd> in the main window (opens mixer with current playlist, which may not always be what you want).
