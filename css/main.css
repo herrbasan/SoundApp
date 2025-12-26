@@ -459,3 +459,27 @@ body.loop .top .content .loop::after{
 .dropzone .content .item.active {
 	background-color: rgba(var(--color-shadeX),0.2);
 }*/
+/* #################################################################################################
+ * Dropzone Layout Override
+ * ################################################################################################# */
+#bod .nui-dropzone .nui-dropzone-content {
+    display: grid;
+    grid-template-columns: 8fr 2fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1em;
+}
+
+#drop_add {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+#drop_replace {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+#drop_mixer {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+}

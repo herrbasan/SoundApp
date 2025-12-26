@@ -434,8 +434,9 @@ async function init(){
 			openWindow('settings');
 		}
 		else if (data.action === 'toggle-mixer') {
+			const fp = g.currentAudio ? g.currentAudio.fp : null;
 			clearAudio();
-			openWindow('mixer');
+			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-theme') {
 			tools.sendToMain('command', { command: 'toggle-theme' });
@@ -521,8 +522,9 @@ async function appStart(){
 		await playListFromSingle(arg);
 	}
 	else {
-		let defaultPath = g.config.defaultDir || await app.getPath('music');
-		await playListFromSingle(defaultPath);
+		if (g.config.defaultDir) {
+			await playListFromSingle(g.config.defaultDir);
+		}
 	}
 	
 	if(g.music.length > 0){
@@ -546,7 +548,7 @@ function setupDragDrop(){
 		[
 			{ name:'drop_add', label:'Add to Playlist' }, 
 			{ name:'drop_replace', label:'Replace Playlist' },
-			{ name:'drop_mixer', label:'Open in Mixer' }
+			{ name:'drop_mixer', label:'Multitrack<br>Preview' }
 		],
 		dropHandler,
 		document.body
@@ -556,7 +558,9 @@ function setupDragDrop(){
 		e.preventDefault();
 		if(e.target.id == 'drop_add'){
 			let files = fileListArray(e.dataTransfer.files);
+			const wasEmpty = g.music.length === 0;
 			await playListFromMulti(files, true, !e.ctrlKey);
+			if(wasEmpty) playAudio(g.music[g.idx]);
 		}
 		if(e.target.id == 'drop_replace'){
 			let files = fileListArray(e.dataTransfer.files);
@@ -681,14 +685,14 @@ function playListFromMulti(ar, add=false, rec=false){
 			}
 		}
 		if(pl.length > 0){
-			if(add){
+			if(add && g.music.length > 0){
 				g.music = g.music.concat(pl);
 				g.max = g.music.length-1;
 			}
 			else {
 				g.idx = 0;
 				g.music = pl;
-				g.max = g.music.length-1;playListFromMulti
+				g.max = g.music.length-1;
 			}
 		}
 		resolve(pl);
@@ -1194,8 +1198,9 @@ async function onKey(e) {
 		tools.sendToMain('command', { command: 'toggle-theme' });
 	}
 	else if (shortcutAction === 'toggle-mixer') {
+		const fp = g.currentAudio ? g.currentAudio.fp : null;
 		clearAudio();
-		openWindow('mixer');
+		openWindow('mixer', false, fp);
 	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
@@ -1270,7 +1275,31 @@ async function onKey(e) {
 	// H and S shortcuts now handled globally in app.js
 }
 
-async function openWindow(type, forceShow = false) {
+async function getMixerPlaylist(contextFile = null) {
+	let fp = contextFile;
+	if (!fp && g.currentAudio && g.currentAudio.fp) {
+		fp = g.currentAudio.fp;
+	}
+
+	if (fp) {
+		try {
+			const dir = path.dirname(fp);
+			const files = await tools.getFiles(dir, g.supportedFilter);
+			
+			const currentPath = path.normalize(fp);
+			let idx = files.findIndex(f => path.normalize(f) === currentPath);
+			if (idx === -1) idx = 0;
+			
+			return { paths: files, idx: idx };
+		} catch (e) {
+			console.error('Error getting siblings for mixer:', e);
+		}
+	}
+	const list = Array.isArray(g.music) ? g.music : [];
+	return { paths: list, idx: g.idx | 0 };
+}
+
+async function openWindow(type, forceShow = false, contextFile = null) {
 	if (g.windows[type]) {
 		// Window exists
 		if(forceShow){
@@ -1280,10 +1309,10 @@ async function openWindow(type, forceShow = false) {
 			}
 			// Always refresh mixer playlist when explicitly opening from Stage actions (e.g. drag&drop)
 			if(type === 'mixer'){
-				const list = Array.isArray(g.music) ? g.music : [];
+				const playlist = await getMixerPlaylist(contextFile);
 				tools.sendToId(g.windows[type], 'mixer-playlist', {
-					paths: list.slice(0, 20),
-					idx: g.idx | 0
+					paths: playlist.paths.slice(0, 20),
+					idx: playlist.idx
 				});
 			}
 			return;
@@ -1300,10 +1329,10 @@ async function openWindow(type, forceShow = false) {
 			g.windowsVisible[type] = true;
 			// Refresh mixer playlist when showing an existing mixer window
 			if(type === 'mixer'){
-				const list = Array.isArray(g.music) ? g.music : [];
+				const playlist = await getMixerPlaylist(contextFile);
 				tools.sendToId(g.windows[type], 'mixer-playlist', {
-					paths: list.slice(0, 20),
-					idx: g.idx | 0
+					paths: playlist.paths.slice(0, 20),
+					idx: playlist.idx
 				});
 			}
 		}
@@ -1346,10 +1375,10 @@ async function openWindow(type, forceShow = false) {
 	};
 
 	if(type === 'mixer'){
-		const list = Array.isArray(g.music) ? g.music : [];
+		const playlist = await getMixerPlaylist(contextFile);
 		init_data.playlist = {
-			paths: list.slice(0, 20),
-			idx: g.idx | 0
+			paths: playlist.paths.slice(0, 20),
+			idx: playlist.idx
 		};
 	}
 

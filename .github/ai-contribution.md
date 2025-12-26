@@ -729,3 +729,33 @@ if (g.windowsVisible[type]) {
 - Synced the robust fmpeg-worklet-processor.js and player.js changes to the fmpeg-napi-interface submodule.
 - Updated in/win_bin and in/linux_bin via the sync-ffmpeg-napi.ps1 script.
 
+
+## Session: December 26, 2025 - Multitrack Preview & UX Improvements
+
+### What We Accomplished
+
+**Multitrack Preview (formerly Mixer):**
+- Renamed "Mixer" to "Multitrack Preview" throughout the application (UI, Window Title, Dropzone).
+- Changed "M" shortcut behavior: Now opens the Multitrack Preview with the currently playing file and its siblings (files in the same folder), instead of sending the entire playlist.
+- Updated js/stage.js to implement getMixerPlaylist logic for context-aware opening.
+
+**UX & Layout Improvements:**
+- **Dropzone Layout:** Implemented a new 2-column grid layout for the dropzone overlay.
+  - Left column (70%): "Add to Playlist" and "Replace Playlist".
+  - Right column (30%): "Multitrack Preview" (full height).
+- **Settings Window:** Added a "Clear" (x) button to the Default Directory input field, allowing users to easily unset the startup folder.
+- **Startup Behavior:** Modified js/stage.js to respect an empty default directory. The app now starts with no files loaded if the default directory is not set (previously defaulted to the OS Music folder).
+- **Empty Playlist Fix:** Fixed "Add to Playlist" dropzone behavior. Dropping files onto "Add to Playlist" when the playlist is empty now correctly creates a new playlist and starts playback immediately.
+
+**Files Modified:**
+- js/stage.js
+- html/mixer.html
+- html/settings.html
+- css/main.css
+"@
+git add .
+git commit -m "Multitrack Preview rename, UX improvements, and startup fixes"
+git push origin main
+git add .; git commit -m "Multitrack Preview rename, UX improvements, and startup fixes"; git push origin main
+git status
+git add . ; git commit -m "Multitrack Preview rename, UX improvements, and startup fixes" ; git push origin main
