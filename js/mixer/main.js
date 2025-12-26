@@ -456,6 +456,12 @@ async function init(initData){
 		const code = '' + (e.code || '');
 		const key = ('' + (e.key || '')).toLowerCase();
 
+		// Handle global shortcuts via shared module
+		if(window.shortcuts && window.shortcuts.handleShortcut){
+			const action = window.shortcuts.handleShortcut(e, 'mixer');
+			if(action) return; // Shortcut handled
+		}
+
 		if(e.ctrlKey && e.shiftKey){
 			if(code === 'KeyD' || key === 'd'){
 				e.preventDefault();
