@@ -86,6 +86,52 @@ A cross-platform desktop audio player built with Electron. Beside supporting all
 </tbody>
 </table>
 
+## Mixer Mode (Beta)
+The new multi-track mixer allows you to play multiple audio files simultaneously, perfect for previewing stems or layering tracks.
+
+**To open the Mixer:** Press <kbd>M</kbd> in the main window.
+
+### Mixer Shortcuts
+
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><kbd>Space</kbd></td>
+<td>Play / Pause</td>
+</tr>
+<tr>
+<td><kbd>↑</kbd> / <kbd>↓</kbd></td>
+<td>Master Volume (+/- 5%)</td>
+</tr>
+<tr>
+<td><kbd>←</kbd> / <kbd>→</kbd></td>
+<td>Seek Backward / Forward (10%)</td>
+</tr>
+<tr>
+<td><kbd>F1</kbd> - <kbd>F10</kbd></td>
+<td>Solo Track 1 - 10</td>
+</tr>
+<tr>
+<td><kbd>1</kbd> - <kbd>0</kbd></td>
+<td>Solo Track 11 - 20</td>
+</tr>
+<tr>
+<td><kbd>Shift</kbd> + Solo</td>
+<td><strong>Exclusive Solo</strong> (Mutes all others)</td>
+</tr>
+<tr>
+<td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd></td>
+<td>Toggle Sync Debug Overlay</td>
+</tr>
+</tbody>
+</table>
+
 ## Historical Context
 Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/SoundApp/) from the Mac OS System 7 era - a beloved lightweight audio previewer that musicians used to quickly audition audio files. The original was famous for its minimal interface and keyboard-driven workflow, allowing rapid navigation through directories of audio files without touching the mouse.
 
