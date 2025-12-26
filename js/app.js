@@ -122,7 +122,16 @@ async function appStart(){
         space:10,
         win_min_width:480,
         win_min_height:217,
-        volume: 0.5
+        volume: 0.5,
+        theme: 'dark',
+        hqMode: false,
+        bufferSize: 10,
+        decoderThreads: 0,
+        modStereoSeparation: 100,
+        modInterpolationFilter: 0,
+        outputDeviceId: '',
+        defaultDir: '',
+        mixerPreBuffer: 50
     });
     
     wins.main = await helper.tools.browserWindow('default', { 
@@ -150,10 +159,10 @@ async function appStart(){
 
 async function checkUpdate(){
 	fb('Checking for updates');
-	let check = await update.checkVersion('herrbasan/SoundApp', 'git');
+	let check = await update.checkVersion('herrbasan/SoundApp', 'git', true);
 	if(check.status && check.isNew){
 		fb('Update available: v' + check.remote_version);
-		update.init({mode:'splash', url:'herrbasan/SoundApp', source:'git', progress:update_progress, check:check})
+		update.init({mode:'splash', url:'herrbasan/SoundApp', source:'git', progress:update_progress, check:check, useSemVer:true})
 	}
 	else {
 		fb('No updates available');
