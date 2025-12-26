@@ -131,17 +131,8 @@ Write-Host "Found RELEASES: $($releasesPath.FullName)" -ForegroundColor Green
 
 # Create release notes if not provided
 if (-not $Notes) {
-    $Notes = @"
-# SoundApp v$Version
-
-Cross-platform audio player supporting tracker/module music and legacy audio formats.
-
-## Changes
-- See commit history for details
-
-## Installation
-Download and run the installer.
-"@
+    Write-Error "Release notes are required. Please provide them using the -Notes parameter."
+    exit 1
 }
 
 # Create the GitHub release
