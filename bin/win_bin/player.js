@@ -317,13 +317,15 @@ class FFmpegStreamPlayer {
 
   /**
    * Start or resume playback
+   * @param {number} [when=0] - AudioContext time to start playback
    */
-  async play() {
+  async play(when = 0) {
     if (!this.isLoaded) {
       throw new Error('No file loaded. Call open() first.');
     }
 
-    if (this.isPlaying) return;
+    // Allow re-triggering play() to update start time even if already playing
+    // if (this.isPlaying) return;
 
     if (this.audioContext.state === 'suspended') {
       await this.audioContext.resume();
@@ -336,6 +338,11 @@ class FFmpegStreamPlayer {
     if (this.currentFrames === 0) {
       this.workletNode.port.postMessage({ type: 'resetPosition' });
     }
+
+    // Set scheduled start time
+    this.workletNode.port.postMessage({ type: 'startAt', time: when });
+
+    if (this.isPlaying) return;
 
     // Pre-buffer ONLY ONE chunk synchronously if we don't have any yet.
     // If seek() was called just before play(), we already have a chunk (queueEstimate > 0).

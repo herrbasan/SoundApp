@@ -130,10 +130,10 @@ class MixerTrack {
 		if(!this.lastLoadNote) this.lastLoadNote = 'buf ok';
 	}
 
-	_startAt(offsetSec, skipSeek = false){
+	_startAt(offsetSec, skipSeek = false, startTime = 0){
 		if(this.ffPlayer){
 			if(!skipSeek) this.ffPlayer.seek(offsetSec);
-			this.ffPlayer.play();
+			this.ffPlayer.play(startTime);
 			this._bufStartCtxTime = -1;
 			return;
 		}
@@ -145,7 +145,7 @@ class MixerTrack {
 		this.source = src;
 		this._bufStartCtxTime = ctx.currentTime;
 		this._bufStartOffset = offsetSec || 0;
-		try { src.start(0, offsetSec); } catch(e) {}
+		try { src.start(startTime, offsetSec); } catch(e) {}
 	}
 
 	_stopSource(){
@@ -221,16 +221,16 @@ class MixerTransport {
 		const sec = v >= 0 ? v : 0;
 		this._offset = sec;
 		if(this.state === 'started'){
-			this._t0 = this.engine.ctx.currentTime - this._offset;
-			this.engine._seekAll(this._offset);
+			const startTime = this.engine._seekAll(this._offset);
+			this._t0 = startTime - this._offset;
 		}
 	}
 
 	start(){
 		if(this.state === 'started') return;
-		this._t0 = this.engine.ctx.currentTime - this._offset;
 		this.state = 'started';
-		this.engine._startAll(this._offset);
+		const startTime = this.engine._startAll(this._offset);
+		this._t0 = startTime - this._offset;
 	}
 
 	pause(){
@@ -358,13 +358,18 @@ class MixerEngine {
 			this._restartAll();
 			return;
 		}
+
+		const startTime = this.ctx.currentTime + 0.2;
+
 		// FFmpeg-only seek: keep nodes connected to avoid reconnect timing offsets.
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
 			if(tr && tr.ffPlayer){
 				tr.ffPlayer.seek(offset);
+				tr.ffPlayer.play(startTime);
 			}
 		}
+		return startTime;
 	}
 
 	_startAll(offset){
@@ -376,11 +381,17 @@ class MixerEngine {
 				tr.ffPlayer.seek(offset);
 			}
 		}
+		
+		// Schedule start slightly in the future to allow all tracks to fill buffers
+		// and start synchronously. 200ms should be enough for ~20 tracks.
+		const startTime = this.ctx.currentTime + 0.2;
+
 		// Then start them all as close together as possible.
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) tr._startAt(offset, true);
+			if(tr) tr._startAt(offset, true, startTime);
 		}
+		return startTime;
 	}
 
 	_restartAll(){
