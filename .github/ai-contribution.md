@@ -821,3 +821,22 @@ if (g.windowsVisible[type]) {
 - `html/mixer.html`
 - `css/mixer.css`
 
+## Session: December 26, 2025 - Mixer Polish & Robustness
+
+### What We Accomplished
+
+**Sync Monitoring & Stability:**
+- Confirmed sync accuracy is excellent (<10ms drift), rendering active correction unnecessary.
+- Verified that the debug overlay (`Ctrl+Shift+D`) is performant and only consumes resources when visible.
+
+**Mixer Logic Improvements:**
+- **Smart Solo/Mute Restoration:** Fixed a bug where removing a soloed track left the mixer in a muted state.
+  - Removing an *exclusive* solo track now restores the full previous mute/solo snapshot.
+  - Removing the last standard solo track un-mutes all other tracks.
+- **Folder Drag & Drop:** Enhanced the "Add Zone" to support dragging entire folders.
+  - Recursively scans directories for supported audio files (`mp3`, `wav`, `ogg`, `flac`, etc.).
+  - Loads all found files as new tracks in the mixer.
+
+**Files Modified:**
+- `js/mixer/main.js`
+

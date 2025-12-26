@@ -307,7 +307,12 @@ function collectDroppedFiles(dt){
 			const name = '' + (f.name || '');
 			const hasExt = name.lastIndexOf('.') > 0;
 			// Heuristic: folders often come through with empty type, size=0, and no extension.
-			if(!f.type && !f.size && !hasExt) continue;
+			if(!f.type && !f.size && !hasExt) {
+				// In Electron, allow folders (they have a path)
+				if(!(window.bridge && window.bridge.isElectron && f.path)){
+					continue;
+				}
+			}
 			out.push(f);
 		}
 		return out;
@@ -564,7 +569,9 @@ async function init(initData){
 					g.channels.classList.remove('empty');
 					if(!_loopStarted){ _loopStarted = true; loop(); }
 				}
-				const promises = [];
+
+				// Expand folders if in Electron
+				const finalItems = [];
 				for(let i=0; i<files.length; i++){
 					const file = files[i];
 					let src = file;
@@ -572,25 +579,54 @@ async function init(initData){
 						const p = _getElectronPathForFile(file);
 						if(p) src = p;
 						else if(dtPaths && dtPaths.length){
-							// Try order match first, otherwise fall back to first path.
 							src = dtPaths[i] || dtPaths[0];
 						}
+
+						if(typeof src === 'string'){
+							try {
+								const fs = require('fs');
+								const path = require('path');
+								const stat = await fs.promises.stat(src);
+								if(stat.isDirectory()){
+									const getFiles = async (dir) => {
+										let res = [];
+										const entries = await fs.promises.readdir(dir, {withFileTypes:true});
+										for(const e of entries){
+											const full = path.join(dir, e.name);
+											if(e.isDirectory()) res = res.concat(await getFiles(full));
+											else if(/\.(mp3|wav|ogg|flac|m4a|aac|wma|aiff|mod|xm|it|s3m)$/i.test(e.name)) res.push({name: e.name, src: full});
+										}
+										return res;
+									};
+									const found = await getFiles(src);
+									for(const f of found) finalItems.push(f);
+									continue;
+								}
+							} catch(e){}
+						}
 					}
-					if(DEBUG_DND) console.log('[Mixer DnD] add-zone item', { i, name: file && file.name ? file.name : '', hasFilePath: !!(file && file.path), webUtilsPath: _getElectronPathForFile(file), chosenSrcType: typeof src, chosenSrc: (typeof src === 'string' ? src : '[object]') });
+					finalItems.push({name: file.name, src: src});
+				}
+
+				const promises = [];
+				for(let i=0; i<finalItems.length; i++){
+					const item = finalItems[i];
+					if(DEBUG_DND) console.log('[Mixer DnD] add-zone item', item);
+					
 					const track = engine.createTrack();
-					const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, file.name, g.currentChannels.length + 1), g.add_zone);
+					const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, item.name, g.currentChannels.length + 1), g.add_zone);
 					g.currentChannels.push({el, track});
 					
 					promises.push((async () => {
 						try {
-							await track.load(src);
+							await track.load(item.src);
 							if(track.duration > g.duration) g.duration = track.duration;
 							if(Transport.state === 'started') {
 								if(track.ffPlayer) track.ffPlayer.seek(Transport.seconds);
 								track._startAt(Transport.seconds);
 							}
 						} catch(err) {
-							console.error('Mixer load failed:', file && file.name ? file.name : file, err);
+							console.error('Mixer load failed:', item.name, err);
 						}
 					})());
 				}
@@ -961,6 +997,36 @@ function removeTrack(el){
 	}
 	if(idx >= 0){
 		const item = g.currentChannels[idx];
+
+		// Handle Solo/Mute state before removal
+		if(g.exclusiveSoloTrack === item){
+			// If removing the exclusive solo track, restore others
+			if(g.soloSnapshot){
+				g.currentChannels.forEach((ch, i) => {
+					if(ch !== item){
+						ch.el.state.solo = g.soloSnapshot[i].solo;
+						ch.el.state.mute = g.soloSnapshot[i].mute;
+						ch.el.state.mute_mem = g.soloSnapshot[i].mute_mem;
+					}
+				});
+				g.soloSnapshot = null;
+			}
+			g.exclusiveSoloTrack = null;
+		} else if(item.el.state.solo){
+			// Standard solo removal
+			let soloCount = 0;
+			g.currentChannels.forEach(ch => { if(ch.el.state.solo) soloCount++; });
+			
+			if(soloCount === 1){
+				// This was the only solo track. Restore mutes on others.
+				g.currentChannels.forEach(ch => {
+					if(ch !== item){
+						ch.el.state.mute = ch.el.state.mute_mem;
+					}
+				});
+			}
+		}
+
 		try { if(engine && engine.removeTrack) engine.removeTrack(item.track); } catch(e) {}
 		item.track.dispose();
 		ut.killMe(item.el);
@@ -973,6 +1039,8 @@ function removeTrack(el){
 		g.duration = maxD;
 		if(g.currentChannels.length === 0) g.channels.classList.add('empty');
 		hideNameTooltip();
+		
+		updateState();
 	}
 }
 
