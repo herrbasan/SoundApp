@@ -149,6 +149,25 @@
                 </div>
                 <div class="nui-card">
                     <section>
+                        <h2>Mixer</h2>
+                        <div class="nui-input">
+                            <label>Sync Pre-Buffer (ms)</label>
+                            <select id="mixerPreBufferSelect">
+                                <option value="50" selected>50ms (Default - Lowest latency)</option>
+                                <option value="100">100ms</option>
+                                <option value="150">150ms</option>
+                                <option value="200">200ms</option>
+                                <option value="250">250ms</option>
+                                <option value="300">300ms (Safest)</option>
+                            </select>
+                            <div class="setting-description">
+                                Pre-roll buffer time to ensure synchronous start of all tracks. Increase this value if you experience sync issues or stuttering at the start of playback.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                <div class="nui-card">
+                    <section>
                         <h2>Module / Tracker</h2>
                         <div class="nui-input">
                             <label>MOD Stereo Separation</label>
@@ -389,6 +408,28 @@
                 threadsChangeTimeout = setTimeout(() => {
                     const threadCount = parseInt(decoderThreadsSelect.value);
                     bridge.sendToStage('set-decoder-threads', { threadCount });
+                }, 200); // 200ms debounce
+            });
+
+            // Mixer Pre-Buffer Selection
+            const mixerPreBufferSelect = document.getElementById('mixerPreBufferSelect');
+            let mixerPreBufferWidget = null;
+            
+            // Set current value from config (default: 50)
+            mixerPreBufferSelect.value = config.mixerPreBuffer !== undefined ? config.mixerPreBuffer : 50;
+            
+            // Initialize superSelect
+            mixerPreBufferWidget = superSelect(mixerPreBufferSelect, {
+                searchable: false
+            });
+            
+            // Handle pre-buffer change with debounce
+            let preBufferChangeTimeout = null;
+            mixerPreBufferSelect.addEventListener('change', () => {
+                clearTimeout(preBufferChangeTimeout);
+                preBufferChangeTimeout = setTimeout(() => {
+                    const preBuffer = parseInt(mixerPreBufferSelect.value);
+                    bridge.sendToStage('set-mixer-pre-buffer', { preBuffer });
                 }, 200); // 200ms debounce
             });
 

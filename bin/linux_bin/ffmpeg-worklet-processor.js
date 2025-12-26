@@ -41,11 +41,17 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     this._blockCounter = 0;
     this._posEveryBlocks = Math.max(1, Math.round(this._posEveryFrames / 128));
     
+    this.startTime = 0;
+
     this.port.onmessage = this.onMessage.bind(this);
   }
   
   onMessage(event) {
     switch (event.data.type) {
+      case 'startAt':
+        this.startTime = event.data.time;
+        break;
+
       case 'chunk':
         // Regular chunk
         this.chunks.push({
@@ -118,6 +124,25 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
     const channel1 = output[1];
     if (!channel0 || !channel1) return true;
     
+    // Calculate current time safely
+    const sr = (typeof sampleRate === 'number') ? sampleRate : 44100;
+    let now = 0;
+    if (typeof currentFrame === 'number') {
+      now = currentFrame / sr;
+    } else if (typeof currentTime === 'number') {
+      now = currentTime;
+    }
+
+    // Sync start: output silence until startTime is reached
+    if (now < this.startTime) {
+      // Fill output with silence
+      for (let i = 0; i < channel0.length; i++) {
+        channel0[i] = 0;
+        channel1[i] = 0;
+      }
+      return true;
+    }
+
     for (let i = 0; i < channel0.length; i++) {
       let left = 0, right = 0;
       let gotSample = false;

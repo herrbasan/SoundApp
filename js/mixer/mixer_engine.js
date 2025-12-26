@@ -355,11 +355,11 @@ class MixerEngine {
 		}
 		// Buffer-based tracks require stop/recreate to seek accurately.
 		if(hasBuf){
-			this._restartAll();
-			return;
+			return this._restartAll();
 		}
 
-		const startTime = this.ctx.currentTime + 0.2;
+		const preBufferMs = (this.initData.config && this.initData.config.mixerPreBuffer) ? this.initData.config.mixerPreBuffer : 50;
+		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
 		// FFmpeg-only seek: keep nodes connected to avoid reconnect timing offsets.
 		for(let i=0; i<ar.length; i++){
@@ -384,7 +384,8 @@ class MixerEngine {
 		
 		// Schedule start slightly in the future to allow all tracks to fill buffers
 		// and start synchronously. 200ms should be enough for ~20 tracks.
-		const startTime = this.ctx.currentTime + 0.2;
+		const preBufferMs = (this.initData.config && this.initData.config.mixerPreBuffer) ? this.initData.config.mixerPreBuffer : 50;
+		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
 		// Then start them all as close together as possible.
 		for(let i=0; i<ar.length; i++){
@@ -397,8 +398,9 @@ class MixerEngine {
 	_restartAll(){
 		this._stopAll();
 		if(this.Transport.state === 'started'){
-			this._startAll(this.Transport.seconds);
+			return this._startAll(this.Transport.seconds);
 		}
+		return 0;
 	}
 
 	dispose(){

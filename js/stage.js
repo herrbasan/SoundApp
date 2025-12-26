@@ -66,7 +66,8 @@ async function init(){
 		modStereoSeparation: 100,
 		modInterpolationFilter: 0,
 		outputDeviceId: '',
-		defaultDir: ''
+		defaultDir: '',
+		mixerPreBuffer: 50
 	}
 	
 	g.config_obj = await helper.config.initRenderer('user', async (newData) => {
@@ -355,6 +356,15 @@ async function init(){
 		}
 	});
 	
+	ipcRenderer.on('set-mixer-pre-buffer', async (e, data) => {
+		if (data.preBuffer !== undefined) {
+			g.config.mixerPreBuffer = data.preBuffer;
+			await g.config_obj.set(g.config);
+			// Broadcast config change to all windows (e.g. Mixer)
+			tools.broadcast('config-changed', g.config);
+		}
+	});
+
 	ipcRenderer.on('toggle-hq-mode', async (e, data) => {
 		await toggleHQMode();
 		// Send updated sample rate to settings window
