@@ -67,7 +67,7 @@ function _setSyncOverlayVisible(v){
 	v = !!v;
 	g.sync_overlay_visible = v;
 	if(g.sync_overlay){
-		g.sync_overlay.style.display = v ? 'block' : 'none';
+		g.sync_overlay.style.display = v ? 'flex' : 'none';
 	}
 }
 
@@ -361,21 +361,82 @@ async function init(initData){
 	// Floating sync debug overlay (kept separate from the strips for readability)
 	g.sync_overlay = document.createElement('div');
 	g.sync_overlay.className = 'sync-overlay';
+	
 	g.sync_overlay_hdr = document.createElement('div');
 	g.sync_overlay_hdr.className = 'hdr';
+	
+	const title = document.createElement('div');
+	title.className = 'title';
+	title.textContent = 'Sync Debug';
+	g.sync_overlay_hdr.appendChild(title);
+
+	const controls = document.createElement('div');
+	controls.className = 'controls';
+
 	g.sync_overlay_btn = document.createElement('button');
 	g.sync_overlay_btn.className = 'btn';
 	g.sync_overlay_btn.type = 'button';
 	g.sync_overlay_btn.textContent = 'Snapshot';
+	controls.appendChild(g.sync_overlay_btn);
+
 	g.sync_overlay_hdr_info = document.createElement('div');
 	g.sync_overlay_hdr_info.className = 'hint';
 	g.sync_overlay_hdr_info.textContent = 'Ctrl+Shift+D';
-	g.sync_overlay_hdr.appendChild(g.sync_overlay_btn);
-	g.sync_overlay_hdr.appendChild(g.sync_overlay_hdr_info);
-	g.sync_overlay_pre = document.createElement('pre');
+	controls.appendChild(g.sync_overlay_hdr_info);
+
+	g.sync_overlay_hdr.appendChild(controls);
 	g.sync_overlay.appendChild(g.sync_overlay_hdr);
-	g.sync_overlay.appendChild(g.sync_overlay_pre);
+
+	const cvsContainer = document.createElement('div');
+	cvsContainer.className = 'canvas-container';
+	g.sync_overlay_cvs = document.createElement('canvas');
+	cvsContainer.appendChild(g.sync_overlay_cvs);
+	g.sync_overlay.appendChild(cvsContainer);
+
 	document.body.appendChild(g.sync_overlay);
+
+	// Drag Logic
+	let isDragging = false;
+	let dragStartX, dragStartY, initialLeft, initialTop;
+
+	g.sync_overlay_hdr.addEventListener('mousedown', (e) => {
+		if(e.target === g.sync_overlay_btn) return;
+		isDragging = true;
+		dragStartX = e.clientX;
+		dragStartY = e.clientY;
+		const rect = g.sync_overlay.getBoundingClientRect();
+		initialLeft = rect.left;
+		initialTop = rect.top;
+		document.body.style.userSelect = 'none';
+	});
+
+	window.addEventListener('mousemove', (e) => {
+		if(!isDragging) return;
+		const dx = e.clientX - dragStartX;
+		const dy = e.clientY - dragStartY;
+		g.sync_overlay.style.left = (initialLeft + dx) + 'px';
+		g.sync_overlay.style.top = (initialTop + dy) + 'px';
+		g.sync_overlay.style.transform = 'none';
+	});
+
+	window.addEventListener('mouseup', () => {
+		isDragging = false;
+		document.body.style.userSelect = '';
+	});
+
+	// Resize Observer for Canvas
+	const ro = new ResizeObserver(entries => {
+		for(let entry of entries){
+			const cr = entry.contentRect;
+			const dpr = window.devicePixelRatio || 1;
+			g.sync_overlay_cvs.width = cr.width * dpr;
+			g.sync_overlay_cvs.height = cr.height * dpr;
+			// Keep CSS size matching container
+			g.sync_overlay_cvs.style.width = cr.width + 'px';
+			g.sync_overlay_cvs.style.height = cr.height + 'px';
+		}
+	});
+	ro.observe(cvsContainer);
 
 	g.sync_overlay_btn.addEventListener('click', () => {
 		const snap = _buildSyncSnapshot();
@@ -869,7 +930,24 @@ function loop(){
 		updateTransport();
 
 		// Floating sync debug overlay
-		if(g.sync_overlay_pre && g.sync_overlay_visible){
+		if(g.sync_overlay_cvs && g.sync_overlay_visible){
+			const cvs = g.sync_overlay_cvs;
+			const ctx = cvs.getContext('2d');
+			const w = cvs.width;
+			const h = cvs.height;
+			const dpr = window.devicePixelRatio || 1;
+
+			ctx.fillStyle = '#222';
+			ctx.fillRect(0, 0, w, h);
+
+			// Scale context for DPI
+			ctx.save();
+			ctx.scale(dpr, dpr);
+
+			// Logical width/height for drawing
+			const lw = w / dpr;
+			const lh = h / dpr;
+
 			let refSec = Transport.seconds;
 			if(g.currentChannels.length){
 				const tr0 = g.currentChannels[0].track;
@@ -878,56 +956,144 @@ function loop(){
 				}
 			}
 
-			let out = '';
-			out += 'SYNC (N=' + g.currentChannels.length + ', ref=' + refSec.toFixed(3) + 's, T=' + Transport.seconds.toFixed(3) + 's)\n';
-			out += ' i  in  ty  name                 t(s)    dT(ms)   dR(ms)   u(ms)   q   frames\n';
+			// Header Info
+			ctx.font = '12px "Consolas", "Monaco", "Courier New", monospace';
+			ctx.fillStyle = '#aaa';
+			ctx.fillText(`SYNC (N=${g.currentChannels.length}, ref=${refSec.toFixed(3)}s, T=${Transport.seconds.toFixed(3)}s)`, 10, 20);
+
+			// Columns
+			const rowH = 20;
+			const headerY = 35;
+			const startY = 60;
+			
+			// Column X positions
+			const xIdx = 10;
+			const xType = 35;
+			const xName = 75;
+			const xDriftBar = 380;
+			const xDT = 540;
+			const xDR = 590;
+			const xUnderrun = 640;
+			const xQ = 710;
+
+			// Draw Grid/Headers
+			ctx.fillStyle = '#333';
+			ctx.fillRect(0, headerY - 14, lw, 18);
+			ctx.fillStyle = '#fff';
+			ctx.fillText('#', xIdx, headerY);
+			ctx.fillText('Type', xType, headerY);
+			ctx.fillText('Name', xName, headerY);
+			ctx.fillText('Drift (ms)', xDriftBar, headerY);
+			ctx.fillText('dT', xDT, headerY);
+			ctx.fillText('dR', xDR, headerY);
+			ctx.fillText('Underrun', xUnderrun, headerY);
+			ctx.fillText('Q', xQ, headerY);
+
 			const n = g.currentChannels.length;
-			let errOut = '';
 			for(let i=0; i<n; i++){
+				const y = startY + (i * rowH);
+				if(y > lh) break;
+
 				const item = g.currentChannels[i];
 				const tr = item ? item.track : null;
 				const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
 				let name = (item && item.el && item.el.filename) ? item.el.filename : '';
-				name = name.length > 20 ? (name.substring(0, 17) + '...') : name;
-				const inIdx = tr ? (tr.idx | 0) : -1;
+				
+				// Alternating row background
+				if(i % 2 === 0) {
+					ctx.fillStyle = 'rgba(255,255,255,0.02)';
+					ctx.fillRect(0, y - 14, lw, rowH);
+				}
+
+				ctx.fillStyle = '#ccc';
+				ctx.fillText((i+1).toString(), xIdx, y);
+				
+				const type = fp ? 'FF' : 'Buf';
+				ctx.fillStyle = fp ? '#8f8' : '#88f';
+				ctx.fillText(type, xType, y);
+
+				ctx.fillStyle = '#ccc';
+				ctx.fillText(name.substring(0, 35), xName, y);
+
+				let driftT = 0;
+				let driftR = 0;
+				let uMs = 0;
+				let q = -1;
+				let isValid = false;
+
 				if(fp && typeof fp.getCurrentTime === 'function'){
 					const t = fp.getCurrentTime();
-					const driftT = (t - Transport.seconds) * 1000;
-					const driftR = (t - refSec) * 1000;
+					driftT = (t - Transport.seconds) * 1000;
+					driftR = (t - refSec) * 1000;
 					const ufr = (fp._underrunFrames !== undefined) ? (fp._underrunFrames | 0) : 0;
 					const usr = (fp._sampleRate | 0) > 0 ? (fp._sampleRate | 0) : 44100;
-					const uMs = (ufr / usr) * 1000;
-					const q = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
-					const frames = fp.currentFrames | 0;
-					out += _padLeft(i+1, 2) + '  ' + _padLeft(inIdx, 2) + '  ff  ' + _padRight(name, 20) + '  ' + _padLeft(t.toFixed(3), 6) + '  ' + _padLeft(_formatMs(driftT), 7) + '  ' + _padLeft(_formatMs(driftR), 7) + '  ' + _padLeft(_formatMs(uMs), 7) + '  ' + _padLeft(q, 2) + '  ' + frames + '\n';
+					uMs = (ufr / usr) * 1000;
+					q = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
+					isValid = true;
 				}
 				else {
 					let t = NaN;
 					if(tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0){
 						t = (tr.engine.ctx.currentTime - tr._bufStartCtxTime) + (tr._bufStartOffset || 0);
 					}
-					const driftT = isFinite(t) ? ((t - Transport.seconds) * 1000) : NaN;
-					const driftR = isFinite(t) ? ((t - refSec) * 1000) : NaN;
-					out += _padLeft(i+1, 2) + '  ' + _padLeft(inIdx, 2) + '  buf ' + _padRight(name, 20) + '  ' + _padLeft(isFinite(t) ? t.toFixed(3) : '-', 6) + '  ' + _padLeft(isFinite(driftT) ? _formatMs(driftT) : '-', 7) + '  ' + _padLeft(isFinite(driftR) ? _formatMs(driftR) : '-', 7) + '  ' + _padLeft('-', 7) + '  ' + _padLeft('-', 2) + '  -\n';
-					if(tr && (tr.lastLoadNote || tr.lastLoadError)){
-						let note = (tr.lastLoadNote || '').trim();
-						let msg = (tr.lastLoadError || '').replace(/\s+/g, ' ').trim();
-						if(msg.length > 140) msg = msg.substring(0, 137) + '...';
-						let line = '! ' + (i+1) + ' ' + name + ': ';
-						if(note) line += note;
-						if(note && msg) line += ' | ';
-						if(msg) line += msg;
-						errOut += line + '\n';
+					if(isFinite(t)){
+						driftT = (t - Transport.seconds) * 1000;
+						driftR = (t - refSec) * 1000;
+						isValid = true;
 					}
 				}
+
+				if(isValid){
+					// Visual Drift Bar
+					const barX = xDriftBar;
+					const barW = 140;
+					const center = barX + (barW / 2);
+					const scale = 2; // pixels per ms
+					
+					// Background line
+					ctx.fillStyle = '#444';
+					ctx.fillRect(barX, y - 4, barW, 2);
+					// Center tick
+					ctx.fillStyle = '#888';
+					ctx.fillRect(center, y - 6, 1, 6);
+
+					// Drift bar
+					const dPx = driftT * scale;
+					let barColor = '#0f0';
+					if(Math.abs(driftT) > 20) barColor = '#ff0';
+					if(Math.abs(driftT) > 50) barColor = '#f00';
+					
+					ctx.fillStyle = barColor;
+					let bx = center;
+					let bw = dPx;
+					if(dPx < 0) { bx = center + dPx; bw = -dPx; }
+					// Clamp
+					if(bx < barX) { bw -= (barX - bx); bx = barX; }
+					if(bx + bw > barX + barW) { bw = (barX + barW) - bx; }
+					
+					if(bw > 0) ctx.fillRect(bx, y - 5, bw, 4);
+
+					// Text Values
+					ctx.fillStyle = Math.abs(driftT) > 10 ? '#f88' : '#ccc';
+					ctx.fillText(driftT.toFixed(1), xDT, y);
+					
+					ctx.fillStyle = Math.abs(driftR) > 10 ? '#f88' : '#888';
+					ctx.fillText(driftR.toFixed(1), xDR, y);
+
+					if(uMs > 0){
+						ctx.fillStyle = '#f44';
+						ctx.fillText(uMs.toFixed(1) + 'ms', xUnderrun, y);
+					}
+					if(q >= 0){
+							ctx.fillStyle = q < 2 ? '#f88' : '#8f8';
+							ctx.fillText(`Q:${q}`, xQ, y);
+					}
+				} else {
+					ctx.fillStyle = '#666';
+					ctx.fillText('-', xDT, y);
+				}
 			}
-			if(errOut){
-				out += '\n' + errOut;
-			}
-			g.sync_overlay_pre.textContent = out;
-		}
-		else if(g.sync_overlay_pre && g.sync_overlay_visible){
-			g.sync_overlay_pre.textContent = '';
+			ctx.restore();
 		}
 
 		for(let i=0; i<g.currentChannels.length; i++){
@@ -939,9 +1105,17 @@ function loop(){
 			item.el.meter.style.height = proz + '%';
 		}
 	}
-	else if(g.sync_overlay_pre && g.sync_overlay_visible){
+	else if(g.sync_overlay_cvs && g.sync_overlay_visible){
+		const cvs = g.sync_overlay_cvs;
+		const ctx = cvs.getContext('2d');
+		const w = cvs.width;
+		const h = cvs.height;
+		ctx.fillStyle = '#222';
+		ctx.fillRect(0, 0, w, h);
+		ctx.font = '12px monospace';
+		ctx.fillStyle = '#aaa';
 		const t = Transport ? Transport.seconds : 0;
-		g.sync_overlay_pre.textContent = 'SYNC (N=0, ref=' + t.toFixed(3) + 's, T=' + t.toFixed(3) + 's)\n';
+		ctx.fillText(`SYNC (N=0, ref=${t.toFixed(3)}s, T=${t.toFixed(3)}s)`, 10, 20);
 	}
 }
 

@@ -777,3 +777,22 @@ if (g.windowsVisible[type]) {
 - `js/mixer/mixer_engine.js`
 - `libs/ffmpeg-napi-interface/lib/player.js`
 
+
+## Session: December 26, 2025 - Mixer Debug Overlay
+
+### What We Accomplished
+
+**Mixer Debug Overlay:**
+- Replaced the text-based debug overlay with a **Canvas-based visualization**.
+- **Features:**
+  - **Resizable & Movable:** The overlay can now be dragged and resized.
+  - **Visual Drift Indicators:** Added a graphical bar to visualize sync drift (Green = good, Yellow/Red = drifting).
+  - **Detailed Stats:** Displays Track Index, Type (FFmpeg/Buffer), Name, Drift (Transport & Reference), Underruns, and Queue depth.
+  - **High-DPI Support:** Implemented `window.devicePixelRatio` scaling for crisp rendering on all displays.
+  - **Snapshot:** Preserved the "Snapshot" button to copy full JSON state to clipboard.
+- **Technical Implementation:**
+  - Uses `ResizeObserver` to automatically handle container resizing.
+  - Canvas drawing logic is decoupled from CSS size to ensure correct pixel density.
+  - Layout logic uses logical pixels for consistent sizing across devices.
+- **Files Modified:** `js/mixer/main.js`, `css/mixer.css`.
+
