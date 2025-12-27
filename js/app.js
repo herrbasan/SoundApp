@@ -114,10 +114,17 @@ function setEnv(){
 
 async function appStart(){
     fb('Init Windows');
+	// Optional config activity logging (temporary debugging aid)
+	// Enable via env.json: { "config_log": true } or env var: ELECTRON_HELPER_CONFIG_LOG=1
+	if(main_env && (main_env.config_log || main_env.configLog)){
+		process.env.ELECTRON_HELPER_CONFIG_LOG = '1';
+	}
+	const configLog = (process.env.ELECTRON_HELPER_CONFIG_LOG === '1' || process.env.ELECTRON_HELPER_CONFIG_LOG === 'true');
     
     // Initialize config on main process
 	await helper.config.initMain('user', configDefaults, {
-		migrate: (loaded, defaults) => migrateUserConfig(loaded, defaults)
+		migrate: (loaded, defaults) => migrateUserConfig(loaded, defaults),
+		log: configLog
 	});
     
     wins.main = await helper.tools.browserWindow('default', { 

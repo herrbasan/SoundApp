@@ -535,6 +535,71 @@ Migration-based repair is usually safer (explicit, versioned).
 
 ---
 
+## Proposed Restructure: Grouped / Nested Buckets (Next Schema)
+
+This is the **originally planned restructuring** beyond `windows.*`: group flat top-level settings into stable nested buckets like `ui`, `audio`, `ffmpeg`, `tracker`, and `mixer`.
+
+Notes:
+- This structure is currently documented as the canonical target in [config_versioning.md](config_versioning.md).
+- This structure is **not implemented yet** in the runtime code paths; today the app still uses the mostly-flat keys (plus `windows.*`).
+- Because we already introduced `config_version: 1` for the `windows.*` rollout, this grouped schema should be treated as the next schema step (recommended: bump to `config_version: 2`).
+
+### Example (Bucketed)
+
+```json
+{
+    "config_version": 2,
+    "ui": {
+        "theme": "dark",
+        "defaultDir": ""
+    },
+    "audio": {
+        "volume": 0.5,
+        "output": { "deviceId": "" },
+        "hqMode": false
+    },
+    "ffmpeg": {
+        "stream": { "prebufferChunks": 10 },
+        "decoder": { "threads": 0 },
+        "transcode": { "ext": ".wav", "cmd": "-c:a pcm_s16le" }
+    },
+    "tracker": {
+        "stereoSeparation": 100,
+        "interpolationFilter": 0
+    },
+    "mixer": {
+        "preBuffer": 50
+    },
+    "windows": {
+        "main": { "x": null, "y": null, "width": 480, "height": 217, "scale": 14 },
+        "help": { "x": null, "y": null, "width": 800, "height": 700, "scale": 14 },
+        "settings": { "x": null, "y": null, "width": 500, "height": 700, "scale": 14 },
+        "playlist": { "x": null, "y": null, "width": 960, "height": 700, "scale": 14 },
+        "mixer": { "x": null, "y": null, "width": 1100, "height": 760, "scale": 14 }
+    }
+}
+```
+
+### Intended Mapping (v0/v1 flat → bucketed)
+
+Full mapping table lives in [config_versioning.md](config_versioning.md). High-level direction:
+
+- `theme` → `ui.theme`
+- `defaultDir` → `ui.defaultDir`
+- `volume` → `audio.volume`
+- `outputDeviceId` → `audio.output.deviceId`
+- `hqMode` → `audio.hqMode`
+- `bufferSize` → `ffmpeg.stream.prebufferChunks`
+- `decoderThreads` → `ffmpeg.decoder.threads`
+- `transcode` → `ffmpeg.transcode`
+- `modStereoSeparation` → `tracker.stereoSeparation`
+- `modInterpolationFilter` → `tracker.interpolationFilter`
+- `mixerPreBuffer` → `mixer.preBuffer`
+- `space` → `windows.main.scale`
+- `window` → `windows.main` bounds
+
+---
+
 ## Design Decisions (Resolved)
 
 1. **Scale baseline (base 14)**: Standardized. The Stage (main player) and all secondary windows are now designed around a consistent baseline of `--space-base: 14` (browser/NUI default). This allows a single scaling calculation to apply uniformly across all windows.
