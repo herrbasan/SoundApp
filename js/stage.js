@@ -374,6 +374,13 @@ async function init(){
 				currentSampleRate: g.audioContext.sampleRate
 			});
 		}
+		// Keep mixer in sync (mixer owns its own AudioContext and must rebuild to apply SR changes)
+		if (g.windows.mixer) {
+			tools.sendToId(g.windows.mixer, 'sample-rate-updated', {
+				currentSampleRate: g.audioContext.sampleRate,
+				maxSampleRate: g.maxSampleRate
+			});
+		}
 	});
 	
 	ipcRenderer.on('browse-directory', async (e, data) => {
@@ -779,6 +786,8 @@ async function playAudio(fp, n, startPaused = false){
 		const isTracker = g.supportedMpt.includes(parse.ext.toLocaleLowerCase());
 
 		if(isTracker){
+			const targetVol = (g && g.config && g.config.volume !== undefined) ? +g.config.volume : 0.5;
+			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
 				isMod: true, 
 				fp: fp, 
@@ -786,21 +795,36 @@ async function playAudio(fp, n, startPaused = false){
 				currentTime: 0,
 				paused: startPaused, 
 				duration: 0,
-				play: () =>  { g.currentAudio.paused = false; player.unpause() }, 
+				play: () =>  {
+					g.currentAudio.paused = false;
+					try { player.gain.gain.value = (g && g.config && g.config.volume !== undefined) ? +g.config.volume : targetVol; } catch(e) {}
+					player.unpause();
+				}, 
 				pause: () => { g.currentAudio.paused = true; player.pause() }
 			};
 			player.load(tools.getFileURL(fp));
-			player.gain.gain.value = g.config.volume;
+			player.gain.gain.value = initialVol;
 			if(startPaused) {
-				// Tracker player auto-plays on load, so we might need to pause immediately or handle it.
-				// Chiptune.js usually plays on load. We can try to pause it.
-				// However, chiptune.js load is async inside.
-				// For now, let's assume checkState() handles the UI, but we might need to explicitly pause.
-				// Actually, chiptune.js doesn't have a 'startPaused' option easily.
-				// We'll rely on the fact that we can call pause() after load?
-				// Or maybe we just accept that trackers might start?
-				// Let's try to pause it in the checkState or right after load if possible.
-				// But wait, player.load() is void.
+				// Chiptune.js tends to auto-start asynchronously after load().
+				// Enforce paused state immediately and shortly after to catch async start.
+				try { player.gain.gain.value = 0; } catch(e) {}
+				try { player.pause(); } catch(e) {}
+				setTimeout(() => {
+					try {
+						if(g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused){
+							try { player.gain.gain.value = 0; } catch(e) {}
+							player.pause();
+						}
+					} catch(e) {}
+				}, 30);
+				setTimeout(() => {
+					try {
+						if(g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused){
+							try { player.gain.gain.value = 0; } catch(e) {}
+							player.pause();
+						}
+					} catch(e) {}
+				}, 250);
 			}
 			checkState();
 		}
@@ -834,6 +858,11 @@ async function playAudio(fp, n, startPaused = false){
 				
 				if (!startPaused) {
 					await ffPlayer.play();
+				}
+				else {
+					// Some backends may begin rendering immediately after open();
+					// enforce paused state so UI/playPause stays consistent.
+					if(typeof ffPlayer.pause === 'function') await ffPlayer.pause();
 				}
 				
 				checkState();
@@ -1040,7 +1069,16 @@ async function toggleHQMode(){
 	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
 	console.log('Switching to', g.config.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
 	
-	const wasPlaying = !g.currentAudio?.paused;
+	// Use underlying player state (more reliable than g.currentAudio.paused).
+	let wasPlaying = false;
+	if(g.currentAudio){
+		if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.isPlaying !== 'undefined'){
+			wasPlaying = !!g.currentAudio.player.isPlaying;
+		}
+		else {
+			wasPlaying = !g.currentAudio.paused;
+		}
+	}
 	const currentFile = g.music[g.idx];
 	const wasMod = g.currentAudio?.isMod;
 	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0);
@@ -1110,15 +1148,17 @@ async function toggleHQMode(){
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
 	
 	if(currentFile){
-		await playAudio(currentFile);
-		if(currentTime > 0 && g.currentAudio){
-			if(g.currentAudio.isMod){
-				player.seek(currentTime);
-			} else if(g.currentAudio.player?.seek){
-				await g.currentAudio.player.seek(currentTime);
-			}
+		// Reload the current track but preserve paused state.
+		// playAudio() has startPaused support for FFmpeg; trackers are best-effort.
+		await playAudio(currentFile, wasMod ? 0 : currentTime, !wasPlaying);
+
+		// Restore position for tracker player (FFmpeg path already seeks via playAudio's 2nd arg)
+		if(currentTime > 0 && g.currentAudio && g.currentAudio.isMod){
+			player.seek(currentTime);
 		}
-		if(wasPlaying && g.currentAudio?.play){
+
+		// Resume only if it was playing before the toggle.
+		if(wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play){
 			g.currentAudio.play();
 		}
 	}

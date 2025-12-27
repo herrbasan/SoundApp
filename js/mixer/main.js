@@ -72,11 +72,37 @@ function _setSyncOverlayVisible(v){
 }
 
 function _buildSyncSnapshot(){
+	const cfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : (g && g.initData ? g.initData.config : null);
+	const rawBuf = (cfg && cfg.bufferSize !== undefined) ? (cfg.bufferSize | 0) : undefined;
+	const effBuf = Math.max(20, ((rawBuf !== undefined) ? rawBuf : 10));
+	const rawThr = (cfg && cfg.decoderThreads !== undefined) ? (cfg.decoderThreads | 0) : undefined;
+	const forcedThr = 1;
+	const rawPreMs = (cfg && cfg.mixerPreBuffer !== undefined) ? (cfg.mixerPreBuffer | 0) : undefined;
+	const effPreMs = (rawPreMs !== undefined && rawPreMs > 0) ? rawPreMs : 50;
+	const hwThr = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? (navigator.hardwareConcurrency | 0) : undefined;
+	const ctxSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
+
 	const snap = {
 		ts: Date.now(),
 		iso: new Date().toISOString(),
 		transportSeconds: Transport ? Transport.seconds : NaN,
 		refSeconds: NaN,
+		config: {
+			bufferSize: rawBuf,
+			effectiveBufferSize: effBuf,
+			decoderThreads: rawThr,
+			effectiveDecoderThreads: forcedThr,
+			mixerPreBuffer: rawPreMs,
+			effectiveMixerPreBuffer: effPreMs,
+			hardwareConcurrency: hwThr,
+			ctxSampleRate: ctxSr
+		},
+		queue: {
+			count: 0,
+			min: null,
+			avg: null,
+			max: null
+		},
 		tracks: []
 	};
 
@@ -134,6 +160,28 @@ function _buildSyncSnapshot(){
 			entry.driftRefMs = isFinite(t) ? ((t - refSec) * 1000) : NaN;
 		}
 		snap.tracks.push(entry);
+	}
+
+	// Queue summary (FFmpeg-streamed tracks only)
+	let qMin = 999999;
+	let qMax = -1;
+	let qSum = 0;
+	let qN = 0;
+	for(let i=0; i<snap.tracks.length; i++){
+		const t = snap.tracks[i];
+		if(!t || t.type !== 'ff') continue;
+		const q = (t.queuedChunks !== null && t.queuedChunks !== undefined) ? (t.queuedChunks | 0) : -1;
+		if(q < 0) continue;
+		qN++;
+		qSum += q;
+		if(q < qMin) qMin = q;
+		if(q > qMax) qMax = q;
+	}
+	if(qN > 0){
+		snap.queue.count = qN;
+		snap.queue.min = qMin;
+		snap.queue.max = qMax;
+		snap.queue.avg = qSum / qN;
 	}
 
 	return snap;
@@ -353,6 +401,18 @@ function collectDroppedFiles(dt){
 async function init(initData){
 	console.log('Mixer init', initData);
 	g.initData = initData || {};
+	if(g.initData && g.initData.config){
+		const cnf = g.initData.config;
+		const rawBuf = (cnf.bufferSize !== undefined) ? (cnf.bufferSize | 0) : undefined;
+		const rawThr = (cnf.decoderThreads !== undefined) ? (cnf.decoderThreads | 0) : undefined;
+		const effBuf = Math.max(20, (rawBuf !== undefined ? rawBuf : 10));
+		console.log('Mixer config init', {
+			rawBufferSize: rawBuf,
+			effectiveBufferSize: effBuf,
+			rawDecoderThreads: rawThr,
+			effectiveDecoderThreads: 1
+		});
+	}
 
 	engine = new MixerEngine(g.initData);
 	Transport = engine.Transport;
@@ -692,6 +752,46 @@ async function init(initData){
 
 	// Reset + reload when Stage hands over a new playlist to an already-open mixer window.
 	if(window.bridge && window.bridge.isElectron && window.bridge.on){
+		window.bridge.on('sample-rate-updated', async (data) => {
+			const sr = (data && data.currentSampleRate) ? (data.currentSampleRate | 0) : 0;
+			if(!(sr > 0)) return;
+			if(g && g.initData){
+				g.initData.currentSampleRate = sr;
+				if(data && data.maxSampleRate) g.initData.maxSampleRate = data.maxSampleRate | 0;
+			}
+			if(engine && engine.initData) engine.initData.currentSampleRate = sr;
+			const oldSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
+			console.log('Mixer: sample-rate-updated', { oldSampleRate: oldSr, newSampleRate: sr, maxSampleRate: (g && g.initData) ? (g.initData.maxSampleRate | 0) : undefined });
+			if(oldSr === sr) return;
+			if(!g.currentChannels || g.currentChannels.length === 0) return;
+
+			const pos = Transport ? Transport.seconds : 0;
+			const wasPlaying = Transport ? (Transport.state === 'started') : false;
+			const wasLoop = engine ? !!engine.loop : true;
+			const masterGain = (g.master_gain_val !== undefined && isFinite(g.master_gain_val)) ? +g.master_gain_val : undefined;
+			const pl = (g && g.initData && g.initData.playlist) ? g.initData.playlist : null;
+			const paths = (pl && Array.isArray(pl.paths)) ? pl.paths : (g.currentChannels.map(c => c.track ? c.track.src : null).filter(v => !!v));
+
+			if(Transport) Transport.stop();
+			await resetForNewPlaylist(paths);
+			try {
+				engine.setLoop(wasLoop);
+				if(wasLoop) g.btn_loop.classList.add('active');
+				else g.btn_loop.classList.remove('active');
+				if(masterGain !== undefined){
+					engine.setMasterGain(masterGain);
+					g.master_bar.style.width = (masterGain * 100) + '%';
+					g.master_gain_val = masterGain;
+				}
+			} catch(e) {}
+
+			const newEngineSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
+			console.log('Mixer: engine rebuilt for SR change', { requestedSampleRate: sr, actualSampleRate: newEngineSr });
+
+			if(pos > 0) seek(pos);
+			if(wasPlaying) Transport.start();
+		});
+
 		window.bridge.on('mixer-playlist', async (data) => {
 			const p = data && Array.isArray(data.paths) ? data.paths : null;
 			if(!p) return;
@@ -713,13 +813,67 @@ async function init(initData){
 		});
 
 		window.bridge.on('config-updated-user', async (newConfig) => {
-			const oldBuffer = engine.initData.config.bufferSize;
-			const oldThreads = engine.initData.config.decoderThreads;
-			engine.initData.config = newConfig;
+			const prevCfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : {};
+			const oldBuffer = prevCfg.bufferSize;
+			const oldThreads = prevCfg.decoderThreads;
+			const oldHq = !!prevCfg.hqMode;
+			const newHq = !!(newConfig && newConfig.hqMode);
+			const oldEffBuffer = Math.max(20, ((oldBuffer !== undefined) ? (oldBuffer | 0) : 10));
+			const newEffBuffer = Math.max(20, ((newConfig && newConfig.bufferSize !== undefined) ? (newConfig.bufferSize | 0) : 10));
+			const rawOldBuf = (oldBuffer !== undefined) ? (oldBuffer | 0) : undefined;
+			const rawNewBuf = (newConfig && newConfig.bufferSize !== undefined) ? (newConfig.bufferSize | 0) : undefined;
+			const rawOldThr = (oldThreads !== undefined) ? (oldThreads | 0) : undefined;
+			const rawNewThr = (newConfig && newConfig.decoderThreads !== undefined) ? (newConfig.decoderThreads | 0) : undefined;
+			const rawOldHq = oldHq;
+			const rawNewHq = newHq;
+			const rawChangedBuf = rawOldBuf !== rawNewBuf;
+			const rawChangedThr = rawOldThr !== rawNewThr;
+			const effectiveChangedBuf = oldEffBuffer !== newEffBuffer;
+			const willReset = !!(g.currentChannels && effectiveChangedBuf);
 
-			// If streaming settings changed, perform a clean reset of all tracks
-			if (g.currentChannels && (oldBuffer !== newConfig.bufferSize || oldThreads !== newConfig.decoderThreads)) {
-				console.log('Mixer: Streaming settings changed, resetting all tracks...');
+			console.log('Mixer config-updated-user', {
+				rawBufferSize: rawOldBuf,
+				rawBufferSizeNew: rawNewBuf,
+				effectiveBufferSize: oldEffBuffer,
+				effectiveBufferSizeNew: newEffBuffer,
+				rawDecoderThreads: rawOldThr,
+				rawDecoderThreadsNew: rawNewThr,
+				effectiveDecoderThreads: 1,
+				effectiveDecoderThreadsNew: 1,
+				rawHqMode: rawOldHq,
+				rawHqModeNew: rawNewHq,
+				rawChangedBuffer: rawChangedBuf,
+				rawChangedThreads: rawChangedThr,
+				effectiveChangedBuffer: effectiveChangedBuf,
+				tracks: g.currentChannels ? g.currentChannels.length : 0,
+				willReset
+			});
+
+			engine.initData.config = newConfig;
+			if(g && g.initData) g.initData.config = newConfig;
+
+			// HQ mode affects AudioContext sampleRate -> Stage will broadcast 'sample-rate-updated'.
+			// We keep this log for clarity, but defer the actual rebuild to the sample-rate-updated handler
+			// so we always use the real effective sample rate.
+			if(oldHq !== newHq){
+				console.log('Mixer: hqMode changed in config (waiting for sample-rate-updated)', { oldHq, newHq });
+			}
+
+			if(rawChangedThr){
+				console.log('Mixer note: decoderThreads changed in config but mixer forces 1 thread per track');
+			}
+
+			// Reset only when effective streaming parameters change.
+			if (willReset) {
+				console.log('Mixer: Streaming settings changed, resetting all tracks...', {
+					oldBufferSize: rawOldBuf,
+					newBufferSize: rawNewBuf,
+					oldThreads: rawOldThr,
+					newThreads: rawNewThr,
+					effectiveBufferSize: oldEffBuffer,
+					effectiveBufferSizeNew: newEffBuffer,
+					note: 'Mixer forces 1 thread per track'
+				});
 				const pos = Transport.seconds;
 				const wasPlaying = Transport.state === 'started';
 
@@ -730,10 +884,23 @@ async function init(initData){
 				const tasks = g.currentChannels.map(c => c.track.load(c.track.src));
 				try {
 					await Promise.all(tasks);
+					console.log('Mixer: Tracks reloaded after config change', {
+						tracks: g.currentChannels ? g.currentChannels.length : 0,
+						restoreSeconds: pos,
+						resume: wasPlaying
+					});
 					if (pos > 0) seek(pos);
 					if (wasPlaying) Transport.start();
 				} catch (err) {
 					console.error('Mixer: Failed to reset tracks after config change:', err);
+				}
+			}
+			else {
+				if(!g.currentChannels){
+					console.log('Mixer: Config changed, no tracks loaded yet');
+				}
+				else if(rawChangedBuf && !effectiveChangedBuf){
+					console.log('Mixer: Buffer size changed, but effective buffer is unchanged (clamped to min 20)');
 				}
 			}
 		});
@@ -1162,12 +1329,53 @@ function loop(){
 			// Header Info
 			ctx.font = '12px "Consolas", "Monaco", "Courier New", monospace';
 			ctx.fillStyle = '#aaa';
-			ctx.fillText(`SYNC (N=${g.currentChannels.length}, ref=${refSec.toFixed(3)}s, T=${Transport.seconds.toFixed(3)}s)`, 10, 20);
+			ctx.fillText(`SYNC (N=${g.currentChannels.length}, ref=${refSec.toFixed(3)}s, T=${Transport.seconds.toFixed(3)}s)`, 10, 18);
+
+			// Settings + runtime summary
+			const cfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : (g && g.initData ? g.initData.config : null);
+			const rawBuf = (cfg && cfg.bufferSize !== undefined) ? (cfg.bufferSize | 0) : undefined;
+			const effBuf = Math.max(20, ((rawBuf !== undefined) ? rawBuf : 10));
+			const rawThr = (cfg && cfg.decoderThreads !== undefined) ? (cfg.decoderThreads | 0) : undefined;
+			const rawPreMs = (cfg && cfg.mixerPreBuffer !== undefined) ? (cfg.mixerPreBuffer | 0) : undefined;
+			const effPreMs = (rawPreMs !== undefined && rawPreMs > 0) ? rawPreMs : 50;
+			const hwThr = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? (navigator.hardwareConcurrency | 0) : undefined;
+			const ctxSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
+
+			let qMin = 999999;
+			let qMax = -1;
+			let qSum = 0;
+			let qN = 0;
+			for(let i=0; i<g.currentChannels.length; i++){
+				const tr = g.currentChannels[i] ? g.currentChannels[i].track : null;
+				const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
+				if(!fp) continue;
+				const q = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
+				if(q < 0) continue;
+				qN++;
+				qSum += q;
+				if(q < qMin) qMin = q;
+				if(q > qMax) qMax = q;
+			}
+
+			ctx.fillStyle = '#9aa';
+			ctx.fillText(
+				`BUF chunks cfg=${rawBuf === undefined ? '-' : rawBuf} eff=${effBuf} | preBuf=${effPreMs}ms | thr cfg=${rawThr === undefined ? '-' : rawThr} eff=1 | hw=${hwThr === undefined ? '-' : hwThr} | SR=${ctxSr === undefined ? '-' : ctxSr}`,
+				10,
+				34
+			);
+			if(qN > 0){
+				ctx.fillStyle = '#9aa';
+				ctx.fillText(`STREAM Q: min=${qMin} avg=${(qSum/qN).toFixed(1)} max=${qMax} (n=${qN})`, 10, 48);
+			}
+			else {
+				ctx.fillStyle = '#666';
+				ctx.fillText('STREAM Q: - (no FFmpeg-streamed tracks)', 10, 48);
+			}
 
 			// Columns
 			const rowH = 20;
-			const headerY = 35;
-			const startY = 60;
+			const headerY = 64;
+			const startY = 89;
 			
 			// Column X positions
 			const xIdx = 10;
