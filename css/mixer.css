@@ -15,20 +15,6 @@ body.mixer-window .nui-app .content > main{
  * #################################################################################################
  * ################################################################################################# */
 
-
-* {
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0;
-}
-
-html, body {
-	font-size: calc(var(--space-base)*1px);
-	line-height: 1.5rem;
-    font-weight: 400;
-	background-color: rgb(200,200,200);
-}
-
 body {
 	--top-button-height: 2.4rem;
 	--color-shade-track: rgb(255,255,255);
@@ -40,6 +26,20 @@ body.dark {
 	background-color: rgb(50,50,50);
 	--color-shade-track: rgb(35,35,35);
 	--color-shade-track-active: rgb(70,70,70);
+}
+
+html, body {
+	font-size: calc(var(--space-base)*1px);
+	line-height: 1.5rem;
+    font-weight: 400;
+	background-color: rgb(200,200,200);
+}
+
+
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
 }
 
 .no-select {
