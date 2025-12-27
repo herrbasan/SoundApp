@@ -162,8 +162,19 @@ async function init(){
 	let saveCnf = false;
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
-	if(g.config.space === undefined) { g.config.space = 14; saveCnf = true; }
-	else if(g.config.space < 14) { g.config.space = 14; saveCnf = true; }
+	// Phase 5 adoption: prefer v1 `windows.main.scale` as source of truth.
+	let s = 14;
+	if(g.config.windows && g.config.windows.main && g.config.windows.main.scale !== undefined){
+		s = g.config.windows.main.scale | 0;
+	}
+	else if(g.config.space !== undefined){
+		s = g.config.space | 0;
+	}
+	if(s < 14) { s = 14; saveCnf = true; }
+	if(g.config.space !== s) { g.config.space = s; saveCnf = true; }
+	if(g.config.windows && g.config.windows.main){
+		if((g.config.windows.main.scale|0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
+	}
 	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
 	if(g.config.bufferSize === undefined) { g.config.bufferSize = 10; }
 	if(g.config.decoderThreads === undefined) { g.config.decoderThreads = 0; }
@@ -184,9 +195,22 @@ async function init(){
 	
 	ut.setCssVar('--space-base', g.config.space);
 
-	if(g.config.window){
-		if(g.config.window.width && g.config.window.height){
-			await g.win.setBounds(g.config.window)
+	// Phase 5 adoption: prefer v1 `windows.main` bounds, but keep legacy `window` alive.
+	let b = null;
+	if(g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height){
+		b = g.config.windows.main;
+	}
+	else if(g.config.window && g.config.window.width && g.config.window.height){
+		b = g.config.window;
+	}
+	if(b){
+		const nb = { width: b.width|0, height: b.height|0 };
+		if(b.x !== undefined && b.x !== null) nb.x = b.x|0;
+		if(b.y !== undefined && b.y !== null) nb.y = b.y|0;
+		await g.win.setBounds(nb);
+		g.config.window = { x: nb.x, y: nb.y, width: nb.width, height: nb.height };
+		if(g.config.windows && g.config.windows.main){
+			g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: g.config.space|0 };
 		}
 	}
 	g.win.show();
@@ -597,6 +621,16 @@ function setupWindow(){
 			g.window_move_timeout = setTimeout(async () => {
 				let bounds = await g.win.getBounds();
 				g.config.window = bounds;
+				if(!g.config.windows) g.config.windows = {};
+				if(!g.config.windows.main) g.config.windows.main = {};
+				g.config.windows.main = {
+					...g.config.windows.main,
+					x: bounds.x,
+					y: bounds.y,
+					width: bounds.width,
+					height: bounds.height,
+					scale: g.config.space|0
+				};
 				g.config_obj.set(g.config);
 			}, 500)
 		}
@@ -1472,6 +1506,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	let x = targetDisplay.bounds.x + Math.round((targetDisplay.bounds.width - windowWidth) / 2);
 	let y = targetDisplay.bounds.y + Math.round((targetDisplay.bounds.height - windowHeight) / 2);
 	
+	// Phase 6: secondary-window bounds restoration (v1)
+	let saved = g.config && g.config.windows && g.config.windows[type] ? g.config.windows[type] : null;
+	if(saved){
+		let sw = saved.width|0;
+		let sh = saved.height|0;
+		if(sw > 0) windowWidth = sw;
+		if(sh > 0) windowHeight = sh;
+		if(saved.x !== null && saved.x !== undefined) x = saved.x|0;
+		if(saved.y !== null && saved.y !== undefined) y = saved.y|0;
+	}
+	
 	const init_data = {
 		type: type,
 		stageId: await g.win.getId(),
@@ -1515,12 +1560,21 @@ async function scaleWindow(val){
 	//let bounds = await g.win.getBounds();
 	let w_scale = g.config.win_min_width / 14;
 	let h_scale = g.config.win_min_height / 14;
-	g.config.window.width = parseInt(w_scale * val);
-	g.config.window.height = parseInt(h_scale * val);
-	if(g.config.window.width < g.config.win_min_width) { g.config.window.width = g.config.win_min_width; val = 14};
-	if(g.config.window.height < g.config.win_min_height) { g.config.window.height = g.config.win_min_height; val = 14};
-	await g.win.setBounds(g.config.window);
+	if(!g.config.windows) g.config.windows = {};
+	if(!g.config.windows.main) g.config.windows.main = {};
+	if(!g.config.window) g.config.window = {};
+	let nb = {
+		x: g.config.window.x,
+		y: g.config.window.y,
+		width: parseInt(w_scale * val),
+		height: parseInt(h_scale * val)
+	};
+	if(nb.width < g.config.win_min_width) { nb.width = g.config.win_min_width; val = 14 };
+	if(nb.height < g.config.win_min_height) { nb.height = g.config.win_min_height; val = 14 };
+	await g.win.setBounds(nb);
 	g.config.space = val;
+	g.config.window = { x: nb.x, y: nb.y, width: nb.width, height: nb.height };
+	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
 	ut.setCssVar('--space-base', g.config.space);
 	g.config_obj.set(g.config);
 }

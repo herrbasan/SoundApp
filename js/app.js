@@ -6,6 +6,8 @@ const helper = require('../libs/electron_helper/helper_new.js');
 const tools = helper.tools;
 const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
+const configDefaults = require('./config-defaults.js');
+const { migrateUserConfig } = require('./config-migrations.js');
 
 squirrel_startup().then((ret, cmd) => { if(ret) { app.quit(); return; } init(cmd); });
 
@@ -114,25 +116,9 @@ async function appStart(){
     fb('Init Windows');
     
     // Initialize config on main process
-    await helper.config.initMain('user', {
-        transcode: {
-            "ext":".wav",
-            "cmd":"-c:a pcm_s16le"
-        },
-		space:14,
-        win_min_width:480,
-        win_min_height:217,
-        volume: 0.5,
-        theme: 'dark',
-        hqMode: false,
-        bufferSize: 10,
-        decoderThreads: 0,
-        modStereoSeparation: 100,
-        modInterpolationFilter: 0,
-        outputDeviceId: '',
-        defaultDir: '',
-        mixerPreBuffer: 50
-    });
+	await helper.config.initMain('user', configDefaults, {
+		migrate: (loaded, defaults) => migrateUserConfig(loaded, defaults)
+	});
     
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 

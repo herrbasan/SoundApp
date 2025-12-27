@@ -75,6 +75,8 @@ if (isElectron) {
 		windowId = await helper.window.getId();
 		windowType = data.type;
 		let closedSent = false;
+		let boundsSaveTimer = 0;
+		let lastBounds = null;
 		const sendClosedOnce = () => {
 			if(closedSent) return;
 			closedSent = true;
@@ -107,6 +109,33 @@ if (isElectron) {
 		} catch(err) {
 			console.error('window-loader: initRenderer failed, falling back to init_data.config', err);
 		}
+
+		function scheduleSaveBounds(){
+			if(!config_obj || !windowType) return;
+			if(boundsSaveTimer) clearTimeout(boundsSaveTimer);
+			boundsSaveTimer = setTimeout(async () => {
+				if(!config_obj || !windowType) return;
+				let bounds = await helper.window.getBounds();
+				if(!bounds) return;
+				if(lastBounds && bounds.x === lastBounds.x && bounds.y === lastBounds.y && bounds.width === lastBounds.width && bounds.height === lastBounds.height) return;
+				lastBounds = bounds;
+				let cnf = config_obj.get() || {};
+				if(!cnf.windows) cnf.windows = {};
+				if(!cnf.windows[windowType]) cnf.windows[windowType] = {};
+				cnf.windows[windowType] = {
+					...cnf.windows[windowType],
+					x: bounds.x|0,
+					y: bounds.y|0,
+					width: bounds.width|0,
+					height: bounds.height|0
+				};
+				config_obj.set(cnf);
+			}, 350);
+		}
+
+		// Phase 6: persist secondary-window bounds automatically
+		helper.window.hook_event('move', scheduleSaveBounds);
+		helper.window.hook_event('resize', scheduleSaveBounds);
 
 		data.config_obj = config_obj;
 		if(config_obj){

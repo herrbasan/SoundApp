@@ -263,15 +263,15 @@ Goal: remove the bypass paths and rely only on the centralized helper broadcasts
 
 ### Phase 3 (Step 3): Fully Config-Driven Settings + Stage Side Effects
 
-Status: [ ] Not started
+Status: [x] Completed
 
 Goal: Settings writes config only; Stage reacts to config diffs.
 
-1. [ ] **Make Settings window write config directly**
+1. [x] **Make Settings window write config directly**
     - Use `config_obj` from `bridge-ready`.
     - Replace `sendToStage('set-*')` with `config_obj.set(...)` updates.
 
-2. [ ] **Make Stage react to config changes (single source of truth)**
+2. [x] **Make Stage react to config changes (single source of truth)**
     - In Stage `helper.config.initRenderer('user', callback)`, diff old vs new and apply side effects:
       - `outputDeviceId` → `audioContext.setSinkId(...)` (revert on failure).
       - `hqMode` → rebuild AudioContext + re-init players; broadcast `sample-rate-updated`.
@@ -281,37 +281,145 @@ Goal: Settings writes config only; Stage reacts to config diffs.
 
 ### Phase 4: Config Foundation (Versioning + Migrations)
 
-Status: [ ] Not started
-1. Create `js/config-defaults.js` (single source of defaults)
-2. Create `js/config-migrations.js` (v0 → v1 migration + repair)
-3. Modify `app.js` to:
+Status: [x] Completed
+1. [x] Create `js/config-defaults.js` (single source of defaults)
+2. [x] Create `js/config-migrations.js` (v0 → v1 migration + repair)
+3. [x] Modify `app.js` to:
     - load defaults,
     - load existing config,
     - run migrations/repair,
     - then `initMain()` with the resulting data.
 
-### Phase 5: Window Bounds Tracking
+### Phase 5: Adopt New Config Structure (Update All Read/Write Paths)
 
-Status: [ ] Not started
-1. Introduce `config.windows.{type}` structure (via migrations)
-2. Stage reads and writes `windows.main` (including `scale`)
-3. Each window reads its bounds from `config.windows[type]` on open
-4. Each window saves its bounds on move/resize (debounced)
+Status: [~] In progress
 
-### Phase 6: Tray Icon
+Goal: after v1 exists + can be migrated/repaired, update *all* code paths that read/write config so the app consistently uses the new structure (this is not only `windows.*`).
+
+1. [x] Inventory config keys and nested paths currently used across:
+    - Stage
+    - Settings
+    - Mixer
+    - Main process
+    - Browser preview mocks
+2. [~] Update every read/write location to the v1 structure (and remove legacy aliases if any)
+    - Done so far: Stage keeps `windows.main` and legacy `window/space` mirrored to prevent drift.
+3. [x] Ensure any newly nested objects are never lost on load (repair/deep-merge via migrations)
+4. [ ] Verify cross-window live updates still behave (helper broadcast is the source of truth)
+
+### Phase 6: Window Bounds Tracking
+
+Status: [x] Completed
+1. [x] Introduce `config.windows.{type}` structure (via migrations)
+2. [x] Stage reads and writes `windows.main` (including `scale`)
+3. [x] Each window reads its bounds from `config.windows[type]` on open
+4. [x] Each window saves its bounds on move/resize (debounced)
+
+Notes:
+- Secondary windows persist bounds via the centralized loader (`window-loader.js`).
+- Playlist window defaults exist in `windows.playlist` even if the window is currently unused.
+
+### Phase 7: Tray Icon
 
 Status: [ ] Not started
 1. Add tray icon in `app.js`
 2. Implement “Reset Windows” by writing `config.windows.*` centered positions
 3. Broadcast `windows-reset` so open windows reposition themselves
 
-### Phase 7: Cleanup & Testing
+### Phase 8: Cleanup & Testing
 
 Status: [ ] Not started
 1. Remove duplicate defaults from Stage (`default_config`)
 2. Verify: changes in Settings update Stage + Mixer live (no restart)
 3. Verify: config persists and updates survive restart
 4. Verify: browser preview mode still works (mock config)
+
+---
+
+## Config Usage Inventory (Phase 5 Input)
+
+This section is a **snapshot inventory** of where config is read/written today, and which keys/paths exist in the current codebase. It exists to avoid losing the map during refactors.
+
+### High Risk Note: Shallow Merge (Nested Defaults Will Be Dropped)
+
+`helper_new.js` merges loaded config with defaults using a **shallow** merge:
+
+```js
+cnf.data = { ...defaultConfig, ...loadedData };
+```
+
+Once we introduce nested objects (e.g. `windows.*`), this will drop missing nested defaults (e.g. adding `windows.mixer` later). Before shipping nested config, we must do migration/repair (preferred) or targeted deep-merge.
+
+### Current Default Config Is Duplicated
+
+Defaults exist in both:
+- `js/app.js` (main process `helper.config.initMain('user', defaults)`)
+- `js/stage.js` (`default_config` + manual fallback assignments)
+
+Phase 4/8 should consolidate these into a single source of defaults.
+
+### Keys In Use (Top-Level)
+
+These keys are currently used across Stage / Settings / Mixer and must be considered when adopting a new config structure:
+
+- `theme`
+    - Stage reacts + forwards to main (`set-theme`)
+    - Settings writes via `setConfigPatch({ theme: ... })`
+    - `window-loader.js` applies theme from live config
+
+- `hqMode`
+    - Stage rebuilds AudioContext and broadcasts `sample-rate-updated`
+    - Settings writes via `setConfigPatch({ hqMode: ... })`
+    - Mixer observes config changes but rebuild is driven by `sample-rate-updated`
+
+- `outputDeviceId`
+    - Stage applies `audioContext.setSinkId(...)` and reverts on failure
+    - Settings writes via `setConfigPatch({ outputDeviceId: ... })`
+    - Mixer applies sink for its own AudioContext
+
+- `bufferSize`, `decoderThreads`
+    - Stage uses these for FFmpeg streaming player init and live resets
+    - Settings writes via `setConfigPatch({ bufferSize/decoderThreads })`
+    - Mixer uses `bufferSize` but forces `decoderThreads = 1` per track; reloads tracks if effective buffer changes
+
+- `mixerPreBuffer`
+    - Settings writes via `setConfigPatch({ mixerPreBuffer: ... })`
+    - Mixer uses this for scheduled synchronous starts/seeks
+
+- `modStereoSeparation`, `modInterpolationFilter`
+    - Stage applies changes to current MOD if loaded
+    - Settings writes via `setConfigPatch({ modStereoSeparation/modInterpolationFilter })`
+
+- `defaultDir`
+    - Settings writes via `setConfigPatch({ defaultDir: ... })`
+    - Stage uses it for startup playlist behavior
+
+- `volume`
+    - Stage reads/writes frequently (UI + player gain)
+
+### Legacy / Transitional Keys (Need Migration Mapping)
+
+These exist today but are expected to move into the v1 structure (esp. windowing):
+
+- `space` (UI scale base / `--space-base`)
+- `window` (Stage window bounds object)
+- `win_min_width`, `win_min_height` (minimum dimensions constants stored in config defaults)
+
+### Where Config Is Applied (Summary)
+
+- Main process bootstraps config: `js/app.js` (`helper.config.initMain('user', ...)`)
+- Stage subscribes + performs side effects: `js/stage.js` (`helper.config.initRenderer('user', callback)`)
+- Settings reads/writes via `bridge-ready` payload `data.config` + `data.config_obj`: `html/settings.html`
+- Mixer consumes config via `initData.config` and stays in sync via `config-updated-user`: `js/mixer/main.js` + `js/mixer/mixer_engine.js`
+- Secondary windows config wiring is centralized: `js/window-loader.js`
+
+### Phase 5 Adoption Checklist (Don’t Miss These)
+
+1. **Inventory → mapping**: create an explicit mapping table from old keys/paths → v1 paths (not only `windows.*`).
+2. **Migration/repair**: ensure nested defaults are repaired on load so new nested keys are never dropped.
+3. **Settings write strategy**: `setConfigPatch()` is a shallow top-level patch merge today; if we introduce nested paths, Settings must update nested objects safely (either explicit nested updates or a helper to patch deep paths).
+4. **Mixer expectations**: mixer currently reads `initData.config.*`; any structure change must preserve how mixer obtains `bufferSize/outputDeviceId/mixerPreBuffer` and stays updated.
+5. **Remove duplicate defaults** only after migrations + adoption are stable (avoid changing two things at once).
 
 ---
 
