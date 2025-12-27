@@ -65,6 +65,18 @@ async function init(cmd){
 		}
 	}
 	
+	// Prevent quit when all windows closed if keep-in-tray is enabled
+	app.on('window-all-closed', () => {
+		// On macOS apps typically stay open; on Windows/Linux we check setting
+		if(process.platform === 'darwin') return;
+		let keep = false;
+		try {
+			let cnf = user_cfg ? (user_cfg.get() || {}) : {};
+			keep = !!(cnf && cnf.ui && cnf.ui.keepRunningInTray);
+		} catch(err) {}
+		if(!keep) app.quit();
+	});
+
 
 	let fp = path.join(app_path, 'env.json');
 	if((await helper.tools.fileExists(fp))){
@@ -186,11 +198,20 @@ function createTray(){
 	if(tray) return;
 	let iconPath = null;
 	if(process.platform === 'win32'){
-		iconPath = path.join(__dirname, '../build/icons/app.ico');
+		// In packaged app, extraResource files go to process.resourcesPath/icons/
+		// In dev, they're at app_path/build/icons/
+		if(isPackaged){
+			iconPath = path.join(process.resourcesPath, 'icons', 'app.ico');
+		} else {
+			iconPath = path.join(app_path, 'build', 'icons', 'app.ico');
+		}
 	}
 	else {
-		// Fallback: reuse ico if present; if not, skip tray rather than crashing
-		iconPath = path.join(__dirname, '../build/icons/app.ico');
+		if(isPackaged){
+			iconPath = path.join(process.resourcesPath, 'icons', 'app.ico');
+		} else {
+			iconPath = path.join(app_path, 'build', 'icons', 'app.ico');
+		}
 	}
 
 	let img = null;

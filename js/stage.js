@@ -468,7 +468,16 @@ async function appStart(){
 	}
 
 	g.bottom.addEventListener('mousedown', timeline)
-	g.top_close.addEventListener('click', app.exit);
+	g.top_close.addEventListener('click', () => {
+		const cfg = g.config_obj ? g.config_obj.get() : g.config;
+		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
+		if(keep){
+			if(g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
+			g.win.hide();
+		} else {
+			g.win.close();
+		}
+	});
 
 	g.top_btn_loop.addEventListener('click', toggleLoop);
 	g.top_btn_shuffle.addEventListener('click', shufflePlaylist);
@@ -1338,7 +1347,14 @@ async function onKey(e) {
 
 	if (e.keyCode == 27) {
 		g.config_obj.set(g.config);
-		app.exit();
+		const cfg = g.config_obj ? g.config_obj.get() : g.config;
+		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
+		if(keep){
+			if(g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
+			g.win.hide();
+		} else {
+			g.win.close();
+		}
 	}
 	if (e.keyCode == 39) {
 		if(e.ctrlKey){ seekFore()}

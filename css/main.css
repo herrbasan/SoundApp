@@ -499,6 +499,7 @@ body.loop .top .content .loop::after{
     grid-template-columns: 8fr 2fr;
     grid-template-rows: 1fr 1fr;
     gap: 1em;
+	font-size: 0.8rem;
 }
 
 #drop_add {
