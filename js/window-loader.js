@@ -84,14 +84,35 @@ if (isElectron) {
 		};
 		// If user closes via OS controls / Alt+F4, ensure stage gets the cleanup message.
 		window.addEventListener('beforeunload', sendClosedOnce);
-		
-		// Apply theme from config
-		if (data.config && data.config.theme === 'dark') {
-			document.body.classList.add('dark');
-		} else {
-			document.body.classList.remove('dark');
+
+		function applyTheme(cnf){
+			if(cnf && cnf.theme === 'dark'){
+				document.body.classList.add('dark');
+			}
+			else {
+				document.body.classList.remove('dark');
+			}
 		}
-		
+
+		// Centralized config wiring (Phase 1)
+		// - Provides data.config_obj + data.config for all windows
+		// - Applies theme from the live config
+		// - Keeps backward-compatibility: if initRenderer fails, fall back to init_data.config
+		let config_obj = null;
+		try {
+			config_obj = await helper.config.initRenderer('user', (newConfig) => {
+				data.config = newConfig;
+				applyTheme(newConfig);
+			});
+		} catch(err) {
+			console.error('window-loader: initRenderer failed, falling back to init_data.config', err);
+		}
+
+		data.config_obj = config_obj;
+		if(config_obj){
+			data.config = config_obj.get() || data.config;
+		}
+		applyTheme(data.config);
 		dispatchBridgeReady(data);
 	});
 	
