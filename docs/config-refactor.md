@@ -598,6 +598,27 @@ Full mapping table lives in [config_versioning.md](config_versioning.md). High-l
 - `space` → `windows.main.scale`
 - `window` → `windows.main` bounds
 
+### Migration Helper: Config Access Logging (Temporary)
+
+To make the bucketed restructure safe, we temporarily added **config activity logging** at the centralized chokepoints.
+
+Why this exists:
+- When we change config paths (flat → nested buckets), missed reads/writes can silently fall back to defaults.
+- Logging lets us see **which windows** are calling config `get()` / `set()` and when `config-set` is happening, so we can quickly find any remaining legacy paths during rollout.
+
+What it logs (when enabled):
+- Main process IPC: `config-get` and `config-set` (includes sender id)
+- Config object wrapper calls: `config.get()` and `config.set()` (includes process/pid and a simple top-level key count)
+
+How to enable:
+- Set env var: `ELECTRON_HELPER_CONFIG_LOG=1`
+- Or pass `{ log: true }` into `helper.config.initMain('user', defaults, options)` (main process)
+
+How to use during migration:
+- Enable logging, run the app, open Settings + Mixer + Help, change settings, restart.
+- Look for unexpected write patterns (e.g. only legacy keys changing) and unexpected reads.
+- Disable logging once adoption is complete (it is intentionally noisy and not meant for shipping enabled).
+
 ---
 
 ## Design Decisions (Resolved)

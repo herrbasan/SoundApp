@@ -73,11 +73,11 @@ function _setSyncOverlayVisible(v){
 
 function _buildSyncSnapshot(){
 	const cfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : (g && g.initData ? g.initData.config : null);
-	const rawBuf = (cfg && cfg.bufferSize !== undefined) ? (cfg.bufferSize | 0) : undefined;
+	const rawBuf = (cfg && cfg.ffmpeg && cfg.ffmpeg.stream && cfg.ffmpeg.stream.prebufferChunks !== undefined) ? (cfg.ffmpeg.stream.prebufferChunks | 0) : undefined;
 	const effBuf = Math.max(20, ((rawBuf !== undefined) ? rawBuf : 10));
-	const rawThr = (cfg && cfg.decoderThreads !== undefined) ? (cfg.decoderThreads | 0) : undefined;
+	const rawThr = (cfg && cfg.ffmpeg && cfg.ffmpeg.decoder && cfg.ffmpeg.decoder.threads !== undefined) ? (cfg.ffmpeg.decoder.threads | 0) : undefined;
 	const forcedThr = 1;
-	const rawPreMs = (cfg && cfg.mixerPreBuffer !== undefined) ? (cfg.mixerPreBuffer | 0) : undefined;
+	const rawPreMs = (cfg && cfg.mixer && cfg.mixer.preBuffer !== undefined) ? (cfg.mixer.preBuffer | 0) : undefined;
 	const effPreMs = (rawPreMs !== undefined && rawPreMs > 0) ? rawPreMs : 50;
 	const hwThr = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? (navigator.hardwareConcurrency | 0) : undefined;
 	const ctxSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
@@ -403,8 +403,8 @@ async function init(initData){
 	g.initData = initData || {};
 	if(g.initData && g.initData.config){
 		const cnf = g.initData.config;
-		const rawBuf = (cnf.bufferSize !== undefined) ? (cnf.bufferSize | 0) : undefined;
-		const rawThr = (cnf.decoderThreads !== undefined) ? (cnf.decoderThreads | 0) : undefined;
+		const rawBuf = (cnf && cnf.ffmpeg && cnf.ffmpeg.stream && cnf.ffmpeg.stream.prebufferChunks !== undefined) ? (cnf.ffmpeg.stream.prebufferChunks | 0) : undefined;
+		const rawThr = (cnf && cnf.ffmpeg && cnf.ffmpeg.decoder && cnf.ffmpeg.decoder.threads !== undefined) ? (cnf.ffmpeg.decoder.threads | 0) : undefined;
 		const effBuf = Math.max(20, (rawBuf !== undefined ? rawBuf : 10));
 		console.log('Mixer config init', {
 			rawBufferSize: rawBuf,
@@ -814,16 +814,18 @@ async function init(initData){
 
 		window.bridge.on('config-updated-user', async (newConfig) => {
 			const prevCfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : {};
-			const oldBuffer = prevCfg.bufferSize;
-			const oldThreads = prevCfg.decoderThreads;
-			const oldHq = !!prevCfg.hqMode;
-			const newHq = !!(newConfig && newConfig.hqMode);
-			const oldEffBuffer = Math.max(20, ((oldBuffer !== undefined) ? (oldBuffer | 0) : 10));
-			const newEffBuffer = Math.max(20, ((newConfig && newConfig.bufferSize !== undefined) ? (newConfig.bufferSize | 0) : 10));
-			const rawOldBuf = (oldBuffer !== undefined) ? (oldBuffer | 0) : undefined;
-			const rawNewBuf = (newConfig && newConfig.bufferSize !== undefined) ? (newConfig.bufferSize | 0) : undefined;
-			const rawOldThr = (oldThreads !== undefined) ? (oldThreads | 0) : undefined;
-			const rawNewThr = (newConfig && newConfig.decoderThreads !== undefined) ? (newConfig.decoderThreads | 0) : undefined;
+			const oldBuffer = (prevCfg && prevCfg.ffmpeg && prevCfg.ffmpeg.stream && prevCfg.ffmpeg.stream.prebufferChunks !== undefined) ? (prevCfg.ffmpeg.stream.prebufferChunks | 0) : undefined;
+			const oldThreads = (prevCfg && prevCfg.ffmpeg && prevCfg.ffmpeg.decoder && prevCfg.ffmpeg.decoder.threads !== undefined) ? (prevCfg.ffmpeg.decoder.threads | 0) : undefined;
+			const oldHq = !!(prevCfg && prevCfg.audio ? prevCfg.audio.hqMode : false);
+			const newHq = !!(newConfig && newConfig.audio ? newConfig.audio.hqMode : false);
+			const newBuffer = (newConfig && newConfig.ffmpeg && newConfig.ffmpeg.stream && newConfig.ffmpeg.stream.prebufferChunks !== undefined) ? (newConfig.ffmpeg.stream.prebufferChunks | 0) : undefined;
+			const newThreads = (newConfig && newConfig.ffmpeg && newConfig.ffmpeg.decoder && newConfig.ffmpeg.decoder.threads !== undefined) ? (newConfig.ffmpeg.decoder.threads | 0) : undefined;
+			const oldEffBuffer = Math.max(20, (oldBuffer !== undefined) ? oldBuffer : 10);
+			const newEffBuffer = Math.max(20, (newBuffer !== undefined) ? newBuffer : 10);
+			const rawOldBuf = (oldBuffer !== undefined) ? oldBuffer : undefined;
+			const rawNewBuf = (newBuffer !== undefined) ? newBuffer : undefined;
+			const rawOldThr = (oldThreads !== undefined) ? oldThreads : undefined;
+			const rawNewThr = (newThreads !== undefined) ? newThreads : undefined;
 			const rawOldHq = oldHq;
 			const rawNewHq = newHq;
 			const rawChangedBuf = rawOldBuf !== rawNewBuf;
@@ -1333,10 +1335,10 @@ function loop(){
 
 			// Settings + runtime summary
 			const cfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : (g && g.initData ? g.initData.config : null);
-			const rawBuf = (cfg && cfg.bufferSize !== undefined) ? (cfg.bufferSize | 0) : undefined;
+			const rawBuf = (cfg && cfg.ffmpeg && cfg.ffmpeg.stream && cfg.ffmpeg.stream.prebufferChunks !== undefined) ? (cfg.ffmpeg.stream.prebufferChunks | 0) : undefined;
 			const effBuf = Math.max(20, ((rawBuf !== undefined) ? rawBuf : 10));
-			const rawThr = (cfg && cfg.decoderThreads !== undefined) ? (cfg.decoderThreads | 0) : undefined;
-			const rawPreMs = (cfg && cfg.mixerPreBuffer !== undefined) ? (cfg.mixerPreBuffer | 0) : undefined;
+			const rawThr = (cfg && cfg.ffmpeg && cfg.ffmpeg.decoder && cfg.ffmpeg.decoder.threads !== undefined) ? (cfg.ffmpeg.decoder.threads | 0) : undefined;
+			const rawPreMs = (cfg && cfg.mixer && cfg.mixer.preBuffer !== undefined) ? (cfg.mixer.preBuffer | 0) : undefined;
 			const effPreMs = (rawPreMs !== undefined && rawPreMs > 0) ? rawPreMs : 50;
 			const hwThr = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? (navigator.hardwareConcurrency | 0) : undefined;
 			const ctxSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;

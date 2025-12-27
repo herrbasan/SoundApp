@@ -15,15 +15,15 @@ The goal is to:
   - Corrupted/failed reads fall back to defaults (existing behavior), then persist a repaired structure.
 - A config structure change that is not fully backward-compatible must:
   - bump `config_version`
-  - include a deterministic migration/repair step
+  - either include a deterministic migration/repair step or intentionally reset the config (delete `user.json`)
 - Never rely on a shallow `{...defaults, ...loaded}` merge for nested objects.
-  - For nested additions (like `windows.*`), missing keys must be repaired via migration logic.
+  - If we are not shipping repair logic, the intended solution for missing/corrupt nested keys is to delete `user.json` and restart.
 
 ## Version Index
 
-- **v0** (legacy / current): no `config_version` key
-- **v1** (planned): introduces `config_version: 1` and `windows.*` structure
-- **v1** (planned): introduces `config_version: 1`, `windows.*`, and nests settings into buckets
+- **v0** (legacy): no `config_version` key (flat settings)
+- **v1** (legacy): introduces `config_version: 1` and `windows.*` structure (settings may remain flat)
+- **v2** (current): introduces `config_version: 2` and nests settings into buckets
 
 ---
 
@@ -68,20 +68,45 @@ The goal is to:
 
 ---
 
-## v1 (Planned; `config_version: 1`)
+## v1 (Legacy; `config_version: 1`)
 
 ### Notes
 
 - Introduces a nested `windows` object.
 - Main window scale moves from `space` to `windows.main.scale`.
 - Each window can persist its own bounds.
-- Settings are grouped into stable buckets (`ui`, `audio`, `ffmpeg`, `tracker`, ...).
+- Settings may remain as flat keys (v0-style); bucketed settings are introduced in v2.
+
+### Migration (v0 → v1) mapping
+
+- `config_version`: set to `1`
+- `space` → `windows.main.scale`
+- `window` → `windows.main` bounds:
+  - `x`, `y`, `width`, `height`
+- `win_min_width`, `win_min_height`: drop from persisted config (replace with code constants)
+- Ensure `windows.help`, `windows.settings`, `windows.mixer` exist (repair missing keys)
+
+### Repair requirements
+
+Because the current config loader performs shallow merges, the migration/repair step must explicitly:
+- create `windows` if missing
+- create any missing `windows.*` entries
+- fill missing properties (`x/y/width/height/scale`) with sane defaults
+
+---
+
+## v2 (Current; `config_version: 2`)
+
+### Notes
+
+- Introduces stable settings buckets (`ui`, `audio`, `ffmpeg`, `tracker`, `mixer`) alongside `windows`.
+- This avoids shallow-merge breakage for nested config and keeps the schema evolvable.
 
 ### Structure
 
 ```json
 {
-  "config_version": 1,
+  "config_version": 2,
   "ui": {
     "theme": "dark",
     "defaultDir": ""
@@ -112,9 +137,11 @@ The goal is to:
 }
 ```
 
-### Migration (v0 → v1) mapping
+### Migration (v0/v1 → v2) mapping
 
-- `config_version`: set to `1`
+Note: this mapping describes how older keys relate to v2 buckets, but the app does not currently ship migration code. For breaking schema changes, reset the config by deleting `user.json`.
+
+- `config_version`: set to `2`
 - `theme` → `ui.theme`
 - `defaultDir` → `ui.defaultDir`
 - `volume` → `audio.volume`
@@ -122,23 +149,11 @@ The goal is to:
 - `hqMode` → `audio.hqMode`
 - `bufferSize` → `ffmpeg.stream.prebufferChunks`
 - `decoderThreads` → `ffmpeg.decoder.threads`
-- `transcode` → `ffmpeg.transcode` (keep for future format conversion defaults)
+- `transcode` → `ffmpeg.transcode` (keep for format conversion defaults)
 - `modStereoSeparation` → `tracker.stereoSeparation`
 - `modInterpolationFilter` → `tracker.interpolationFilter`
 - `mixerPreBuffer` → `mixer.preBuffer`
-- `space` → `windows.main.scale`
-- `window` → `windows.main` bounds:
-  - `x`, `y`, `width`, `height`
-- `win_min_width`, `win_min_height`: drop from persisted config (replace with code constants)
-- Ensure `windows.help`, `windows.settings`, `windows.mixer` exist (repair missing keys)
-
-### Repair requirements
-
-Because the current config loader performs shallow merges, the migration/repair step must explicitly:
-- create all top-level buckets (`ui`, `audio`, `ffmpeg`, `tracker`, `mixer`) if missing
-- create `windows` if missing
-- create any missing `windows.*` entries
-- fill missing properties (`x/y/width/height/scale`) with sane defaults
+- Preserve/repair `windows.*` (including `windows.main.scale` and bounds)
 
 ---
 

@@ -1,5 +1,5 @@
 'use strict';
-const {app, protocol, BrowserWindow, Menu, ipcMain} = require('electron');
+const {app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen} = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper_new.js');
@@ -7,7 +7,6 @@ const tools = helper.tools;
 const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 const configDefaults = require('./config-defaults.js');
-const { migrateUserConfig } = require('./config-migrations.js');
 
 squirrel_startup().then((ret, cmd) => { if(ret) { app.quit(); return; } init(cmd); });
 
@@ -18,6 +17,9 @@ let base_path = path.join(app_path);
 let user_data = app.getPath('userData');
 let wins = {};
 let currentTheme = 'dark'; // Default theme, will be updated by stage on startup
+let tray = null;
+let user_cfg = null;
+let isQuitting = false;
 
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
@@ -46,8 +48,9 @@ async function init(cmd){
 						}
 					}
 					wins.main.webContents.send('main', argv);
-					if (wins.main.isMinimized()) wins.main.restore()
-					wins.main.focus()
+					if(!wins.main.isVisible()) wins.main.show();
+					if (wins.main.isMinimized()) wins.main.restore();
+					wins.main.focus();
 				}
 			})
 		}
@@ -114,6 +117,7 @@ function setEnv(){
 
 async function appStart(){
     fb('Init Windows');
+	app.on('before-quit', () => { isQuitting = true; });
 	// Optional config activity logging (temporary debugging aid)
 	// Enable via env.json: { "config_log": true } or env var: ELECTRON_HELPER_CONFIG_LOG=1
 	if(main_env && (main_env.config_log || main_env.configLog)){
@@ -121,11 +125,22 @@ async function appStart(){
 	}
 	const configLog = (process.env.ELECTRON_HELPER_CONFIG_LOG === '1' || process.env.ELECTRON_HELPER_CONFIG_LOG === 'true');
     
-    // Initialize config on main process
-	await helper.config.initMain('user', configDefaults, {
-		migrate: (loaded, defaults) => migrateUserConfig(loaded, defaults),
-		log: configLog
-	});
+	// Initialize config on main process
+	// NOTE: We intentionally do not migrate older structures.
+	// If config structure changes, the recommended path is to delete user.json and let defaults recreate it.
+	
+	// Development: start with defaults without touching argv parsing
+	// Enable via env.json: { "startWithDefaults": true }
+	// - false: normal behavior (uses user.json)
+	// - true: uses user_temp.json (fresh defaults for testing)
+	const startWithDefaults = !!(main_env && (main_env.startWithDefaults || main_env.start_with_defaults));
+	const configName = startWithDefaults ? 'user_temp' : 'user';
+	if(startWithDefaults){
+		fb('startWithDefaults enabled: using temporary config user_temp.json');
+	}
+	main_env.configName = configName;
+	
+	user_cfg = await helper.config.initMain(configName, configDefaults, { log: configLog });
     
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 
@@ -143,10 +158,106 @@ async function appStart(){
 		}
 	})
 
+	// Opt-in: keep running in tray (hide main window on close)
+	try {
+		wins.main.on('close', (e) => {
+			if(isQuitting) return;
+			let keep = false;
+			try {
+				let cnf = user_cfg ? (user_cfg.get() || {}) : {};
+				keep = !!(cnf && cnf.ui && cnf.ui.keepRunningInTray);
+			} catch(err) {}
+			if(!keep) return;
+			e.preventDefault();
+			try { wins.main.hide(); } catch(err) {}
+		});
+	} catch(err) {}
+
+	createTray();
+
 	ipcMain.handle('command', mainCommand);
 	Menu.setApplicationMenu( null );
 	if(main_env?.channel != 'dev'){
 		setTimeout(checkUpdate,1000);
+	}
+}
+
+function createTray(){
+	if(tray) return;
+	let iconPath = null;
+	if(process.platform === 'win32'){
+		iconPath = path.join(__dirname, '../build/icons/app.ico');
+	}
+	else {
+		// Fallback: reuse ico if present; if not, skip tray rather than crashing
+		iconPath = path.join(__dirname, '../build/icons/app.ico');
+	}
+
+	let img = null;
+	try {
+		img = nativeImage.createFromPath(iconPath);
+		if(img && img.isEmpty && img.isEmpty()) img = null;
+	} catch(e) {
+		img = null;
+	}
+	if(!img){
+		fb('Tray icon not created (icon missing): ' + iconPath);
+		return;
+	}
+
+	tray = new Tray(img);
+	tray.setToolTip('SoundApp');
+
+	const contextMenu = Menu.buildFromTemplate([
+		{ label: 'Show', click: () => { try { wins.main && wins.main.show(); wins.main && wins.main.focus(); } catch(e){} } },
+		{ label: 'Reset Windows', click: () => { resetAllWindows(); } },
+		{ type: 'separator' },
+		{ label: 'Quit', click: () => { app.quit(); } }
+	]);
+	tray.setContextMenu(contextMenu);
+	tray.on('click', () => {
+		try { wins.main && wins.main.show(); wins.main && wins.main.focus(); } catch(e){}
+	});
+}
+
+async function resetAllWindows(){
+	try {
+		if(!user_cfg){
+			fb('Reset Windows: config not initialized');
+			return;
+		}
+		const cnf = user_cfg.get() || {};
+		if(!cnf.windows) cnf.windows = {};
+
+		const primary = screen.getPrimaryDisplay();
+		const wa = primary && primary.workArea ? primary.workArea : { x: 0, y: 0, width: 1024, height: 768 };
+
+		const defaults = (configDefaults && configDefaults.windows) ? configDefaults.windows : {};
+		for(const k in defaults){
+			const d = defaults[k];
+			if(!d) continue;
+			const w = d.width|0;
+			const h = d.height|0;
+			if(w <= 0 || h <= 0) continue;
+			const nx = wa.x + Math.round((wa.width - w) / 2);
+			const ny = wa.y + Math.round((wa.height - h) / 2);
+			cnf.windows[k] = { ...cnf.windows[k], x: nx, y: ny, width: w, height: h };
+		}
+
+		user_cfg.set(cnf);
+
+		// Apply to main window immediately
+		try {
+			if(wins.main && cnf.windows && cnf.windows.main){
+				wins.main.setBounds(cnf.windows.main);
+			}
+		} catch(e) {}
+
+		// Ask renderer windows to reposition themselves
+		try { tools.broadcast('windows-reset', cnf.windows); } catch(e) {}
+		fb('Reset Windows: done');
+	} catch(err) {
+		console.error('Reset Windows failed:', err);
 	}
 }
 

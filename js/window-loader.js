@@ -58,6 +58,20 @@ if (isElectron) {
 	ipcRenderer.on('close-window', () => {
 		bridge.closeWindow();
 	});
+
+	// Tray / main-process helper: reset window bounds (e.g. after disconnected monitors)
+	ipcRenderer.on('windows-reset', async (e, windowsConfig) => {
+		try {
+			if(!windowsConfig || !windowType) return;
+			let b = windowsConfig[windowType];
+			if(!b) return;
+			await helper.window.setBounds({ x: b.x|0, y: b.y|0, width: b.width|0, height: b.height|0 });
+			helper.window.show();
+			helper.window.focus();
+		} catch(err) {
+			console.error('windows-reset failed:', err);
+		}
+	});
 	
 	// Add global keyboard shortcuts
 	document.addEventListener('keydown', (e) => {
@@ -88,7 +102,8 @@ if (isElectron) {
 		window.addEventListener('beforeunload', sendClosedOnce);
 
 		function applyTheme(cnf){
-			if(cnf && cnf.theme === 'dark'){
+			const theme = (cnf && cnf.ui && cnf.ui.theme) ? cnf.ui.theme : ((cnf && cnf.theme) ? cnf.theme : 'dark');
+			if(theme === 'dark'){
 				document.body.classList.add('dark');
 			}
 			else {
@@ -102,7 +117,8 @@ if (isElectron) {
 		// - Keeps backward-compatibility: if initRenderer fails, fall back to init_data.config
 		let config_obj = null;
 		try {
-			config_obj = await helper.config.initRenderer('user', (newConfig) => {
+			const configName = data.configName || 'user';
+			config_obj = await helper.config.initRenderer(configName, (newConfig) => {
 				data.config = newConfig;
 				applyTheme(newConfig);
 			});
@@ -215,7 +231,7 @@ function createMockConfig() {
 			return {
 				get: () => data,
 				set: (newData) => {
-					data = { ...data, ...newData };
+					data = newData || {};
 					localStorage.setItem('mock-config-' + name, JSON.stringify(data));
 					if (onChange) onChange(data);
 					console.log('Config updated:', name, data);
@@ -249,7 +265,15 @@ function getMockInitData() {
 		},
 		settings: {
 			type: 'settings',
-			config: { volume: 0.8, loop: false, theme: 'dark' }
+			config: {
+				config_version: 2,
+				ui: { theme: 'dark', defaultDir: '' },
+				audio: { volume: 0.8, output: { deviceId: '' }, hqMode: false },
+				ffmpeg: { stream: { prebufferChunks: 10 }, decoder: { threads: 0 }, transcode: { ext: '.wav', cmd: '-c:a pcm_s16le' } },
+				tracker: { stereoSeparation: 100, interpolationFilter: 0 },
+				mixer: { preBuffer: 50 },
+				windows: { main: { x: null, y: null, width: 480, height: 217, scale: 14 } }
+			}
 		},
 		playlist: {
 			type: 'playlist',

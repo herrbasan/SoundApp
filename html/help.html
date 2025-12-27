@@ -50,7 +50,7 @@
                             </tr>
                             <tr>
                                 <td><kbd>R</kbd></td>
-                                <td>Shuffle playlist</td>
+								<td>Shuffle playlist instantly (drop a huge folder, then hit <kbd>R</kbd> or click the Shuffle button next to Loop)</td>
                             </tr>
                             <tr>
                                 <td><kbd>←</kbd></td>
@@ -111,8 +111,12 @@
                 <div class="section-divider"></div>
 
                 <section class="section">
-                    <h1>Mixer Shortcuts</h1>
-                    <p>Press <kbd>M</kbd> in the main window to open the Mixer.</p>
+                    <h1>Mixer</h1>
+                    <p>
+                        Press <kbd>M</kbd> to open the Mixer — it grabs all the audio files sitting next to whatever you're 
+                        currently playing. This is perfect for checking stems or bounces from your DAW: 
+                        just drop them in a folder and hear them all together.
+                    </p>
                     <table class="shortcuts-table">
                         <thead>
                             <tr>
@@ -153,7 +157,10 @@
 
                 <section class="section">
                     <h2>Drag & Drop</h2>
-                    <p>Drag audio files or folders onto the player window:</p>
+                    <p>
+                        Just drag files or folders onto the window. SoundApp will figure out what's playable. 
+                        The drop zones let you choose what happens:
+                    </p>
                     <table class="shortcuts-table">
                         <tbody>
                             <tr>
@@ -164,25 +171,121 @@
                                 <td><strong>Bottom zone</strong></td>
                                 <td>Replace playlist</td>
                             </tr>
+                            <tr>
+                                <td><strong>Multitrack Preview</strong></td>
+                                <td>Open the Mixer with the dropped selection (does not replace the main playlist)</td>
+                            </tr>
                         </tbody>
                     </table>
-                    <p>Folders are scanned recursively for audio files.</p>
+					<p>
+						SoundApp is built to handle large collections — drop an entire sample library or project archive and 
+                        it'll build the playlist in moments. Hold <kbd class="medium">Ctrl</kbd> if you only want the files 
+                        directly in that folder, without diving into subfolders.
+					</p>
                 </section>
 
                 <div class="section-divider"></div>
 
                 <section class="section">
                     <h2>Supported Formats</h2>
-                    <p><strong>Audio:</strong> MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, WMA, and more via FFmpeg</p>
-                    <p><strong>Tracker:</strong> MOD, XM, IT, S3M, and other module formats via libopenmpt</p>
+                    <p>
+                        Pretty much everything. MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, WMA — and if FFmpeg can decode it, 
+                        so can SoundApp. There's also full support for tracker modules (MOD, XM, IT, S3M and friends) 
+                        if you're into that world.
+                    </p>
                 </section>
 
                 <div class="section-divider"></div>
 
                 <section class="section">
                     <h2>Loop Mode</h2>
-                    <p>Press <kbd>L</kbd> to toggle gapless looping. When enabled, the current track loops seamlessly
-                        without any gap or click at the loop point.</p>
+                    <p>
+                        Press <kbd>L</kbd> and the current track loops — truly gapless, no click, no hiccup. 
+                        Great for locking in on a beat or letting a piece of music wash over you while you work.
+                    </p>
+                </section>
+
+                <section class="section">
+                    <h2>Shuffle — Finding Inspiration</h2>
+					<p>
+						Here's the workflow I built SoundApp around: drop a huge folder of sounds — samples, sketches, 
+                        reference tracks, whatever — then hit <kbd>R</kbd> to shuffle. Arrow through them fast. 
+                        No playlists to curate, no library to organize. Just you and the music, seeing what sparks.
+					</p>
+                </section>
+
+                <div class="section-divider"></div>
+
+                <section class="section">
+                    <h1>Under the Hood</h1>
+                    <p>
+                        These settings are here if you need them, but honestly? The defaults should just work. 
+                        Only dig into this if something sounds off — dropouts, stutters, that sort of thing.
+                    </p>
+
+                    <h2>Buffer Size (chunks)</h2>
+                    <p>
+                        Controls how much audio SoundApp buffers ahead during streaming playback.
+                        This helps smooth out short read delays.
+                    </p>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Problems it addresses</strong></td>
+                                <td>Dropouts / stutter caused by slow storage or unstable I/O (e.g. network shares, slow Wi‑Fi, busy disks).</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Expected outcome</strong></td>
+                                <td>More stable playback. Trade-off: slightly higher latency and memory use.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Recommendation</strong></td>
+                                <td>Leave at default. Increase only if you stream from slow/unreliable sources (e.g. Wi‑Fi + HDD).</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h2>Decoder Threads (multi-threading)</h2>
+                    <p>
+                        Controls how many CPU threads FFmpeg uses to decode audio.
+                    </p>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Problems it addresses</strong></td>
+                                <td>CPU bottlenecks when decoding expensive formats or very high sample rates.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Expected outcome</strong></td>
+                                <td>Smoother decoding under load. Trade-off: potentially higher total CPU usage.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Recommendation</strong></td>
+                                <td>Leave on <strong>Auto</strong>. Only change it if you run into issues and want to experiment.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h2>Mixer Sync Pre-Buffer (ms)</h2>
+                    <p>
+                        Adds a small pre-roll in the Mixer to ensure all tracks start exactly in sync.
+                    </p>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Problems it addresses</strong></td>
+                                <td>Clicks / stutter or tracks not starting perfectly together, especially on slower systems.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Expected outcome</strong></td>
+                                <td>More reliable synchronous starts. Trade-off: slightly slower start / a bit more latency.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Recommendation</strong></td>
+                                <td>Leave at default. Increase only if you hear startup issues or sync problems.</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </section>
                 <section>
                     <div style="height: 4rem"></div>

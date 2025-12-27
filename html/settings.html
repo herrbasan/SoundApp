@@ -23,185 +23,205 @@
                 <div class="nui-icon-container close"><i>close</i></div>
             </div>
         </div>
-        <div class="content">
+        <div class="content settings">
             <main>
-                <div class="nui-card">
-                    <section class="settings-section">
-                        <h2>Appearance</h2>
-                        <div class="nui-checkbox">
-                            <input type="checkbox" id="darkThemeToggle">
-                            <label for="darkThemeToggle">
-                                <strong>Dark Theme</strong>
+                <div class="settings-column">
+                    <div class="nui-card">
+                        <section class="settings-section">
+                            <h2>General</h2>
+                            <div class="nui-checkbox">
+                                <input type="checkbox" id="darkThemeToggle">
+                                <label for="darkThemeToggle">
+                                    <strong>Dark Theme</strong>
+                                </label>
+                            </div>
+                            <div class="setting-description">
+                                Switch between dark and light theme. Alternative to the Ctrl+X keyboard shortcut.
+                            </div>
+                            </section>
+                            <hr>
+                            <section class="settings-section">
+                            <div class="nui-input">
+                                <div>
+                                    <label>Default Directory</label>
+                                    <div class="browse-input">
+                                        <div style="position: relative; display: flex; align-items: center;">
+                                            <input type="text" id="defaultDirInput" readonly placeholder="No directory set" style="width: 100%; padding-right: 2.5rem;">
+                                            <div id="clearDirBtn" class="nui-icon-container" style="position: absolute; right: 0.5rem; cursor: pointer; display: none; opacity: 0.7;">
+                                                <i>close</i>
+                                            </div>
+                                        </div>
+                                        <button id="browseBtn" type="button">Browse...</button>
+                                    </div>
+								<div class="setting-description">
+									Optional start folder used for file dialogs and drag & drop convenience.
+								</div>
+                                </div>
+                            </div>
+                            <hr>
+                            </section>
+                             <section class="settings-section">
+                        <div class="nui-checkbox" style="margin-top: 1rem;">
+                            <input type="checkbox" id="keepRunningInTrayToggle">
+                            <label for="keepRunningInTrayToggle">
+                                <strong>Keep running in tray</strong>
                             </label>
                         </div>
                         <div class="setting-description">
-                            Switch between dark and light theme. Alternative to the Ctrl+X keyboard shortcut.
+                            When enabled, closing the main window will hide SoundApp to the tray instead of exiting. Useful for faster restart.
                         </div>
-                    </section>
-                </div>
+                        </section>
+                    </div>
+                    
+                    <div class="nui-card">
+                        <section class="settings-section">
+                            <h2>File Associations</h2>
+                            <div class="nui-button-container">
+                                <button id="registerFilesBtn" type="button" class="nui-button">Register File Types</button>
+                                <button id="unregisterFilesBtn" type="reset" class="nui-button secondary">Unregister File Types</button>
+                            </div>
+                            <div class="restart-notice" id="registryNotice">
+                                Done!
+                            </div>
+                            <div class="setting-description" style="margin-bottom: 1rem;">
+                                Register SoundApp as the default handler for supported audio file types in Windows Explorer.
+                            </div>
+                        </section>
+                    </div>
 
-                <div class="nui-card">
-                    <section class="settings-section">
-                        <h2>Start-Up</h2>
-                        <div class="nui-input">
-                            <div>
-                                <label>Default Directory</label>
-                                <div class="browse-input">
-                                    <div style="position: relative; display: flex; align-items: center;">
-                                        <input type="text" id="defaultDirInput" readonly placeholder="No directory set" style="width: 100%; padding-right: 2.5rem;">
-                                        <div id="clearDirBtn" class="nui-icon-container" style="position: absolute; right: 0.5rem; cursor: pointer; display: none; opacity: 0.7;">
-                                            <i>close</i>
-                                        </div>
-                                    </div>
-                                    <button id="browseBtn" type="button">Browse...</button>
+                    <div class="nui-card">
+                        <section>
+                            <h2>Module / Tracker</h2>
+                            <div class="nui-input">
+                                <label>MOD Stereo Separation</label>
+                                <select id="modStereoSeparationSelect">
+                                    <option value="0">0% (Mono)</option>
+                                    <option value="25">25%</option>
+                                    <option value="50">50%</option>
+                                    <option value="75">75%</option>
+                                    <option value="100" selected>100% (Full Amiga stereo)</option>
+                                </select>
+                                <div class="setting-description">
+                                    Stereo width control for tracker/module formats (MOD, XM, S3M, IT). 0% = mono, 100% = full Amiga-style hard stereo panning. Affects MOD files only. Changing this reloads the current file.
                                 </div>
                             </div>
-                        </div>
-                    </section>
+
+                            <div class="nui-input">
+                                <label>MOD Interpolation Filter</label>
+                                <select id="modInterpolationFilterSelect">
+                                    <option value="0" selected>Internal default</option>
+                                    <option value="1">No interpolation (zero order hold)</option>
+                                    <option value="2">Linear interpolation</option>
+                                    <option value="4">Cubic interpolation</option>
+                                    <option value="8">Windowed sinc (8 taps, highest quality)</option>
+                                </select>
+                                <div class="setting-description">
+                                    Sample interpolation quality for tracker/module formats. Higher quality reduces aliasing artifacts at the cost of slightly more CPU usage. Affects MOD files only. Changing this reloads the current file.
+                                </div>
+                            </div>
+                        </section>
+                    </div>
                 </div>
 
-                <div class="nui-card">
-                    <section class="settings-section">
-                        <h2>File Associations</h2>
-                        <div class="setting-description" style="margin-bottom: 1rem;">
-                            Register SoundApp as the default handler for supported audio file types in Windows Explorer.
-                        </div>
-                        <div class="nui-button-container">
-                            <button id="registerFilesBtn" type="button" class="nui-button">Register File Types</button>
-                            <button id="unregisterFilesBtn" type="reset" class="nui-button secondary">Unregister File Types</button>
-                        </div>
-                        <div class="restart-notice" id="registryNotice">
-                            Done!
-                        </div>
-                    </section>
-                </div>
+                <div class="settings-column">
+                    
 
-                <div class="nui-card">
-                    <section class="settings-section">
-                        <h2>Audio / Quality</h2>
-                        
-                        <div class="nui-checkbox">
-                            <input type="checkbox" id="hqModeToggle">
-                            <label for="hqModeToggle">
-                                <strong>Max output sample rate</strong><span style="padding-left: 0.5rem;">(up to device max)</span>
-                            </label>
-                        </div>
-                        <div class="restart-notice" id="hqRestartNotice">
-                            Switching audio system...
-                        </div>
+                    <div class="nui-card">
+                        <section class="settings-section">
+                            <h2>Audio / Quality</h2>
+                            
+                            <div class="nui-checkbox">
+                                <input type="checkbox" id="hqModeToggle">
+                                <label for="hqModeToggle">
+                                    <strong>Max output sample rate</strong><span style="padding-left: 0.5rem;">(up to device max)</span>
+                                </label>
+                            </div>
+                            <div class="restart-notice" id="hqRestartNotice">
+                                Switching audio system...
+                            </div>
 
-                        <div class="info-box">
-                            <strong>Audio System Info</strong><br>
-                            Max supported sample rate: <strong id="maxSampleRate">--</strong><br>
-                            Current AudioContext rate: <strong id="currentSampleRate">--</strong>
-                        </div>
+                            <div class="info-box">
+                                <strong>Audio System Info</strong><br>
+                                Max supported sample rate: <strong id="maxSampleRate">--</strong><br>
+                                Current AudioContext rate: <strong id="currentSampleRate">--</strong>
+                            </div>
 
-                        <div class="nui-input">
-                            <label>Output Device</label>
-                            <select id="outputDeviceSelect">
-                                <option value="">System Default</option>
-                            </select>
-                            <div class="setting-description">
-                                Choose which audio interface to use for playback. Useful for professionals with multiple interfaces (monitors, headphones, external DACs). Changes take effect immediately.
+                            <div class="nui-input">
+                                <label>Output Device</label>
+                                <select id="outputDeviceSelect">
+                                    <option value="">System Default</option>
+                                </select>
+                                <div class="setting-description">
+                                    Choose which audio interface to use for playback. Useful for professionals with multiple interfaces (monitors, headphones, external DACs). Changes take effect immediately.
+                                </div>
                             </div>
-                        </div>
-                        
-                        <div class="restart-notice" id="deviceChangeNotice">
-                            Switching output device...
-                        </div>
-                    </section>
-                </div>
-                <div class="nui-card">
-                    <section>
-                        <h2>Streaming</h2>
-                        <div class="nui-input">
-                            <label>Buffer Size (chunks)</label>
-                            <select id="bufferSizeSelect">
-                                <option value="5">5 (~0.5 sec)</option>
-                                <option value="10" selected>10 (~1 sec) - Default</option>
-                                <option value="15">15 (~1.5 sec)</option>
-                                <option value="20">20 (~2 sec)</option>
-                                <option value="25">25 (~2.5 sec)</option>
-                                <option value="30">30 (~3 sec)</option>
-                                <option value="35">35 (~3.5 sec)</option>
-                                <option value="40">40 (~4 sec)</option>
-                                <option value="45">45 (~4.5 sec)</option>
-                                <option value="50">50 (~5 sec)</option>
-                                <option value="55">55 (~5.5 sec)</option>
-                                <option value="60">60 (~6 sec)</option>
-                            </select>
-                            <div class="setting-description">
-                                Amount of audio buffered ahead during streaming playback. Higher values prevent dropouts on slower systems or during CPU spikes, but use slightly more memory. Lower values reduce latency. Default works well for most systems.
+                            
+                            <div class="restart-notice" id="deviceChangeNotice">
+                                Switching output device...
                             </div>
-                        </div>
+                        </section>
+                    </div>
 
-                        <div class="nui-input">
-                            <label>Decoder Threads</label>
-                            <select id="decoderThreadsSelect">
-                                <option value="0" selected>Auto (detect CPU cores)</option>
-                                <option value="1">1 thread (minimal CPU)</option>
-                                <option value="2">2 threads</option>
-                                <option value="4">4 threads</option>
-                                <option value="8">8 threads</option>
-                            </select>
-                            <div class="setting-description">
-                                Number of CPU threads for FFmpeg audio decoding. Auto mode uses all available cores for best performance. Lower values reduce CPU usage on slower systems. Changes take effect when loading the next file.
+                    <div class="nui-card">
+                        <section>
+                            <h2>Streaming</h2>
+                            <div class="nui-input">
+                                <label>Buffer Size (chunks)</label>
+                                <select id="bufferSizeSelect">
+                                    <option value="5">5 (~0.5 sec)</option>
+                                    <option value="10" selected>10 (~1 sec) - Default</option>
+                                    <option value="15">15 (~1.5 sec)</option>
+                                    <option value="20">20 (~2 sec)</option>
+                                    <option value="25">25 (~2.5 sec)</option>
+                                    <option value="30">30 (~3 sec)</option>
+                                    <option value="35">35 (~3.5 sec)</option>
+                                    <option value="40">40 (~4 sec)</option>
+                                    <option value="45">45 (~4.5 sec)</option>
+                                    <option value="50">50 (~5 sec)</option>
+                                    <option value="55">55 (~5.5 sec)</option>
+                                    <option value="60">60 (~6 sec)</option>
+                                </select>
+                                <div class="setting-description">
+                                    Amount of audio buffered ahead during streaming playback. Higher values prevent dropouts on slower systems or during CPU spikes, but use slightly more memory. Lower values reduce latency. Default works well for most systems.
+                                </div>
                             </div>
-                        </div>
-                    </section>
-                </div>
-                <div class="nui-card">
-                    <section>
-                        <h2>Mixer</h2>
-                        <div class="nui-input">
-                            <label>Sync Pre-Buffer (ms)</label>
-                            <select id="mixerPreBufferSelect">
-                                <option value="50" selected>50ms (Default - Lowest latency)</option>
-                                <option value="100">100ms</option>
-                                <option value="150">150ms</option>
-                                <option value="200">200ms</option>
-                                <option value="250">250ms</option>
-                                <option value="300">300ms (Safest)</option>
-                            </select>
-                            <div class="setting-description">
-                                Pre-roll buffer time to ensure synchronous start of all tracks. Increase this value if you experience sync issues or stuttering at the start of playback.
-                            </div>
-                        </div>
-                    </section>
-                </div>
-                <div class="nui-card">
-                    <section>
-                        <h2>Module / Tracker</h2>
-                        <div class="nui-input">
-                            <label>MOD Stereo Separation</label>
-                            <select id="modStereoSeparationSelect">
-                                <option value="0">0% (Mono)</option>
-                                <option value="25">25%</option>
-                                <option value="50">50%</option>
-                                <option value="75">75%</option>
-                                <option value="100" selected>100% (Full Amiga stereo)</option>
-                            </select>
-                            <div class="setting-description">
-                                Stereo width control for tracker/module formats (MOD, XM, S3M, IT). 0% = mono, 100% = full Amiga-style hard stereo panning. Affects MOD files only. Changing this reloads the current file.
-                            </div>
-                        </div>
 
-                        <div class="nui-input">
-                            <label>MOD Interpolation Filter</label>
-                            <select id="modInterpolationFilterSelect">
-                                <option value="0" selected>Internal default</option>
-                                <option value="1">No interpolation (zero order hold)</option>
-                                <option value="2">Linear interpolation</option>
-                                <option value="4">Cubic interpolation</option>
-                                <option value="8">Windowed sinc (8 taps, highest quality)</option>
-                            </select>
-                            <div class="setting-description">
-                                Sample interpolation quality for tracker/module formats. Higher quality reduces aliasing artifacts at the cost of slightly more CPU usage. Affects MOD files only. Changing this reloads the current file.
+                            <div class="nui-input">
+                                <label>Decoder Threads</label>
+                                <select id="decoderThreadsSelect">
+                                    <option value="0" selected>Auto (detect CPU cores)</option>
+                                    <option value="1">1 thread (minimal CPU)</option>
+                                    <option value="2">2 threads</option>
+                                    <option value="4">4 threads</option>
+                                    <option value="8">8 threads</option>
+                                </select>
+                                <div class="setting-description">
+                                    Number of CPU threads for FFmpeg audio decoding. Auto mode uses all available cores for best performance. Lower values reduce CPU usage on slower systems. Changes take effect when loading the next file.
+                                </div>
                             </div>
-                        </div>
-                    </section>
+                        </section>
+                    </div>
+
+                    <div class="nui-card">
+                        <section>
+                            <h2>Mixer</h2>
+                            <div class="nui-input">
+                                <label>Sync Pre-Buffer (ms)</label>
+                                <select id="mixerPreBufferSelect">
+                                    <option value="50" selected>50ms (Default - Lowest latency)</option>
+                                    <option value="100">100ms</option>
+                                    <option value="150">150ms</option>
+                                    <option value="200">200ms</option>
+                                    <option value="250">250ms</option>
+                                    <option value="300">300ms (Safest)</option>
+                                </select>
+                                <div class="setting-description">
+                                    Pre-roll buffer time to ensure synchronous start of all tracks. Increase this value if you experience sync issues or stuttering at the start of playback.
+                                </div>
+                            </div>
+                        </section>
+                    </div>
                 </div>
-                <div style="height: 4rem"></div>
             </main>
         </div>
         <div class="nui-status-bar"></div>
@@ -238,16 +258,33 @@
             let config = data.config || {};
             const config_obj = data.config_obj || null;
 
-            function setConfigPatch(patch) {
-                if (!patch) return;
-                if (config_obj) {
-                    const cur = config_obj.get() || {};
-                    const next = { ...cur, ...patch };
-                    config_obj.set(next);
-                    config = next;
-                } else {
-                    config = { ...config, ...patch };
+            function getCfg(path, fallback) {
+                let cur = config;
+                for (let i = 0; i < path.length; i++) {
+                    if (!cur || typeof cur !== 'object') return fallback;
+                    cur = cur[path[i]];
                 }
+                return cur === undefined ? fallback : cur;
+            }
+
+            function setCfgValue(path, value) {
+                if (!path || !path.length) return;
+                const cur = config_obj ? (config_obj.get() || {}) : (config || {});
+                const next = { ...cur };
+
+                let dst = next;
+                for (let i = 0; i < path.length - 1; i++) {
+                    const k = path[i];
+                    const child = (dst[k] && typeof dst[k] === 'object') ? dst[k] : {};
+                    dst[k] = { ...child };
+                    dst = dst[k];
+                }
+                dst[path[path.length - 1]] = value;
+
+                if (config_obj) {
+                    config_obj.set(next);
+                }
+                config = next;
             }
             
             // Display audio system info
@@ -261,12 +298,12 @@
             // HQ Mode Toggle
             const hqToggle = document.getElementById('hqModeToggle');
             const hqNotice = document.getElementById('hqRestartNotice');
-            if (config.hqMode) {
+            if (getCfg(['audio', 'hqMode'], false)) {
                 hqToggle.checked = true;
             }
 
             hqToggle.addEventListener('change', () => {
-                setConfigPatch({ hqMode: !!hqToggle.checked });
+                setCfgValue(['audio', 'hqMode'], !!hqToggle.checked);
                 hqNotice.classList.add('visible');
                 
                 setTimeout(() => {
@@ -276,13 +313,22 @@
 
             // Dark Theme Toggle
             const darkThemeToggle = document.getElementById('darkThemeToggle');
-            if (config.theme === 'dark') {
+            if (getCfg(['ui', 'theme'], 'dark') === 'dark') {
                 darkThemeToggle.checked = true;
             }
 
             darkThemeToggle.addEventListener('change', () => {
-                setConfigPatch({ theme: darkThemeToggle.checked ? 'dark' : 'light' });
+                setCfgValue(['ui', 'theme'], darkThemeToggle.checked ? 'dark' : 'light');
             });
+
+            // Keep running in tray
+            const keepRunningInTrayToggle = document.getElementById('keepRunningInTrayToggle');
+            if(keepRunningInTrayToggle){
+                keepRunningInTrayToggle.checked = !!getCfg(['ui', 'keepRunningInTray'], false);
+                keepRunningInTrayToggle.addEventListener('change', () => {
+                    setCfgValue(['ui', 'keepRunningInTray'], !!keepRunningInTrayToggle.checked);
+                });
+            }
 
             // Listen for theme changes from main process
             bridge.on('theme-changed', (data) => {
@@ -319,7 +365,7 @@
                     
                     // Build options array for superSelect
                     const options = [
-                        { name: 'System Default', value: '', selected: !config.outputDeviceId }
+                        { name: 'System Default', value: '', selected: !getCfg(['audio','output','deviceId'], '') }
                     ];
                     
                     audioOutputs.forEach(device => {
@@ -332,7 +378,7 @@
                         options.push({
                             name: label,
                             value: device.deviceId,
-                            selected: device.deviceId === config.outputDeviceId
+                            selected: device.deviceId === getCfg(['audio','output','deviceId'], '')
                         });
                     });
                     
@@ -356,8 +402,9 @@
                     }
                     
                     // Check if configured device still exists
-                    if (config.outputDeviceId) {
-                        const deviceExists = audioOutputs.some(d => d.deviceId === config.outputDeviceId);
+                    const currentDevId = getCfg(['audio','output','deviceId'], '');
+                    if (currentDevId) {
+                        const deviceExists = audioOutputs.some(d => d.deviceId === currentDevId);
                         if (!deviceExists) {
                             console.log('Configured output device not found, using system default');
                         }
@@ -375,7 +422,7 @@
             // Handle device selection
             deviceSelect.addEventListener('change', () => {
                 const deviceId = deviceSelect.value;
-                setConfigPatch({ outputDeviceId: deviceId || '' });
+                setCfgValue(['audio','output','deviceId'], deviceId || '');
                 deviceNotice.classList.add('visible');
                 
                 setTimeout(() => {
@@ -388,7 +435,7 @@
             let bufferSizeWidget = null;
             
             // Set current value from config (default: 10)
-            bufferSizeSelect.value = config.bufferSize !== undefined ? config.bufferSize : 10;
+            bufferSizeSelect.value = getCfg(['ffmpeg','stream','prebufferChunks'], 10);
             
             // Initialize superSelect
             bufferSizeWidget = superSelect(bufferSizeSelect, {
@@ -401,7 +448,7 @@
                 clearTimeout(bufferChangeTimeout);
                 bufferChangeTimeout = setTimeout(() => {
                     const bufferSize = parseInt(bufferSizeSelect.value);
-                    setConfigPatch({ bufferSize });
+                    setCfgValue(['ffmpeg','stream','prebufferChunks'], bufferSize);
                 }, 200); // 200ms debounce
             });
 
@@ -410,7 +457,7 @@
             let decoderThreadsWidget = null;
             
             // Set current value from config (default: 0 = auto)
-            decoderThreadsSelect.value = config.decoderThreads !== undefined ? config.decoderThreads : 0;
+            decoderThreadsSelect.value = getCfg(['ffmpeg','decoder','threads'], 0);
             
             // Initialize superSelect
             decoderThreadsWidget = superSelect(decoderThreadsSelect, {
@@ -423,7 +470,7 @@
                 clearTimeout(threadsChangeTimeout);
                 threadsChangeTimeout = setTimeout(() => {
                     const threadCount = parseInt(decoderThreadsSelect.value);
-                    setConfigPatch({ decoderThreads: threadCount });
+                    setCfgValue(['ffmpeg','decoder','threads'], threadCount);
                 }, 200); // 200ms debounce
             });
 
@@ -432,7 +479,7 @@
             let mixerPreBufferWidget = null;
             
             // Set current value from config (default: 50)
-            mixerPreBufferSelect.value = config.mixerPreBuffer !== undefined ? config.mixerPreBuffer : 50;
+            mixerPreBufferSelect.value = getCfg(['mixer','preBuffer'], 50);
             
             // Initialize superSelect
             mixerPreBufferWidget = superSelect(mixerPreBufferSelect, {
@@ -445,7 +492,7 @@
                 clearTimeout(preBufferChangeTimeout);
                 preBufferChangeTimeout = setTimeout(() => {
                     const preBuffer = parseInt(mixerPreBufferSelect.value);
-                    setConfigPatch({ mixerPreBuffer: preBuffer });
+                    setCfgValue(['mixer','preBuffer'], preBuffer);
                 }, 200); // 200ms debounce
             });
 
@@ -454,7 +501,7 @@
             let modStereoSeparationWidget = null;
             
             // Set current value from config (default: 100)
-            modStereoSeparationSelect.value = config.modStereoSeparation !== undefined ? config.modStereoSeparation : 100;
+            modStereoSeparationSelect.value = getCfg(['tracker','stereoSeparation'], 100);
             
             // Initialize superSelect
             modStereoSeparationWidget = superSelect(modStereoSeparationSelect, {
@@ -467,7 +514,7 @@
                 clearTimeout(stereoSeparationChangeTimeout);
                 stereoSeparationChangeTimeout = setTimeout(() => {
                     const stereoSeparation = parseInt(modStereoSeparationSelect.value);
-                    setConfigPatch({ modStereoSeparation: stereoSeparation });
+                    setCfgValue(['tracker','stereoSeparation'], stereoSeparation);
                 }, 200); // 200ms debounce
             });
 
@@ -476,7 +523,7 @@
             let modInterpolationFilterWidget = null;
             
             // Set current value from config (default: 0)
-            modInterpolationFilterSelect.value = config.modInterpolationFilter !== undefined ? config.modInterpolationFilter : 0;
+            modInterpolationFilterSelect.value = getCfg(['tracker','interpolationFilter'], 0);
             
             // Initialize superSelect
             modInterpolationFilterWidget = superSelect(modInterpolationFilterSelect, {
@@ -489,7 +536,7 @@
                 clearTimeout(interpolationFilterChangeTimeout);
                 interpolationFilterChangeTimeout = setTimeout(() => {
                     const interpolationFilter = parseInt(modInterpolationFilterSelect.value);
-                    setConfigPatch({ modInterpolationFilter: interpolationFilter });
+                    setCfgValue(['tracker','interpolationFilter'], interpolationFilter);
                 }, 200); // 200ms debounce
             });
 
@@ -502,8 +549,9 @@
                 clearDirBtn.style.display = dirInput.value ? 'flex' : 'none';
             }
 
-            if (config.defaultDir) {
-                dirInput.value = config.defaultDir;
+            const cfgDir = getCfg(['ui','defaultDir'], '');
+            if (cfgDir) {
+                dirInput.value = cfgDir;
             }
             updateClearBtn();
 
@@ -514,14 +562,14 @@
             clearDirBtn.addEventListener('click', () => {
                 dirInput.value = '';
                 updateClearBtn();
-                setConfigPatch({ defaultDir: '' });
+                setCfgValue(['ui','defaultDir'], '');
             });
 
             // Listen for directory selection
             bridge.on('directory-selected', (dirPath) => {
                 dirInput.value = dirPath;
                 updateClearBtn();
-                setConfigPatch({ defaultDir: dirPath });
+                setCfgValue(['ui','defaultDir'], dirPath);
             });
 
             // File Associations

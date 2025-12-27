@@ -55,48 +55,40 @@ async function init(){
 	g.start_vars = await helper.global.get('start_vars');
 	g.app_path = await helper.app.getAppPath();
 
-	let default_config = {
-		transcode: {
-			"ext":".wav",
-			"cmd":"-c:a pcm_s16le"
-		},
-		space:14,
-		win_min_width:480,
-		win_min_height:217,
-		volume: 0.5,
-		theme: 'dark',
-		hqMode: false,
-		bufferSize: 10,
-		decoderThreads: 0,
-		modStereoSeparation: 100,
-		modInterpolationFilter: 0,
-		outputDeviceId: '',
-		defaultDir: '',
-		mixerPreBuffer: 50
-	}
-	
-	g.config_obj = await helper.config.initRenderer('user', async (newData) => {
+	g.configName = g.main_env.configName || 'user';
+	g.config_obj = await helper.config.initRenderer(g.configName, async (newData) => {
 		const oldConfig = g.config || {};
-		const oldBuffer = oldConfig.bufferSize;
-		const oldThreads = oldConfig.decoderThreads;
+		const oldBuffer = (oldConfig && oldConfig.ffmpeg && oldConfig.ffmpeg.stream) ? oldConfig.ffmpeg.stream.prebufferChunks : undefined;
+		const oldThreads = (oldConfig && oldConfig.ffmpeg && oldConfig.ffmpeg.decoder) ? oldConfig.ffmpeg.decoder.threads : undefined;
 		g.config = newData || {};
 
-		if(oldConfig.theme !== g.config.theme){
-			if(g.config.theme === 'dark'){
+		const oldTheme = (oldConfig && oldConfig.ui) ? oldConfig.ui.theme : undefined;
+		const theme = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
+		const oldDeviceId = (oldConfig && oldConfig.audio && oldConfig.audio.output) ? oldConfig.audio.output.deviceId : undefined;
+		const deviceId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
+		const oldHq = !!(oldConfig && oldConfig.audio ? oldConfig.audio.hqMode : false);
+		const hq = !!(g.config && g.config.audio ? g.config.audio.hqMode : false);
+		const oldStereoSep = (oldConfig && oldConfig.tracker) ? oldConfig.tracker.stereoSeparation : undefined;
+		const stereoSep = (g.config && g.config.tracker) ? g.config.tracker.stereoSeparation : undefined;
+		const oldInterp = (oldConfig && oldConfig.tracker) ? oldConfig.tracker.interpolationFilter : undefined;
+		const interp = (g.config && g.config.tracker) ? g.config.tracker.interpolationFilter : undefined;
+
+		if(oldTheme !== theme){
+			if(theme === 'dark'){
 				document.body.classList.add('dark');
 			}
 			else {
 				document.body.classList.remove('dark');
 			}
-			tools.sendToMain('command', { command: 'set-theme', theme: g.config.theme });
+			tools.sendToMain('command', { command: 'set-theme', theme: theme });
 		}
 
-		if(oldConfig.outputDeviceId !== g.config.outputDeviceId){
+		if(oldDeviceId !== deviceId){
 			if(g.audioContext && typeof g.audioContext.setSinkId === 'function'){
 				try {
-					if(g.config.outputDeviceId){
-						await g.audioContext.setSinkId(g.config.outputDeviceId);
-						console.log('Output device changed to:', g.config.outputDeviceId);
+					if(deviceId){
+						await g.audioContext.setSinkId(deviceId);
+						console.log('Output device changed to:', deviceId);
 					}
 					else {
 						await g.audioContext.setSinkId('');
@@ -104,7 +96,9 @@ async function init(){
 					}
 				} catch(err) {
 					console.error('Failed to set output device:', err);
-					g.config.outputDeviceId = '';
+					if(g.config && g.config.audio && g.config.audio.output){
+						g.config.audio.output.deviceId = '';
+					}
 					g.config_obj.set(g.config);
 					if(g.windows.settings) {
 						tools.sendToId(g.windows.settings, 'device-change-failed', { error: 'Device not available, using system default' });
@@ -113,8 +107,8 @@ async function init(){
 			}
 		}
 
-		if(oldConfig.hqMode !== g.config.hqMode){
-			await toggleHQMode(!!g.config.hqMode, true);
+		if(oldHq !== hq){
+			await toggleHQMode(hq, true);
 			if (g.windows.settings) {
 				tools.sendToId(g.windows.settings, 'sample-rate-updated', { currentSampleRate: g.audioContext?.sampleRate });
 			}
@@ -123,26 +117,28 @@ async function init(){
 			}
 		}
 
-		if(oldConfig.modStereoSeparation !== g.config.modStereoSeparation){
+		if(oldStereoSep !== stereoSep){
 			if(player && g.currentAudio?.isMod){
-				player.setStereoSeparation(g.config.modStereoSeparation);
+				player.setStereoSeparation(stereoSep);
 			}
 		}
-		if(oldConfig.modInterpolationFilter !== g.config.modInterpolationFilter){
+		if(oldInterp !== interp){
 			if(player && g.currentAudio?.isMod){
-				player.setInterpolationFilter(g.config.modInterpolationFilter);
+				player.setInterpolationFilter(interp);
 			}
 		}
 
 		// If streaming settings changed, perform a clean reset of the player
-		if (g.ffmpegPlayer && (oldBuffer !== g.config.bufferSize || oldThreads !== g.config.decoderThreads)) {
+		const newBuffer = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream) ? g.config.ffmpeg.stream.prebufferChunks : undefined;
+		const newThreads = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder) ? g.config.ffmpeg.decoder.threads : undefined;
+		if (g.ffmpegPlayer && (oldBuffer !== newBuffer || oldThreads !== newThreads)) {
 			if (g.currentAudio && g.currentAudio.isFFmpeg) {
 				console.log('Streaming settings changed, resetting player...');
 				const pos = g.ffmpegPlayer.getCurrentTime();
 				const wasPlaying = g.ffmpegPlayer.isPlaying;
 				
-				g.ffmpegPlayer.prebufferSize = g.config.bufferSize || 10;
-				g.ffmpegPlayer.threadCount = g.config.decoderThreads || 0;
+				g.ffmpegPlayer.prebufferSize = (newBuffer !== undefined) ? (newBuffer | 0) : 10;
+				g.ffmpegPlayer.threadCount = (newThreads !== undefined) ? (newThreads | 0) : 0;
 				
 				try {
 					await g.ffmpegPlayer.open(g.currentAudio.fp);
@@ -153,65 +149,41 @@ async function init(){
 				}
 			} else {
 				// Just update parameters for next load
-				g.ffmpegPlayer.prebufferSize = g.config.bufferSize || 10;
-				g.ffmpegPlayer.threadCount = g.config.decoderThreads || 0;
+				g.ffmpegPlayer.prebufferSize = (newBuffer !== undefined) ? (newBuffer | 0) : 10;
+				g.ffmpegPlayer.threadCount = (newThreads !== undefined) ? (newThreads | 0) : 0;
 			}
 		}
 	});
 	g.config = g.config_obj.get();
 	let saveCnf = false;
-	if(g.config.volume === undefined) { g.config.volume = 0.5; }
-	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
-	// Phase 5 adoption: prefer v1 `windows.main.scale` as source of truth.
-	let s = 14;
-	if(g.config.windows && g.config.windows.main && g.config.windows.main.scale !== undefined){
-		s = g.config.windows.main.scale | 0;
-	}
-	else if(g.config.space !== undefined){
-		s = g.config.space | 0;
-	}
+	if(!g.config || typeof g.config !== 'object') g.config = {};
+	if(!g.config.windows) g.config.windows = {};
+	if(!g.config.windows.main) g.config.windows.main = {};
+	let s = (g.config.windows.main.scale !== undefined) ? (g.config.windows.main.scale | 0) : 14;
 	if(s < 14) { s = 14; saveCnf = true; }
-	if(g.config.space !== s) { g.config.space = s; saveCnf = true; }
-	if(g.config.windows && g.config.windows.main){
-		if((g.config.windows.main.scale|0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
-	}
-	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
-	if(g.config.bufferSize === undefined) { g.config.bufferSize = 10; }
-	if(g.config.decoderThreads === undefined) { g.config.decoderThreads = 0; }
-	if(g.config.modStereoSeparation === undefined) { g.config.modStereoSeparation = 100; }
-	if(g.config.modInterpolationFilter === undefined) { g.config.modInterpolationFilter = 0; }
-	if(g.config.outputDeviceId === undefined) { g.config.outputDeviceId = ''; }
-	if(g.config.defaultDir === undefined) { g.config.defaultDir = ''; }
+	if((g.config.windows.main.scale|0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
 	if(saveCnf) { g.config_obj.set(g.config); }
-	
+
 	// Apply theme at startup
-	if(g.config.theme === 'dark') {
+	const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
+	if(theme0 === 'dark') {
 		document.body.classList.add('dark');
 	} else {
 		document.body.classList.remove('dark');
 	}
 	// Send initial theme to main process
-	tools.sendToMain('command', { command: 'set-theme', theme: g.config.theme });
+	tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
 	
-	ut.setCssVar('--space-base', g.config.space);
+	ut.setCssVar('--space-base', s);
 
-	// Phase 5 adoption: prefer v1 `windows.main` bounds, but keep legacy `window` alive.
-	let b = null;
-	if(g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height){
-		b = g.config.windows.main;
-	}
-	else if(g.config.window && g.config.window.width && g.config.window.height){
-		b = g.config.window;
-	}
+	// Window bounds restoration
+	let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
 	if(b){
 		const nb = { width: b.width|0, height: b.height|0 };
 		if(b.x !== undefined && b.x !== null) nb.x = b.x|0;
 		if(b.y !== undefined && b.y !== null) nb.y = b.y|0;
 		await g.win.setBounds(nb);
-		g.config.window = { x: nb.x, y: nb.y, width: nb.width, height: nb.height };
-		if(g.config.windows && g.config.windows.main){
-			g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: g.config.space|0 };
-		}
+		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s|0 };
 	}
 	g.win.show();
 	//g.win.transparent
@@ -242,18 +214,19 @@ async function init(){
 		- The native decoder must therefore be configured to output at exactly audioContext.sampleRate.
 		- HQ mode selects a higher AudioContext rate (up to device max).
 	*/
-	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
+	const targetRate = (g.config && g.config.audio && g.config.audio.hqMode) ? g.maxSampleRate : 44100;
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('AudioContext sample rate:', g.audioContext.sampleRate);
 	
 	/* Apply saved output device if configured */
-	if (g.config.outputDeviceId) {
+	const outDevId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
+	if (outDevId) {
 		try {
-			await g.audioContext.setSinkId(g.config.outputDeviceId);
-			console.log('Output device set to:', g.config.outputDeviceId);
+			await g.audioContext.setSinkId(outDevId);
+			console.log('Output device set to:', outDevId);
 		} catch (err) {
 			console.error('Failed to set output device, using system default:', err);
-			g.config.outputDeviceId = '';
+			if(g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
 			g.config_obj.set(g.config);
 		}
 	}
@@ -263,8 +236,8 @@ async function init(){
 	g.getMetadata = getMetadata;
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
-	const bufferSize = g.config.bufferSize !== undefined ? g.config.bufferSize : 10;
-	const threadCount = g.config.decoderThreads !== undefined ? g.config.decoderThreads : 0;
+	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
+	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
 	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	try {
 		await g.ffmpegPlayer.init();
@@ -275,8 +248,8 @@ async function init(){
 	/* Mod Player */
 	const modConfig = {
 		repeatCount: 0,
-		stereoSeparation: g.config.modStereoSeparation !== undefined ? g.config.modStereoSeparation : 100,
-		interpolationFilter: g.config.modInterpolationFilter !== undefined ? g.config.modInterpolationFilter : 0,
+		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+		interpolationFilter: (g.config && g.config.tracker && g.config.tracker.interpolationFilter !== undefined) ? (g.config.tracker.interpolationFilter | 0) : 0,
 		context: g.audioContext
 	};
 	player = new window.chiptune(modConfig);
@@ -391,7 +364,8 @@ async function init(){
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-theme') {
-			g.config.theme = (g.config.theme === 'dark') ? 'light' : 'dark';
+			if(!g.config.ui) g.config.ui = {};
+			g.config.ui.theme = (g.config.ui.theme === 'dark') ? 'light' : 'dark';
 			g.config_obj.set(g.config);
 		}
 	});
@@ -403,7 +377,8 @@ async function init(){
 			document.body.classList.remove('dark');
 		}
 		// Save theme preference to config (stage window is responsible for persistence)
-		g.config.theme = data.dark ? 'dark' : 'light';
+		if(!g.config.ui) g.config.ui = {};
+		g.config.ui.theme = data.dark ? 'dark' : 'light';
 		g.config_obj.set(g.config);
 		
 		// Broadcast to all open windows
@@ -449,6 +424,7 @@ async function appStart(){
 	g.playvolume = ut.el('.playtime .volume span');
 	g.playremain = ut.el('.playtime .remain');
 	g.top_btn_loop = ut.el('.top .content .loop');
+	g.top_btn_shuffle = ut.el('.top .content .shuffle');
 	g.top_btn_playpause = ut.el('.top .content .playpause');
 
 	g.text = ut.el('.info .text');
@@ -479,8 +455,9 @@ async function appStart(){
 		await playListFromSingle(arg);
 	}
 	else {
-		if (g.config.defaultDir) {
-			await playListFromSingle(g.config.defaultDir);
+		const dir = (g.config && g.config.ui && g.config.ui.defaultDir) ? g.config.ui.defaultDir : '';
+		if (dir) {
+			await playListFromSingle(dir);
 		}
 	}
 	
@@ -494,6 +471,7 @@ async function appStart(){
 	g.top_close.addEventListener('click', app.exit);
 
 	g.top_btn_loop.addEventListener('click', toggleLoop);
+	g.top_btn_shuffle.addEventListener('click', shufflePlaylist);
 	g.top_btn_playpause.addEventListener('click', playPause);
 
 	loop();
@@ -620,16 +598,16 @@ function setupWindow(){
 			clearTimeout(g.window_move_timeout);
 			g.window_move_timeout = setTimeout(async () => {
 				let bounds = await g.win.getBounds();
-				g.config.window = bounds;
 				if(!g.config.windows) g.config.windows = {};
 				if(!g.config.windows.main) g.config.windows.main = {};
+				const scale = (g.config.windows.main.scale !== undefined) ? (g.config.windows.main.scale | 0) : 14;
 				g.config.windows.main = {
 					...g.config.windows.main,
 					x: bounds.x,
 					y: bounds.y,
 					width: bounds.width,
 					height: bounds.height,
-					scale: g.config.space|0
+					scale: scale
 				};
 				g.config_obj.set(g.config);
 			}, 500)
@@ -751,7 +729,7 @@ async function playAudio(fp, n, startPaused = false){
 		const isTracker = g.supportedMpt.includes(parse.ext.toLocaleLowerCase());
 
 		if(isTracker){
-			const targetVol = (g && g.config && g.config.volume !== undefined) ? +g.config.volume : 0.5;
+			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
 				isMod: true, 
@@ -762,7 +740,7 @@ async function playAudio(fp, n, startPaused = false){
 				duration: 0,
 				play: () =>  {
 					g.currentAudio.paused = false;
-					try { player.gain.gain.value = (g && g.config && g.config.volume !== undefined) ? +g.config.volume : targetVol; } catch(e) {}
+					try { player.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch(e) {}
 					player.unpause();
 				}, 
 				pause: () => { g.currentAudio.paused = true; player.pause() }
@@ -829,14 +807,14 @@ async function playAudio(fp, n, startPaused = false){
 					paused: startPaused,
 					duration: metadata.duration,
 					player: ffPlayer,
-					volume: g.config.volume,
+					volume: (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5,
 					play: () => { g.currentAudio.paused = false; ffPlayer.play(); },
 					pause: () => { g.currentAudio.paused = true; ffPlayer.pause(); },
 					seek: (time) => ffPlayer.seek(time),
 					getCurrentTime: () => ffPlayer.getCurrentTime()
 				};
 				
-				ffPlayer.volume = g.config.volume;
+				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 				
 				if (n > 0) { ffPlayer.seek(n); }
 				
@@ -1047,16 +1025,17 @@ function toggleLoop(){
 }
 
 async function toggleHQMode(desiredState, skipPersist=false){
-	let next = g.config.hqMode;
+	if(!g.config.audio) g.config.audio = {};
+	let next = !!g.config.audio.hqMode;
 	if(typeof desiredState === 'boolean') { next = desiredState; }
-	else { next = !g.config.hqMode; }
-	if(g.config.hqMode !== next){
-		g.config.hqMode = next;
+	else { next = !g.config.audio.hqMode; }
+	if(!!g.config.audio.hqMode !== next){
+		g.config.audio.hqMode = next;
 		if(!skipPersist) { g.config_obj.set(g.config); }
 	}
 	
-	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
-	console.log('Switching to', g.config.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
+	const targetRate = g.config.audio.hqMode ? g.maxSampleRate : 44100;
+	console.log('Switching to', g.config.audio.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
 	
 	// Use underlying player state (more reliable than g.currentAudio.paused).
 	let wasPlaying = false;
@@ -1096,13 +1075,14 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
 	
 	/* Re-apply saved output device after AudioContext rebuild */
-	if (g.config.outputDeviceId) {
+	const devId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
+	if (devId) {
 		try {
-			await g.audioContext.setSinkId(g.config.outputDeviceId);
-			console.log('Output device re-applied:', g.config.outputDeviceId);
+			await g.audioContext.setSinkId(devId);
+			console.log('Output device re-applied:', devId);
 		} catch (err) {
 			console.error('Failed to re-apply output device, using system default:', err);
-			g.config.outputDeviceId = '';
+			if(g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
 			if(!skipPersist) { g.config_obj.set(g.config); }
 		}
 	}
@@ -1110,15 +1090,15 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
-	const bufferSize = g.config.bufferSize !== undefined ? g.config.bufferSize : 10;
-	const threadCount = g.config.decoderThreads !== undefined ? g.config.decoderThreads : 0;
+	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
+	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
 	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	await g.ffmpegPlayer.init();
 	
 	const modConfig = {
 		repeatCount: 0,
-		stereoSeparation: g.config.modStereoSeparation !== undefined ? g.config.modStereoSeparation : 100,
-		interpolationFilter: g.config.modInterpolationFilter !== undefined ? g.config.modInterpolationFilter : 0,
+		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+		interpolationFilter: (g.config && g.config.tracker && g.config.tracker.interpolationFilter !== undefined) ? (g.config.tracker.interpolationFilter | 0) : 0,
 		context: g.audioContext
 	};
 	player = new window.chiptune(modConfig);
@@ -1167,21 +1147,23 @@ async function toggleHQMode(desiredState, skipPersist=false){
 }
 
 function volumeUp(){
-	g.config.volume += 0.05;
-	if(g.config.volume > 1) { g.config.volume = 1 }
-	if(player) { player.gain.gain.value = g.config.volume; }
+	if(!g.config.audio) g.config.audio = {};
+	g.config.audio.volume = (g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 0.55;
+	if(g.config.audio.volume > 1) { g.config.audio.volume = 1 }
+	if(player) { player.gain.gain.value = g.config.audio.volume; }
 	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
-		g.currentAudio.player.volume = g.config.volume;
+		g.currentAudio.player.volume = g.config.audio.volume;
 	}
 	g.config_obj.set(g.config);
 }
 
 function volumeDown(){
-	g.config.volume -= 0.05;
-	if(g.config.volume < 0) { g.config.volume = 0 }
-	if(player) { player.gain.gain.value = g.config.volume; }
+	if(!g.config.audio) g.config.audio = {};
+	g.config.audio.volume = (g.config.audio.volume !== undefined) ? (+g.config.audio.volume - 0.05) : 0.45;
+	if(g.config.audio.volume < 0) { g.config.audio.volume = 0 }
+	if(player) { player.gain.gain.value = g.config.audio.volume; }
 	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
-		g.currentAudio.player.volume = g.config.volume;
+		g.currentAudio.player.volume = g.config.audio.volume;
 	}
 	g.config_obj.set(g.config);
 }
@@ -1296,9 +1278,10 @@ function renderBar(){
 	}
 	
 	
-	if(g.last_vol != g.config.volume){
-		g.playvolume.innerText = (Math.round(g.config.volume*100)) + '%';
-		g.last_vol = g.config.volume;
+	const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+	if(g.last_vol != vol){
+		g.playvolume.innerText = (Math.round(vol*100)) + '%';
+		g.last_vol = vol;
 	}
 	
 }
@@ -1492,34 +1475,25 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		stageBounds.y < d.bounds.y + d.bounds.height
 	) || displays[0];
 	
-	// Window size configurations per type
-	const windowSizes = {
-		help: { width: 800, height: 700 },
-		settings: { width: 500, height: 700 },
-		playlist: { width: 960, height: 700 },
-		mixer: { width: 1100, height: 760 }
-	};
+	// Get window settings (merged defaults + user)
+	const winSettings = (g.config.windows && g.config.windows[type]) || {};
 	
-	// Position window in center of the same display
-	let windowWidth = windowSizes[type]?.width || 960;
-	let windowHeight = windowSizes[type]?.height || 800;
-	let x = targetDisplay.bounds.x + Math.round((targetDisplay.bounds.width - windowWidth) / 2);
-	let y = targetDisplay.bounds.y + Math.round((targetDisplay.bounds.height - windowHeight) / 2);
+	// Dimensions from config (or fallback)
+	let windowWidth = winSettings.width || 960;
+	let windowHeight = winSettings.height || 800;
 	
-	// Phase 6: secondary-window bounds restoration (v1)
-	let saved = g.config && g.config.windows && g.config.windows[type] ? g.config.windows[type] : null;
-	if(saved){
-		let sw = saved.width|0;
-		let sh = saved.height|0;
-		if(sw > 0) windowWidth = sw;
-		if(sh > 0) windowHeight = sh;
-		if(saved.x !== null && saved.x !== undefined) x = saved.x|0;
-		if(saved.y !== null && saved.y !== undefined) y = saved.y|0;
-	}
+	// Calculate center of target display (using workArea to respect taskbars)
+	let x = targetDisplay.workArea.x + Math.round((targetDisplay.workArea.width - windowWidth) / 2);
+	let y = targetDisplay.workArea.y + Math.round((targetDisplay.workArea.height - windowHeight) / 2);
+	
+	// Use saved position if available
+	if(winSettings.x !== null && winSettings.x !== undefined) x = winSettings.x;
+	if(winSettings.y !== null && winSettings.y !== undefined) y = winSettings.y;
 	
 	const init_data = {
 		type: type,
 		stageId: await g.win.getId(),
+		configName: g.configName,
 		maxSampleRate: g.maxSampleRate,
 		currentSampleRate: g.audioContext.sampleRate,
 		ffmpeg_napi_path: g.ffmpeg_napi_path,
@@ -1557,25 +1531,25 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 }
 
 async function scaleWindow(val){
-	//let bounds = await g.win.getBounds();
-	let w_scale = g.config.win_min_width / 14;
-	let h_scale = g.config.win_min_height / 14;
+	const MIN_W = 480;
+	const MIN_H = 217;
+	let w_scale = MIN_W / 14;
+	let h_scale = MIN_H / 14;
 	if(!g.config.windows) g.config.windows = {};
 	if(!g.config.windows.main) g.config.windows.main = {};
-	if(!g.config.window) g.config.window = {};
+	let curBounds = await g.win.getBounds();
+	if(!curBounds) curBounds = { x: 0, y: 0, width: MIN_W, height: MIN_H };
 	let nb = {
-		x: g.config.window.x,
-		y: g.config.window.y,
+		x: curBounds.x,
+		y: curBounds.y,
 		width: parseInt(w_scale * val),
 		height: parseInt(h_scale * val)
 	};
-	if(nb.width < g.config.win_min_width) { nb.width = g.config.win_min_width; val = 14 };
-	if(nb.height < g.config.win_min_height) { nb.height = g.config.win_min_height; val = 14 };
+	if(nb.width < MIN_W) { nb.width = MIN_W; val = 14 };
+	if(nb.height < MIN_H) { nb.height = MIN_H; val = 14 };
 	await g.win.setBounds(nb);
-	g.config.space = val;
-	g.config.window = { x: nb.x, y: nb.y, width: nb.width, height: nb.height };
 	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
-	ut.setCssVar('--space-base', g.config.space);
+	ut.setCssVar('--space-base', val);
 	g.config_obj.set(g.config);
 }
 

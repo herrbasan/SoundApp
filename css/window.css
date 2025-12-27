@@ -122,16 +122,46 @@ body.dark .nui-card {
  * Settings Window
  * ============================================================ */
 
-.settings-section {
-	
+.content.settings main {
+	display: flex;
+	flex-direction: column;
+	gap: calc(var(--window-padding)/2);
+	padding: calc(var(--window-padding)/2);
+	padding-bottom: 4rem;
 }
 
+@media (min-width: 50rem) {
+	.content.settings main {
+		flex-direction: row;
+		align-items: flex-start;
+	}
+}
+
+.settings-column {
+	display: flex;
+	flex-direction: column;
+	gap: calc(var(--window-padding)/2);
+	flex: 1;
+	min-width: 0;
+	margin-bottom: 4rem;
+}
+
+.content.settings .settings-column > .nui-card {
+	margin: 0;
+}
+.settings-section {
+	margin-bottom: 1rem;
+}
 .settings-section h3 {
 	font-size: 1rem;
 	margin-bottom: 1rem;
 	color: var(--color-text-shade1);
 	text-transform: uppercase;
 	font-weight: 500;
+}
+
+.nui-card h2 {
+	margin-bottom: 2rem;
 }
 
 .info-box {
@@ -190,4 +220,13 @@ body.dark .nui-card {
 	color: rgba(var(--color-text), 0.7);
 	background-color: rgb(var(--color-shade3));
 	padding: 1rem;
+	display: none;
+}
+
+.dark .setting-description {
+	background-color: rgba(var(--color-shade3),0.5);
+}
+
+.dark .nui-input .superSelect {
+	background-color: rgb(var(--color-shade3));
 }

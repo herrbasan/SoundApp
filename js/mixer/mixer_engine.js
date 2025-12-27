@@ -62,7 +62,10 @@ class MixerTrack {
 				
 				// Use the user-configured buffer size, but ensure a minimum of 20 chunks for mixer stability.
 				// Force 1 thread per track to avoid CPU over-subscription with many parallel decoders.
-				const bufferSize = Math.max(20, (initData.config.bufferSize || 10));
+				const cfgBuf = (initData && initData.config && initData.config.ffmpeg && initData.config.ffmpeg.stream && initData.config.ffmpeg.stream.prebufferChunks !== undefined)
+					? (initData.config.ffmpeg.stream.prebufferChunks | 0)
+					: 10;
+				const bufferSize = Math.max(20, cfgBuf);
 				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayer(ctx, initData.ffmpeg_worklet_path, bufferSize, 1, false);
 				// Keep player settings in sync with config changes.
 				player.prebufferSize = bufferSize;
@@ -273,9 +276,10 @@ class MixerEngine {
 	async start(){
 		if(!this._isReady){
 			// Apply output device if configured
-			if (this.initData.config && this.initData.config.outputDeviceId && this.ctx.setSinkId) {
+			const devId = (this.initData && this.initData.config && this.initData.config.audio && this.initData.config.audio.output) ? this.initData.config.audio.output.deviceId : '';
+			if (devId && this.ctx.setSinkId) {
 				try {
-					await this.ctx.setSinkId(this.initData.config.outputDeviceId);
+					await this.ctx.setSinkId(devId);
 				} catch (err) {
 					console.warn('Mixer failed to set output device:', err);
 				}
@@ -367,7 +371,9 @@ class MixerEngine {
 			return this._restartAll();
 		}
 
-		const preBufferMs = (this.initData.config && this.initData.config.mixerPreBuffer) ? this.initData.config.mixerPreBuffer : 50;
+		const preBufferMs = (this.initData && this.initData.config && this.initData.config.mixer && this.initData.config.mixer.preBuffer !== undefined)
+			? (this.initData.config.mixer.preBuffer | 0)
+			: 50;
 		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
 		// FFmpeg-only seek: keep nodes connected to avoid reconnect timing offsets.
@@ -393,7 +399,9 @@ class MixerEngine {
 		
 		// Schedule start slightly in the future to allow all tracks to fill buffers
 		// and start synchronously. 200ms should be enough for ~20 tracks.
-		const preBufferMs = (this.initData.config && this.initData.config.mixerPreBuffer) ? this.initData.config.mixerPreBuffer : 50;
+		const preBufferMs = (this.initData && this.initData.config && this.initData.config.mixer && this.initData.config.mixer.preBuffer !== undefined)
+			? (this.initData.config.mixer.preBuffer | 0)
+			: 50;
 		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
 		// Then start them all as close together as possible.

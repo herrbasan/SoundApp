@@ -1,333 +1,126 @@
-# SoundApp - Project Overview
+# SoundApp
 
-## What This Is
-A cross-platform desktop audio player built with Electron. Beside supporting all common formats, it supports tracker/module music and legacy audio formats.
+A fast, keyboard-driven audio player for musicians and anyone who works with large collections of audio files.
 
 ![SoundApp Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot.png)
 
-## Keyboard Shortcuts
+---
 
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Action</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><kbd>Space</kbd></td>
-<td>Play / Pause</td>
-</tr>
-<tr>
-<td><kbd>L</kbd></td>
-<td>Toggle loop mode</td>
-</tr>
-<tr>
-<td><kbd>S</kbd></td>
-<td>Open settings</td>
-</tr>
-<tr>
-<td><kbd>R</kbd></td>
-<td>Shuffle playlist</td>
-</tr>
-<tr>
-<td><kbd>←</kbd></td>
-<td>Previous track</td>
-</tr>
-<tr>
-<td><kbd>→</kbd></td>
-<td>Next track</td>
-</tr>
-<tr>
-<td><kbd>Ctrl</kbd> + <kbd>←</kbd></td>
-<td>Skip back 10 seconds</td>
-</tr>
-<tr>
-<td><kbd>Ctrl</kbd> + <kbd>→</kbd></td>
-<td>Skip forward 10 seconds</td>
-</tr>
-<tr>
-<td><kbd>↑</kbd></td>
-<td>Volume up</td>
-</tr>
-<tr>
-<td><kbd>↓</kbd></td>
-<td>Volume down</td>
-</tr>
-<tr>
-<td><kbd>I</kbd></td>
-<td>Show file in folder</td>
-</tr>
-<tr>
-<td><kbd>H</kbd></td>
-<td>Show help window</td>
-</tr>
-<tr>
-<td><kbd>X</kbd></td>
-<td>Toggle dark/light theme</td>
-</tr>
-<tr>
-<td><kbd>Ctrl</kbd> + <kbd>+</kbd></td>
-<td>Scale UI up</td>
-</tr>
-<tr>
-<td><kbd>Ctrl</kbd> + <kbd>-</kbd></td>
-<td>Scale UI down</td>
-</tr>
-<tr>
-<td><kbd>F12</kbd></td>
-<td>Toggle DevTools</td>
-</tr>
-<tr>
-<td><kbd>Esc</kbd></td>
-<td>Exit application</td>
-</tr>
-</tbody>
-</table>
+## The Story
 
-## Mixer Mode (Beta)
-The new multi-track mixer allows you to play multiple audio files simultaneously, perfect for previewing stems or layering tracks.
+Back in the System 7 days, there was a Mac app called [SoundApp](http://www-cs-students.stanford.edu/~franke/SoundApp/) by Norman Franke. It was a simple, lightweight audio player that musicians loved — you could throw any audio file at it, navigate with the keyboard, and it just worked. No library to manage, no playlists to curate. Just you and your files.
+
+I used it constantly. I also ran a website about psychoacoustic compression (MP3 was exotic back then), and SoundApp got full marks in my player reviews.
+
+Years later, I found myself missing that workflow. Modern players had become bloated media centers. I wanted something fast and simple again — something I could use while making music. So I built my own. First in Adobe AIR, then in Electron. Almost a decade of daily use has shaped every detail.
+
+This is that app. I finally decided to share it.
+
+---
+
+## What Makes It Different
+
+**Speed, everywhere.** Double-click an audio file and it plays instantly. Drop a folder with thousands of files and the playlist builds in moments. Skip through tracks as fast as you can press the arrow keys — playback starts immediately, every time.
+
+**No library, no database.** SoundApp works directly with your filesystem. Open a file, and it automatically adds everything in that folder to the playlist. Open a folder, and it scans recursively. This isn't a media library — it's a tool for exploring what you have.
+
+**The shuffle workflow.** Drop a massive folder of samples, stems, or reference tracks. Hit `R` to shuffle. Skip through with the arrow keys until something catches your ear. This is how I find inspiration — fast, random, unplanned.
+
+**Gapless looping.** Press `L` and the current track loops seamlessly — no gap, no click. I use this constantly: find a loop, let it run, jam over it.
+
+**Multi-track preview.** Press `M` to open the mixer with all the files from the current folder. Perfect for checking stems or bounces from your DAW. Solo individual tracks, mute others, hear them in context — without launching a full session. This feature is new, and it's already changed how I work.
+
+**Format icons you can read.** SoundApp registers as a handler for audio formats and gives each one a distinct color: green for FLAC, red for MP3, gray for PCM, orange for AAC, purple for OGG, yellow for tracker modules. You can see what's what at a glance in your file manager.
+
+---
+
+## Who It's For
+
+I built this for myself — a musician who needs to quickly audition files while working. But it's useful for anyone who works with audio: producers, sound designers, podcast editors, sample collectors, or just music lovers with large collections who are tired of waiting for their player to load.
+
+---
+
+## The Mixer
 
 ![Multitrack Mixer Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/multitrack_screenshot.png)
 
-**To open the Mixer:** 
-- **Drag & Drop:** Drag a folder or multiple audio files onto the "Multitrack Preview" dropzone in the main window. This is the recommended way to use the mixer.
-- **Shortcut:** Press <kbd>M</kbd> in the main window (opens mixer with current playlist, which may not always be what you want).
+The multi-track mixer lets you play up to 20 audio files simultaneously, perfectly synced. Drop a folder of stems onto the "Multitrack Preview" zone, or press `M` to open the mixer with files from the current folder.
 
-### Mixer Shortcuts
+- Solo any track with `F1`–`F10` or `1`–`0`
+- Hold `Shift` for exclusive solo (mutes all others)
+- Seek with arrow keys, adjust master volume with up/down
 
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Action</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><kbd>Space</kbd></td>
-<td>Play / Pause</td>
-</tr>
-<tr>
-<td><kbd>↑</kbd> / <kbd>↓</kbd></td>
-<td>Master Volume (+/- 5%)</td>
-</tr>
-<tr>
-<td><kbd>←</kbd> / <kbd>→</kbd></td>
-<td>Seek Backward / Forward (10%)</td>
-</tr>
-<tr>
-<td><kbd>F1</kbd> - <kbd>F10</kbd></td>
-<td>Solo Track 1 - 10</td>
-</tr>
-<tr>
-<td><kbd>1</kbd> - <kbd>0</kbd></td>
-<td>Solo Track 11 - 20</td>
-</tr>
-<tr>
-<td><kbd>Shift</kbd> + Solo</td>
-<td><strong>Exclusive Solo</strong> (Mutes all others)</td>
-</tr>
-<tr>
-<td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd></td>
-<td>Toggle Sync Debug Overlay</td>
-</tr>
-</tbody>
-</table>
+I used to open my DAW just to check a bounce. Now I don't.
 
-## Historical Context
-Inspired by the classic [SoundApp](http://www-cs-students.stanford.edu/~franke/SoundApp/) from the Mac OS System 7 era - a beloved lightweight audio previewer that musicians used to quickly audition audio files. The original was famous for its minimal interface and keyboard-driven workflow, allowing rapid navigation through directories of audio files without touching the mouse.
+---
 
-## Project Aim & Philosophy
-**Primary Goal:** Create a lightweight, responsive audio player that "just works" with any audio file you throw at it, without the bloat of traditional media players. Designed for audio professionals who need to quickly audition and navigate through large collections of audio files.
+## Keyboard Shortcuts
 
-**Key Feature:** True gapless looping - seamlessly loop any audio file without interruption, perfect for auditioning loops and samples.
+SoundApp is built for keyboard use. You can do almost everything without touching the mouse.
 
-**Design Principles:**
-- **Universal Format Support:** If FFmpeg can decode it, we can play it
-- **Minimal UI:** Clean, distraction-free interface focused on the music
-- **Performance First:** Instant playback start, low memory footprint
-- **No Database:** Direct file system browsing, no library management overhead
-- **Keyboard-Driven:** Efficient workflow for power users
+| Key | Action |
+|-----|--------|
+| `Space` | Play / Pause |
+| `L` | Toggle gapless loop |
+| `R` | Shuffle playlist |
+| `←` / `→` | Previous / Next track |
+| `Ctrl+←` / `Ctrl+→` | Skip 10 seconds |
+| `↑` / `↓` | Volume up / down |
+| `M` | Open mixer with current folder |
+| `I` | Show file in folder |
+| `H` | Help |
+| `S` | Settings |
+| `X` | Toggle dark/light theme |
+| `Esc` | Exit |
 
-**Note on Themes:** SoundApp is designed primarily for Dark Mode. A Light Mode exists (toggle with <kbd>X</kbd>), but it is currently considered beta/experimental and has not received the same level of polish as the default dark theme.
+---
 
-## Tech Stack
-- **Framework:** Electron
-- **Audio Libraries:**
-  - Custom AudioController (Web Audio API) - Unified playback with gapless looping
-  - libopenmpt (chiptune3.js) - Tracker/module format playback
-  - FFmpeg NAPI decoder - Native decoder for all audio formats with streaming support
-- **UI:** Custom HTML/CSS with Web Animation API for transitions
-- **Platform Support:** Windows and Linux
+## Supported Formats
 
-## Audio Format Handling
-SoundApp leverages FFmpeg's extensive format support to handle nearly all audio formats. Playback is managed through two systems:
+**Pretty much everything.** MP3, FLAC, WAV, AIFF, OGG, M4A, AAC, WMA, APE, WavPack, and anything else FFmpeg can decode.
 
-### FFmpeg-Decoded Formats (via NAPI Decoder)
-All standard audio formats are decoded through the FFmpeg NAPI decoder and played via Web Audio API:
+**Tracker modules too.** MOD, XM, IT, S3M, and 70+ tracker formats via libopenmpt — with proper playback, not just "technically works."
 
-**Lossless Compressed:**
-- FLAC (`.flac`)
-- ALAC - Apple Lossless (`.m4a` with ALAC codec)
-- APE - Monkey's Audio (`.ape`)
-- WavPack (`.wv`, `.wvc`)
-- TTA - True Audio (`.tta`)
-- TAK (`.tak`)
+---
 
-**Lossy Compressed:**
-- MP3 (`.mp3`)
-- MP2 (`.mp2`, `.mpa`, `.mpg`)
-- AAC/M4A (`.aac`, `.m4a`, `.m4b`, `.aa`)
-- Ogg Vorbis (`.ogg`, `.oga`)
-- Opus (`.opus`, `.ogm`, `.mogg`)
-- WMA - Windows Media Audio (`.wma`, `.asf`)
-- WebM (`.webm`)
+## Installation
 
-**Uncompressed PCM:**
-- WAV (`.wav`)
-- AIFF/AIF (`.aif`, `.aiff`, `.pcm`)
-- AU/SND (`.au`, `.snd`)
-- VOC (`.voc`)
-- CAF - Core Audio Format (`.caf`)
+Download the latest release from the [Releases page](https://github.com/herrbasan/SoundApp/releases). Run the installer and you're ready to go. SoundApp will offer to register as the default handler for audio formats.
 
-**Other Formats:**
-- Matroska Audio (`.mka`)
-- AMR (`.amr`, `.3ga`)
-- AC3/E-AC3 - Dolby Digital (`.ac3`, `.eac3`)
-- DTS (`.dts`, `.dtshd`)
-- Musepack (`.mpc`, `.mp+`)
+---
 
-**Playback mode:**
-- Streaming playback via AudioWorklet with chunk-based decoding for memory efficiency
-- Gapless looping support (when enabled) via stored loop chunk - no mode switching required
+## A Note on Themes
 
-### Tracker/Module Formats (via libopenmpt)
-Dedicated handling for tracker music formats via libopenmpt AudioWorklet player:
+SoundApp is designed for dark mode. There's a light mode (`X` to toggle), but it's not as polished. I work in the dark.
 
-**Common Formats:**
-- ProTracker/FastTracker (`.mod`, `.xm`)
-- Scream Tracker (`.s3m`)
-- Impulse Tracker (`.it`)
-- OpenMPT (`.mptm`)
-- MO3 - Compressed modules (`.mo3`)
+---
 
-**Extended Formats:**
-- `.669`, `.amf`, `.ams`, `.c67`, `.dbm`, `.digi`, `.dmf`, `.dsm`, `.dsym`, `.dtm`
-- `.far`, `.fmt`, `.gdm`, `.ice`, `.imf`, `.j2b`, `.m15`, `.mdl`, `.med`, `.mms`
-- `.mt2`, `.mtm`, `.mus`, `.nst`, `.okt`, `.plm`, `.psm`, `.pt36`, `.ptm`
-- `.sfx`, `.sfx2`, `.st26`, `.stk`, `.stm`, `.stx`, `.stp`, `.symmod`
-- `.ult`, `.wow`, `.oxm`, `.umx`, `.xpk`, `.ppm`, `.mmcmp`
+## Technical Details
 
-**Total:** 70+ tracker/module format variants supported
+For architecture, format details, and contributor information, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-**Note:** While FFmpeg can decode tracker formats, we use libopenmpt directly for superior playback quality and authenticity to the original tracker sound.
+---
 
-## Key Features
+## Roadmap
 
-### Core Features (inspired by original SoundApp)
-- **Auto-Playlist from File Context:** Opening a single file automatically adds all audio files from that directory to the playlist for quick navigation
-- **Keyboard-Driven Navigation:** Arrow keys for track navigation, volume control, and seeking
-- **Minimal UI:** Clean, focused interface that stays out of the way
+A few things I'd like to add eventually:
 
-### Modern Enhancements
-- **Drag-and-Drop Playlist Management:** 
-  - Two-zone drop interface: "Add to Playlist" or "Replace Playlist"
-  - Recursive folder scanning by default
-- **Visual Polish:**
-  - Color-coded format icons (different colors for MP3, FLAC, WAV, AIFF, etc.)
-  - Album cover art display when available
-  - Dynamic UI scaling (Ctrl+Plus/Minus)
-- **Extended Playback Features:**
-  - Gapless loop mode (L key) - seamless audio looping
-  - Playlist shuffle (R key) - randomize playback order
-  - 10-second skip forward/backward (Ctrl+Arrow Left/Right)
+- **Playback speed control** — time stretching and pitch shifting
+- **Playlist window** — for when you actually want to see what's queued
+- **Waveform display** — if performance allows
+- **Markers** — save positions within a file for A/B comparison
+- **Quick tag editor** — fix metadata without leaving the app
 
-### Technical Features
-- **Audio Info:** Metadata display, cover art extraction, format details
-- **File Associations:** Windows registry integration for file type associations
+---
 
-## Project Structure
-- `js/stage.js` - Main player logic and audio handling
-- `js/audio_controller.js` - Unified Web Audio API controller
-- `js/app.js` - Main process (Electron)
-- `js/registry.js` - Windows file association handling
-- `bin/win_bin/player.js` - FFmpegStreamPlayer (NAPI decoder + AudioWorklet)
-- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk streaming
-- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
-- `libs/` - Third-party audio libraries (chiptune, electron_helper, nui)
-- `bin/` - FFmpeg binaries and NAPI decoder for Windows and Linux
-- `scripts/` - Build and update scripts
-- `html/` - Window templates
-- `css/` - Styling
+## Acknowledgments
 
-## Current Architecture Notes (v1.2+)
-- **FFmpeg NAPI decoder** handles all audio formats except tracker formats:
-  - Chunk-based streaming via AudioWorklet for memory efficiency
-  - Configurable output sample rate (44.1kHz to 192kHz) for high-quality playback
-  - Multi-threaded decoding support (configurable thread count)
-  - Gapless looping support via stored loop chunk (toggle feature, not a separate mode)
-  - Direct seeking support via native FFmpeg APIs
-  - No temp file overhead
-- **libopenmpt player** handles tracker/module formats separately for superior quality
-- Configuration persisted to user config file via electron_helper
+To Norman Franke, who made the original SoundApp. I never forgot how good simple software can be.
 
-## Recent Updates
+To the [FFmpeg](https://ffmpeg.org/) project — the engine that makes universal format support possible. SoundApp wouldn't exist without it.
 
-### Version 1.2 (December 2025)
-- **HQ Mode Restored** - Configurable max output sample rate (44.1kHz to 192kHz) for high-quality playback
-  - Native FFmpeg decoder outputs at exact AudioContext sample rate to prevent pitch/speed errors
-  - Time-based chunking (0.1s per chunk) maintains stability across all sample rates
-  - Gapless looping verified working at all sample rates (44.1k, 96k, 192k)
-- **Decoder Threading** - FFmpeg multi-threaded decoding support
-  - Configurable thread count (0=auto, 1-8=specific count)
-  - Frame + slice threading for parallel decoding
-  - Settings UI with buffer size timing estimates
-- **Backward Compatibility** - Comprehensive configuration defaults ensure smooth updates
-  - All settings have fallback values in code and UI
-  - Empty/missing config files work correctly with defaults
+---
 
-## Feature Roadmap
+## License
 
-### Short-Term Updates
-
-#### 1. Playback Speed Control
-- **Time Stretching:** Change playback speed while preserving pitch
-- **Pitch Shifting:** Change playback rate affecting pitch
-- **Controls:** Ctrl+Shift+Arrow Up/Down keyboard shortcuts
-
-#### 2. Playlist Window
-Separate window displaying the full playlist with enhanced management:
-- Virtualized list rendering for large playlists (using `nui_list.js`)
-- Search, sort, and scroll capabilities
-- Visual feedback of current track
-
-#### 3. File Format Converter
-Built-in transcoding utility:
-- Convert currently playing file to different formats
-- Keyboard shortcut opens conversion window with format options
-- Powered by FFmpeg NAPI interface for high-quality transcoding
-
-### Future Vision (Version 2.0+)
-
-#### Waveform Visualization
-Display audio waveform for visual reference and navigation (if performance constraints allow).
-
-#### Quick Compare Mode
-Hold a key to jump to another track for A/B comparison, release to return to original position. Perfect for comparing different mixes or masters.
-
-#### Export Playlist
-Save current playlist as M3U or plain text file for archival or sharing.
-
-#### Marker System
-Set up to 10 bookmarks within a file (keys 1-0):
-- Jump to and play from any marker position
-- Integrates with Quick Compare Mode for precise A/B comparison between markers
-- Ideal for comparing sections within long recordings
-
-#### Folder Metadata Display
-Show aggregate statistics for the current folder: total duration, file count, and total size.
-
-#### Quick Tag Editor
-Simple inline ID3/metadata editing for quick corrections without launching external tools.
+MIT
