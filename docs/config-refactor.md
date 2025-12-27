@@ -226,9 +226,11 @@ async function setupWindowBoundsTracking(windowType) {
 
 ### Phase 1 (Step 1): Centralized Config Wiring (No Behavior Changes)
 
+Status: [x] Completed
+
 Goal: make every secondary window a first-class config subscriber **without** changing how Settings/Mixer currently control Stage.
 
-1. **Update `window-loader.js` (Electron path)**
+1. [x] **Update `window-loader.js` (Electron path)**
     - Call `helper.config.initRenderer('user', onConfigUpdated)`.
     - Before firing `bridge-ready`, set:
       - `data.config_obj = config_obj`
@@ -236,35 +238,40 @@ Goal: make every secondary window a first-class config subscriber **without** ch
     - Apply theme from `data.config.theme` (live config), not from `init_data.config`.
     - This step is *backwards compatible* because windows that still read `data.config` keep working.
 
-2. **Keep current Stage → window init payload as-is (temporarily)**
+2. [x] **Keep current Stage → window init payload as-is (temporarily)**
     - Stage may continue to include `init_data.config` during Step 1.
     - After Step 1 is verified, we remove `init_data.config` in Phase 2.
 
 Verification checklist for Step 1:
-- Open Settings/Help/Mixer: theme matches Stage config on open.
-- Toggle theme in Stage: secondary windows still react via existing `theme-changed` wiring.
-- No functional behavior changes beyond more reliable config availability.
+- [x] Open Settings/Help/Mixer: theme matches Stage config on open.
+- [x] Confirm `bridge-ready` payload contains `config_obj` and `config` (e.g. via DevTools console).
+- [x] Toggle theme in Stage: secondary windows still react via existing `theme-changed` wiring.
+- [x] No functional behavior changes beyond more reliable config availability.
 
 ### Phase 2 (Step 2): Remove Snapshot Config + Remove Custom Broadcast
 
+Status: [x] Completed
+
 Goal: remove the bypass paths and rely only on the centralized helper broadcasts.
 
-1. **Update Stage window creation (`openWindow()` in stage.js)**
+1. [x] **Update Stage window creation (`openWindow()` in stage.js)**
     - Stop including `init_data.config`.
     - Keep: `type`, `stageId`, ffmpeg paths, sample-rate info, playlist.
 
-2. **Remove `tools.broadcast('config-changed', ...)`**
+2. [x] **Remove `tools.broadcast('config-changed', ...)`**
     - Mixer should rely on the built-in `config-updated-user` flow (via the central loader).
 
 ### Phase 3 (Step 3): Fully Config-Driven Settings + Stage Side Effects
 
+Status: [ ] Not started
+
 Goal: Settings writes config only; Stage reacts to config diffs.
 
-1. **Make Settings window write config directly**
+1. [ ] **Make Settings window write config directly**
     - Use `config_obj` from `bridge-ready`.
     - Replace `sendToStage('set-*')` with `config_obj.set(...)` updates.
 
-2. **Make Stage react to config changes (single source of truth)**
+2. [ ] **Make Stage react to config changes (single source of truth)**
     - In Stage `helper.config.initRenderer('user', callback)`, diff old vs new and apply side effects:
       - `outputDeviceId` → `audioContext.setSinkId(...)` (revert on failure).
       - `hqMode` → rebuild AudioContext + re-init players; broadcast `sample-rate-updated`.
@@ -273,6 +280,8 @@ Goal: Settings writes config only; Stage reacts to config diffs.
       - `defaultDir` → used by file pickers / playlist loading.
 
 ### Phase 4: Config Foundation (Versioning + Migrations)
+
+Status: [ ] Not started
 1. Create `js/config-defaults.js` (single source of defaults)
 2. Create `js/config-migrations.js` (v0 → v1 migration + repair)
 3. Modify `app.js` to:
@@ -282,17 +291,23 @@ Goal: Settings writes config only; Stage reacts to config diffs.
     - then `initMain()` with the resulting data.
 
 ### Phase 5: Window Bounds Tracking
+
+Status: [ ] Not started
 1. Introduce `config.windows.{type}` structure (via migrations)
 2. Stage reads and writes `windows.main` (including `scale`)
 3. Each window reads its bounds from `config.windows[type]` on open
 4. Each window saves its bounds on move/resize (debounced)
 
 ### Phase 6: Tray Icon
+
+Status: [ ] Not started
 1. Add tray icon in `app.js`
 2. Implement “Reset Windows” by writing `config.windows.*` centered positions
 3. Broadcast `windows-reset` so open windows reposition themselves
 
 ### Phase 7: Cleanup & Testing
+
+Status: [ ] Not started
 1. Remove duplicate defaults from Stage (`default_config`)
 2. Verify: changes in Settings update Stage + Mixer live (no restart)
 3. Verify: config persists and updates survive restart

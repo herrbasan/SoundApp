@@ -712,7 +712,7 @@ async function init(initData){
 			await _disposeEngine();
 		});
 
-		window.bridge.on('config-changed', async (newConfig) => {
+		window.bridge.on('config-updated-user', async (newConfig) => {
 			const oldBuffer = engine.initData.config.bufferSize;
 			const oldThreads = engine.initData.config.decoderThreads;
 			engine.initData.config = newConfig;

@@ -80,9 +80,6 @@ async function init(){
 		const oldThreads = g.config.decoderThreads;
 		g.config = newData;
 
-		// Broadcast config change to all windows (e.g. Mixer)
-		tools.broadcast('config-changed', g.config);
-
 		// If streaming settings changed, perform a clean reset of the player
 		if (g.ffmpegPlayer && (oldBuffer !== g.config.bufferSize || oldThreads !== g.config.decoderThreads)) {
 			if (g.currentAudio && g.currentAudio.isFFmpeg) {
@@ -366,8 +363,6 @@ async function init(){
 		if (data.preBuffer !== undefined) {
 			g.config.mixerPreBuffer = data.preBuffer;
 			await g.config_obj.set(g.config);
-			// Broadcast config change to all windows (e.g. Mixer)
-			tools.broadcast('config-changed', g.config);
 		}
 	});
 
@@ -1474,7 +1469,6 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	const init_data = {
 		type: type,
 		stageId: await g.win.getId(),
-		config: g.config,
 		maxSampleRate: g.maxSampleRate,
 		currentSampleRate: g.audioContext.sampleRate,
 		ffmpeg_napi_path: g.ffmpeg_napi_path,
