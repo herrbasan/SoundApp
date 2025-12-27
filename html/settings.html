@@ -235,7 +235,20 @@
 
         function initSettings(data) {
             const bridge = window.bridge;
-            const config = data.config || {};
+            let config = data.config || {};
+            const config_obj = data.config_obj || null;
+
+            function setConfigPatch(patch) {
+                if (!patch) return;
+                if (config_obj) {
+                    const cur = config_obj.get() || {};
+                    const next = { ...cur, ...patch };
+                    config_obj.set(next);
+                    config = next;
+                } else {
+                    config = { ...config, ...patch };
+                }
+            }
             
             // Display audio system info
             if (data.maxSampleRate) {
@@ -253,7 +266,7 @@
             }
 
             hqToggle.addEventListener('change', () => {
-                bridge.sendToStage('toggle-hq-mode', {});
+                setConfigPatch({ hqMode: !!hqToggle.checked });
                 hqNotice.classList.add('visible');
                 
                 setTimeout(() => {
@@ -268,7 +281,7 @@
             }
 
             darkThemeToggle.addEventListener('change', () => {
-                bridge.sendToStage('toggle-theme', {});
+                setConfigPatch({ theme: darkThemeToggle.checked ? 'dark' : 'light' });
             });
 
             // Listen for theme changes from main process
@@ -362,7 +375,7 @@
             // Handle device selection
             deviceSelect.addEventListener('change', () => {
                 const deviceId = deviceSelect.value;
-                bridge.sendToStage('set-output-device', { deviceId });
+                setConfigPatch({ outputDeviceId: deviceId || '' });
                 deviceNotice.classList.add('visible');
                 
                 setTimeout(() => {
@@ -388,7 +401,7 @@
                 clearTimeout(bufferChangeTimeout);
                 bufferChangeTimeout = setTimeout(() => {
                     const bufferSize = parseInt(bufferSizeSelect.value);
-                    bridge.sendToStage('set-buffer-size', { bufferSize });
+                    setConfigPatch({ bufferSize });
                 }, 200); // 200ms debounce
             });
 
@@ -410,7 +423,7 @@
                 clearTimeout(threadsChangeTimeout);
                 threadsChangeTimeout = setTimeout(() => {
                     const threadCount = parseInt(decoderThreadsSelect.value);
-                    bridge.sendToStage('set-decoder-threads', { threadCount });
+                    setConfigPatch({ decoderThreads: threadCount });
                 }, 200); // 200ms debounce
             });
 
@@ -432,7 +445,7 @@
                 clearTimeout(preBufferChangeTimeout);
                 preBufferChangeTimeout = setTimeout(() => {
                     const preBuffer = parseInt(mixerPreBufferSelect.value);
-                    bridge.sendToStage('set-mixer-pre-buffer', { preBuffer });
+                    setConfigPatch({ mixerPreBuffer: preBuffer });
                 }, 200); // 200ms debounce
             });
 
@@ -454,7 +467,7 @@
                 clearTimeout(stereoSeparationChangeTimeout);
                 stereoSeparationChangeTimeout = setTimeout(() => {
                     const stereoSeparation = parseInt(modStereoSeparationSelect.value);
-                    bridge.sendToStage('set-mod-stereo-separation', { stereoSeparation });
+                    setConfigPatch({ modStereoSeparation: stereoSeparation });
                 }, 200); // 200ms debounce
             });
 
@@ -476,7 +489,7 @@
                 clearTimeout(interpolationFilterChangeTimeout);
                 interpolationFilterChangeTimeout = setTimeout(() => {
                     const interpolationFilter = parseInt(modInterpolationFilterSelect.value);
-                    bridge.sendToStage('set-mod-interpolation-filter', { interpolationFilter });
+                    setConfigPatch({ modInterpolationFilter: interpolationFilter });
                 }, 200); // 200ms debounce
             });
 
@@ -501,14 +514,14 @@
             clearDirBtn.addEventListener('click', () => {
                 dirInput.value = '';
                 updateClearBtn();
-                bridge.sendToStage('settings-changed', { defaultDir: '' });
+                setConfigPatch({ defaultDir: '' });
             });
 
             // Listen for directory selection
             bridge.on('directory-selected', (dirPath) => {
                 dirInput.value = dirPath;
                 updateClearBtn();
-                bridge.sendToStage('settings-changed', { defaultDir: dirPath });
+                setConfigPatch({ defaultDir: dirPath });
             });
 
             // File Associations

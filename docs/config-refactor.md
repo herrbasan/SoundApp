@@ -429,7 +429,10 @@ Migration-based repair is usually safer (explicit, versioned).
 
 ## Design Decisions (Resolved)
 
-1. **Scale per window**: Deferred. Currently all secondary windows share `window.css` with `--space-base`. Decision pending on whether each window needs independent scale or shared scale for secondary windows. For now, track `scale` per window in config but only `main` uses it.
+1. **Scale baseline (base 14)**: Standardized. The Stage (main player) and all secondary windows are now designed around a consistent baseline of `--space-base: 14` (browser/NUI default). This allows a single scaling calculation to apply uniformly across all windows.
+
+    - Practical effect: `--space-base` means the same thing everywhere (14px base), so Ctrl-/Ctrl+ scaling and persisted `scale/space` values no longer need different “base 10 vs base 14” handling.
+    - Config: keep storing a single scale/base value and apply it consistently across windows.
 
 2. **Maximized state**: Not tracking. Windows don't have minimize buttons in UI. Taskbar minimize is unplanned use case.
 

@@ -60,7 +60,7 @@ async function init(){
 			"ext":".wav",
 			"cmd":"-c:a pcm_s16le"
 		},
-		space:10,
+		space:14,
 		win_min_width:480,
 		win_min_height:217,
 		volume: 0.5,
@@ -76,9 +76,63 @@ async function init(){
 	}
 	
 	g.config_obj = await helper.config.initRenderer('user', async (newData) => {
-		const oldBuffer = g.config.bufferSize;
-		const oldThreads = g.config.decoderThreads;
-		g.config = newData;
+		const oldConfig = g.config || {};
+		const oldBuffer = oldConfig.bufferSize;
+		const oldThreads = oldConfig.decoderThreads;
+		g.config = newData || {};
+
+		if(oldConfig.theme !== g.config.theme){
+			if(g.config.theme === 'dark'){
+				document.body.classList.add('dark');
+			}
+			else {
+				document.body.classList.remove('dark');
+			}
+			tools.sendToMain('command', { command: 'set-theme', theme: g.config.theme });
+		}
+
+		if(oldConfig.outputDeviceId !== g.config.outputDeviceId){
+			if(g.audioContext && typeof g.audioContext.setSinkId === 'function'){
+				try {
+					if(g.config.outputDeviceId){
+						await g.audioContext.setSinkId(g.config.outputDeviceId);
+						console.log('Output device changed to:', g.config.outputDeviceId);
+					}
+					else {
+						await g.audioContext.setSinkId('');
+						console.log('Output device reset to system default');
+					}
+				} catch(err) {
+					console.error('Failed to set output device:', err);
+					g.config.outputDeviceId = '';
+					g.config_obj.set(g.config);
+					if(g.windows.settings) {
+						tools.sendToId(g.windows.settings, 'device-change-failed', { error: 'Device not available, using system default' });
+					}
+				}
+			}
+		}
+
+		if(oldConfig.hqMode !== g.config.hqMode){
+			await toggleHQMode(!!g.config.hqMode, true);
+			if (g.windows.settings) {
+				tools.sendToId(g.windows.settings, 'sample-rate-updated', { currentSampleRate: g.audioContext?.sampleRate });
+			}
+			if (g.windows.mixer) {
+				tools.sendToId(g.windows.mixer, 'sample-rate-updated', { currentSampleRate: g.audioContext?.sampleRate, maxSampleRate: g.maxSampleRate });
+			}
+		}
+
+		if(oldConfig.modStereoSeparation !== g.config.modStereoSeparation){
+			if(player && g.currentAudio?.isMod){
+				player.setStereoSeparation(g.config.modStereoSeparation);
+			}
+		}
+		if(oldConfig.modInterpolationFilter !== g.config.modInterpolationFilter){
+			if(player && g.currentAudio?.isMod){
+				player.setInterpolationFilter(g.config.modInterpolationFilter);
+			}
+		}
 
 		// If streaming settings changed, perform a clean reset of the player
 		if (g.ffmpegPlayer && (oldBuffer !== g.config.bufferSize || oldThreads !== g.config.decoderThreads)) {
@@ -105,8 +159,11 @@ async function init(){
 		}
 	});
 	g.config = g.config_obj.get();
+	let saveCnf = false;
 	if(g.config.volume === undefined) { g.config.volume = 0.5; }
 	if(g.config.theme === undefined) { g.config.theme = 'dark'; }
+	if(g.config.space === undefined) { g.config.space = 14; saveCnf = true; }
+	else if(g.config.space < 14) { g.config.space = 14; saveCnf = true; }
 	if(g.config.hqMode === undefined) { g.config.hqMode = false; }
 	if(g.config.bufferSize === undefined) { g.config.bufferSize = 10; }
 	if(g.config.decoderThreads === undefined) { g.config.decoderThreads = 0; }
@@ -114,6 +171,7 @@ async function init(){
 	if(g.config.modInterpolationFilter === undefined) { g.config.modInterpolationFilter = 0; }
 	if(g.config.outputDeviceId === undefined) { g.config.outputDeviceId = ''; }
 	if(g.config.defaultDir === undefined) { g.config.defaultDir = ''; }
+	if(saveCnf) { g.config_obj.set(g.config); }
 	
 	// Apply theme at startup
 	if(g.config.theme === 'dark') {
@@ -245,144 +303,6 @@ async function init(){
 		setTimeout(() => g.win.focus(), 50);
 	});
 	
-	ipcRenderer.on('settings-changed', (e, data) => {
-		if (data.defaultDir !== undefined) {
-			g.config.defaultDir = data.defaultDir;
-			g.config_obj.set(g.config);
-		}
-	});
-	
-	ipcRenderer.on('set-output-device', async (e, data) => {
-		const deviceId = data.deviceId;
-		
-		// Store in config
-		g.config.outputDeviceId = deviceId || '';
-		g.config_obj.set(g.config);
-		
-		// Apply to AudioContext
-		try {
-			if (deviceId) {
-				await g.audioContext.setSinkId(deviceId);
-				console.log('Output device changed to:', deviceId);
-			} else {
-				await g.audioContext.setSinkId('');
-				console.log('Output device reset to system default');
-			}
-		} catch (err) {
-			console.error('Failed to set output device:', err);
-			// Fallback to default
-			g.config.outputDeviceId = '';
-			g.config_obj.set(g.config);
-			
-			// Notify user
-			if (g.windows.settings) {
-				tools.sendToId(g.windows.settings, 'device-change-failed', {
-					error: 'Device not available, using system default'
-				});
-			}
-		}
-	});
-	
-	ipcRenderer.on('set-buffer-size', async (e, data) => {
-		const bufferSize = data.bufferSize;
-		
-		// Store in config
-		g.config.bufferSize = bufferSize;
-		g.config_obj.set(g.config);
-		
-		// Update player's prebuffer size (takes effect on next file load)
-		if (g.ffmpegPlayer) {
-			g.ffmpegPlayer.prebufferSize = bufferSize;
-			console.log('Buffer size changed to:', bufferSize, 'chunks');
-		}
-	});
-	
-	ipcRenderer.on('set-decoder-threads', async (e, data) => {
-		const threadCount = data.threadCount;
-		
-		// Store in config
-		g.config.decoderThreads = threadCount;
-		g.config_obj.set(g.config);
-		
-		// Update player's thread count
-		if (g.ffmpegPlayer) {
-			const wasPlaying = g.ffmpegPlayer.isPlaying;
-			const currentFile = g.ffmpegPlayer.filePath;
-			const currentTime = g.ffmpegPlayer.getCurrentTime();
-			
-			g.ffmpegPlayer.threadCount = threadCount;
-			console.log('Decoder threads changed to:', threadCount === 0 ? 'Auto' : threadCount);
-			
-			// Reload current file if one is loaded to apply new thread count
-			if (currentFile) {
-				await g.ffmpegPlayer.stop();
-				await g.ffmpegPlayer.open(currentFile);
-				
-				// Restore position and playback state
-				if (currentTime > 0) {
-					await g.ffmpegPlayer.seek(currentTime);
-				}
-				if (wasPlaying) {
-					await g.ffmpegPlayer.play();
-				}
-			}
-		}
-	});
-	
-	ipcRenderer.on('set-mod-stereo-separation', async (e, data) => {
-		const stereoSeparation = data.stereoSeparation;
-		
-		// Store in config
-		g.config.modStereoSeparation = stereoSeparation;
-		g.config_obj.set(g.config);
-		
-		console.log('MOD stereo separation changed to:', stereoSeparation + '%');
-		
-		// Update running player if playing MOD file
-		if (player && g.currentAudio?.isMod) {
-			player.setStereoSeparation(stereoSeparation);
-		}
-	});
-	
-	ipcRenderer.on('set-mod-interpolation-filter', async (e, data) => {
-		const interpolationFilter = data.interpolationFilter;
-		
-		// Store in config
-		g.config.modInterpolationFilter = interpolationFilter;
-		g.config_obj.set(g.config);
-		
-		console.log('MOD interpolation filter changed to:', interpolationFilter);
-		
-		// Update running player if playing MOD file
-		if (player && g.currentAudio?.isMod) {
-			player.setInterpolationFilter(interpolationFilter);
-		}
-	});
-	
-	ipcRenderer.on('set-mixer-pre-buffer', async (e, data) => {
-		if (data.preBuffer !== undefined) {
-			g.config.mixerPreBuffer = data.preBuffer;
-			await g.config_obj.set(g.config);
-		}
-	});
-
-	ipcRenderer.on('toggle-hq-mode', async (e, data) => {
-		await toggleHQMode();
-		// Send updated sample rate to settings window
-		if (g.windows.settings) {
-			tools.sendToId(g.windows.settings, 'sample-rate-updated', {
-				currentSampleRate: g.audioContext.sampleRate
-			});
-		}
-		// Keep mixer in sync (mixer owns its own AudioContext and must rebuild to apply SR changes)
-		if (g.windows.mixer) {
-			tools.sendToId(g.windows.mixer, 'sample-rate-updated', {
-				currentSampleRate: g.audioContext.sampleRate,
-				maxSampleRate: g.maxSampleRate
-			});
-		}
-	});
-	
 	ipcRenderer.on('browse-directory', async (e, data) => {
 		const result = await helper.dialog.showOpenDialog({
 			properties: ['openDirectory']
@@ -447,7 +367,8 @@ async function init(){
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-theme') {
-			tools.sendToMain('command', { command: 'toggle-theme' });
+			g.config.theme = (g.config.theme === 'dark') ? 'light' : 'dark';
+			g.config_obj.set(g.config);
 		}
 	});
 
@@ -776,6 +697,16 @@ function playListFromMulti(ar, add=false, rec=false){
 async function playAudio(fp, n, startPaused = false){
 	console.log('playAudio', fp, n, startPaused);
 	if(!g.blocky){
+		if(fp && g.music && g.music.length > 0){
+			const idx = g.music.indexOf(fp);
+			if(idx >= 0 && g.idx !== idx){
+				g.idx = idx;
+				try { renderTopInfo(); } catch(e) {}
+				if(g.info_win) {
+					tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
+				}
+			}
+		}
 		let parse = path.parse(fp);
 		let bench = performance.now();
 		g.blocky = true;
@@ -804,6 +735,25 @@ async function playAudio(fp, n, startPaused = false){
 			};
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
+			if(n > 0){
+				const seekTime = n;
+				const seekFp = fp;
+				let attempts = 0;
+				const doSeek = () => {
+					if(!g.currentAudio || !g.currentAudio.isMod || g.currentAudio.fp !== seekFp) return;
+					if(!player || typeof player.seek !== 'function') return;
+					if(player.duration && player.duration > 0){
+						player.seek(seekTime);
+						g.currentAudio.currentTime = seekTime;
+						return;
+					}
+					attempts++;
+					if(attempts < 60){
+						setTimeout(doSeek, 25);
+					}
+				};
+				setTimeout(doSeek, 25);
+			}
 			if(startPaused) {
 				// Chiptune.js tends to auto-start asynchronously after load().
 				// Enforce paused state immediately and shortly after to catch async start.
@@ -1062,9 +1012,14 @@ function toggleLoop(){
 	checkState();
 }
 
-async function toggleHQMode(){
-	g.config.hqMode = !g.config.hqMode;
-	g.config_obj.set(g.config);
+async function toggleHQMode(desiredState, skipPersist=false){
+	let next = g.config.hqMode;
+	if(typeof desiredState === 'boolean') { next = desiredState; }
+	else { next = !g.config.hqMode; }
+	if(g.config.hqMode !== next){
+		g.config.hqMode = next;
+		if(!skipPersist) { g.config_obj.set(g.config); }
+	}
 	
 	const targetRate = g.config.hqMode ? g.maxSampleRate : 44100;
 	console.log('Switching to', g.config.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
@@ -1079,7 +1034,8 @@ async function toggleHQMode(){
 			wasPlaying = !g.currentAudio.paused;
 		}
 	}
-	const currentFile = g.music[g.idx];
+	const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : g.music[g.idx];
+	const currentIdx = (currentFile && g.music && g.music.length > 0) ? g.music.indexOf(currentFile) : -1;
 	const wasMod = g.currentAudio?.isMod;
 	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0);
 	
@@ -1104,6 +1060,18 @@ async function toggleHQMode(){
 	
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
+	
+	/* Re-apply saved output device after AudioContext rebuild */
+	if (g.config.outputDeviceId) {
+		try {
+			await g.audioContext.setSinkId(g.config.outputDeviceId);
+			console.log('Output device re-applied:', g.config.outputDeviceId);
+		} catch (err) {
+			console.error('Failed to re-apply output device, using system default:', err);
+			g.config.outputDeviceId = '';
+			if(!skipPersist) { g.config_obj.set(g.config); }
+		}
+	}
 	
 	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
 	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
@@ -1148,14 +1116,12 @@ async function toggleHQMode(){
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
 	
 	if(currentFile){
+		if(currentIdx >= 0) {
+			g.idx = currentIdx;
+		}
 		// Reload the current track but preserve paused state.
 		// playAudio() has startPaused support for FFmpeg; trackers are best-effort.
-		await playAudio(currentFile, wasMod ? 0 : currentTime, !wasPlaying);
-
-		// Restore position for tracker player (FFmpeg path already seeks via playAudio's 2nd arg)
-		if(currentTime > 0 && g.currentAudio && g.currentAudio.isMod){
-			player.seek(currentTime);
-		}
+		await playAudio(currentFile, currentTime, !wasPlaying);
 
 		// Resume only if it was playing before the toggle.
 		if(wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play){
@@ -1547,12 +1513,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 async function scaleWindow(val){
 	//let bounds = await g.win.getBounds();
-	let w_scale = g.config.win_min_width / 10;
-	let h_scale = g.config.win_min_height / 10;
+	let w_scale = g.config.win_min_width / 14;
+	let h_scale = g.config.win_min_height / 14;
 	g.config.window.width = parseInt(w_scale * val);
 	g.config.window.height = parseInt(h_scale * val);
-	if(g.config.window.width < g.config.win_min_width) { g.config.window.width = g.config.win_min_width; val = 10};
-	if(g.config.window.height < g.config.win_min_height) { g.config.window.height = g.config.win_min_height; val = 10};
+	if(g.config.window.width < g.config.win_min_width) { g.config.window.width = g.config.win_min_width; val = 14};
+	if(g.config.window.height < g.config.win_min_height) { g.config.window.height = g.config.win_min_height; val = 14};
 	await g.win.setBounds(g.config.window);
 	g.config.space = val;
 	ut.setCssVar('--space-base', g.config.space);

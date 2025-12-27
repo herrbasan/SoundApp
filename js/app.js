@@ -119,7 +119,7 @@ async function appStart(){
             "ext":".wav",
             "cmd":"-c:a pcm_s16le"
         },
-        space:10,
+		space:14,
         win_min_width:480,
         win_min_height:217,
         volume: 0.5,
