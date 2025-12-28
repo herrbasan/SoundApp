@@ -164,6 +164,16 @@ class MixerTrack {
 		this._bufStartCtxTime = -1;
 	}
 
+	_stopSourceFlush(){
+		if(this.ffPlayer){
+			this.ffPlayer.pause();
+			try { if(this.ffPlayer.flush) this.ffPlayer.flush(); } catch(e) {}
+			this._bufStartCtxTime = -1;
+			return;
+		}
+		this._stopSource();
+	}
+
 	_sendParams(){
 		const g = this._mute ? 0 : this._gain;
 		const pg = panToGains(this._pan);
@@ -203,8 +213,13 @@ class MixerTrack {
 			try { await this.ffPlayer.dispose(); } catch(e) {}
 			this.ffPlayer = null;
 		}
-		this.engine._setTrackParams(this.idx, 0, 0, true);
+		if(this.engine) this.engine._setTrackParams(this.idx, 0, 0, true);
 		this.buffer = null;
+		this.src = null;
+		if(this.engine){
+			try { this.engine.removeTrack(this); } catch(e) {}
+			this.engine = null;
+		}
 	}
 }
 
@@ -236,6 +251,10 @@ class MixerTransport {
 	start(){
 		if(this.state === 'started') return;
 		this.state = 'started';
+		try {
+			const ctx = this.engine && this.engine.ctx;
+			if(ctx && ctx.state === 'suspended') ctx.resume();
+		} catch(e) {}
 		const startTime = this.engine._startAll(this._offset);
 		this._t0 = startTime - this._offset;
 	}
@@ -244,13 +263,21 @@ class MixerTransport {
 		if(this.state !== 'started') return;
 		this._offset = this.seconds;
 		this.state = 'paused';
-		this.engine._stopAll();
+		this.engine._stopAll(false);
+		try {
+			const ctx = this.engine && this.engine.ctx;
+			if(ctx && ctx.state === 'running') ctx.suspend();
+		} catch(e) {}
 	}
 
 	stop(){
 		this._offset = 0;
 		this.state = 'stopped';
-		this.engine._stopAll();
+		this.engine._stopAll(true);
+		try {
+			const ctx = this.engine && this.engine.ctx;
+			if(ctx && ctx.state === 'running') ctx.suspend();
+		} catch(e) {}
 	}
 }
 
@@ -347,11 +374,13 @@ class MixerEngine {
 		}
 	}
 
-	_stopAll(){
+	_stopAll(flush){
 		const ar = this.tracks;
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) tr._stopSource();
+			if(!tr) continue;
+			if(flush) tr._stopSourceFlush();
+			else tr._stopSource();
 		}
 	}
 
@@ -423,12 +452,20 @@ class MixerEngine {
 	async dispose(){
 		this.Transport.stop();
 		const ar = this.tracks;
+		const pending = [];
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) tr.dispose();
+			if(tr) pending.push(tr.dispose());
+		}
+		if(pending.length) {
+			try { await Promise.all(pending); } catch(e) {}
 		}
 		this.tracks.length = 0;
-		try { if(this.mixNode) this.mixNode.disconnect(); } catch(e) {}
+		if(this.mixNode){
+			try { this.mixNode.port.onmessage = null; } catch(e) {}
+			try { this.mixNode.disconnect(); } catch(e) {}
+			this.mixNode = null;
+		}
 		try { this.masterGain.disconnect(); } catch(e) {}
 		try { if(this.ctx && this.ctx.state !== 'closed') await this.ctx.close(); } catch(e) {}
 	}

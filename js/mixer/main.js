@@ -247,11 +247,20 @@ async function _disposeEngine(){
 	Transport = null;
 }
 
-async function resetForNewPlaylist(paths){
+async function resetForNewPlaylist(paths, rebuildEngine = false){
 	await _resetUiToEmpty();
-	await _disposeEngine();
-	engine = new MixerEngine(g && g.initData ? g.initData : null);
-	Transport = engine.Transport;
+	// Rebuilding the AudioContext/worklet graph repeatedly can cause stepwise
+	// memory retention in Chromium. Reuse the engine for normal playlist updates
+	// and rebuild only when necessary (e.g., sample rate change).
+	if(rebuildEngine || !engine){
+		await _disposeEngine();
+		engine = new MixerEngine(g && g.initData ? g.initData : null);
+		Transport = engine.Transport;
+	}
+	else {
+		// Ensure transport is reset and the context is idle.
+		try { if(Transport) Transport.stop(); } catch(e) {}
+	}
 	if(paths && paths.length) await loadPaths(paths);
 }
 
@@ -773,7 +782,7 @@ async function init(initData){
 			const paths = (pl && Array.isArray(pl.paths)) ? pl.paths : (g.currentChannels.map(c => c.track ? c.track.src : null).filter(v => !!v));
 
 			if(Transport) Transport.stop();
-			await resetForNewPlaylist(paths);
+			await resetForNewPlaylist(paths, true);
 			try {
 				engine.setLoop(wasLoop);
 				if(wasLoop) g.btn_loop.classList.add('active');
@@ -799,7 +808,7 @@ async function init(initData){
 			if(g && g.initData){
 				g.initData.playlist = { paths: p, idx: (data && (data.idx|0)) ? (data.idx|0) : 0 };
 			}
-			await resetForNewPlaylist(p);
+			await resetForNewPlaylist(p, false);
 			// Auto-play when receiving new playlist via "M" key
 			if(g.currentChannels && g.currentChannels.length > 0){
 				Transport.start();
@@ -1205,6 +1214,7 @@ function removeTrack(el){
 			}
 		}
 
+
 		try { if(engine && engine.removeTrack) engine.removeTrack(item.track); } catch(e) {}
 		item.track.dispose();
 		ut.killMe(item.el);
@@ -1219,7 +1229,6 @@ function removeTrack(el){
 			_resetUiToEmpty();
 		}
 		hideNameTooltip();
-		
 		updateState();
 	}
 }
@@ -1297,7 +1306,16 @@ function updateState(){
 }
 
 function loop(){
-	requestAnimationFrame(loop);
+	// Full 60fps UI updates only needed while playing or when the debug overlay is visible.
+	if(Transport && Transport.state === 'started'){
+		requestAnimationFrame(loop);
+	}
+	else if(g && g.sync_overlay_visible){
+		requestAnimationFrame(loop);
+	}
+	else {
+		setTimeout(loop, 250);
+	}
 	if(g.currentChannels){
 		updateTransport();
 

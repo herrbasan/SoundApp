@@ -95,6 +95,21 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
         this.reachedEOF = false;  // Reset EOF flag on clear (e.g., seek)
         this.underrunFrames = 0;
         break;
+
+      case 'dispose':
+        this.paused = true;
+        this.chunks = [];
+        this.currentChunk = null;
+        this.currentChunkIndex = 0;
+        this.currentChunkIsLast = false;
+        this.loopChunk = null;
+        this.loopChunkIndex = 0;
+        this.playingLoopChunk = false;
+        this.hasEnded = false;
+        this.reachedEOF = false;
+        this.framesPlayed = 0;
+        this.underrunFrames = 0;
+        break;
         
       case 'resetPosition':
         this.framesPlayed = 0;

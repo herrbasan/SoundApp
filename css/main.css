@@ -46,7 +46,7 @@ body.dark {
 	background-color: rgba(var(--color-shadeT),1);
 	overflow: hidden;
 	display: grid;
-	grid-template-rows: var(--space-top) 1fr auto;
+	grid-template-rows: var(--space-top) 1fr auto auto;
 	box-sizing: border-box;
 }
 
@@ -477,4 +477,30 @@ body.loop .top .content .loop::after{
 #drop_mixer {
     grid-column: 2;
     grid-row: 1 / span 2;
+}
+
+.controls {
+	display: flex;
+	align-items: center;
+	gap: calc(var(--space-frame) / 2);
+	padding-bottom: calc(var(--space-frame));
+	padding-top: calc(var(--space-frame) / 2);
+	padding-left: var(--space-frame);
+	padding-right: var(--space-frame);
+	border-top: solid 1px rgb(var(--color-shade1));
+	background-color: rgb(45,45,45);
+}
+.controls .button {
+	width: 2rem;
+	height: 2rem;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: rgb(var(--color-shade1));
+	border-radius: calc(var(--space-frame) / 4);
+}
+icon {
+
+	font-family: 'Material Icons';
+	font-size: 1.5rem;
 }

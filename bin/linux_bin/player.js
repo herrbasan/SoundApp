@@ -112,6 +112,9 @@ class FFmpegStreamPlayer {
     if (this.isDisposed) return;
     this.stop();
     this.isDisposed = true;
+    if (this.gainNode) {
+      try { this.gainNode.disconnect(); } catch(e) {}
+    }
     this.audioContext = null;
     this.gainNode = null;
   }
@@ -200,13 +203,17 @@ class FFmpegStreamPlayer {
       await this.init(workletUrl);
     }
 
-    this.stop();
+    // Stop playback/graph, but keep the decoder wrapper object so rapid track
+    // skipping doesn't create hundreds of short-lived N-API instances.
+    this.stop(true);
 
     if (!FFmpegDecoder) {
       throw new Error('FFmpegDecoder not set. Call FFmpegStreamPlayer.setDecoder(FFmpegDecoder) first.');
     }
 
-    this.decoder = new FFmpegDecoder();
+    if (!this.decoder) {
+      this.decoder = new FFmpegDecoder();
+    }
     const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
     const threads = (this.threadCount | 0);
     if (!this.decoder.open(filePath, ctxRate, threads)) {
@@ -463,6 +470,19 @@ class FFmpegStreamPlayer {
   }
 
   /**
+   * Clear queued audio chunks in the worklet without disposing the player.
+   * Useful to release memory while keeping the track loaded.
+   */
+  flush() {
+    this._queuedChunks = 0;
+    this._queueEstimate = 0;
+    this.decoderEOF = false;
+    if (this.workletNode) {
+      try { this.workletNode.port.postMessage({ type: 'clear' }); } catch(e) {}
+    }
+  }
+
+  /**
    * Resume playback
    */
   resume() {
@@ -524,9 +544,15 @@ class FFmpegStreamPlayer {
    * Stop playback and release resources
    */
   stop() {
+    // @param {boolean} keepDecoder - keep the decoder object allocated (closed) for reuse
+    const keepDecoder = arguments.length > 0 ? !!arguments[0] : false;
+
     this.pause();
 
     if (this.workletNode) {
+      // Ensure the worklet drops any queued chunks/loop chunk even if the node
+      // survives a bit longer inside the AudioContext implementation.
+      try { this.workletNode.port.postMessage({ type: 'dispose' }); } catch(e) {}
       // Clear message handler to break closure references and prevent memory leaks
       this.workletNode.port.onmessage = null;
       try { this.workletNode.disconnect(); } catch(e) {}
@@ -535,7 +561,7 @@ class FFmpegStreamPlayer {
 
     if (this.decoder) {
       try { this.decoder.close(); } catch(e) { console.error('FFmpeg cleanup error:', e); }
-      this.decoder = null;
+      if (!keepDecoder) this.decoder = null;
     }
 
     this.isLoaded = false;
