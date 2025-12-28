@@ -3,6 +3,11 @@
 
 <head>
     <meta charset="UTF-8">
+    <style>
+        html, body { background-color: #323232 !important; }
+        main { opacity: 0; }
+        main.ready { opacity: 1; transition: opacity 0.1s ease-in; }
+    </style>
     <title>Help - SoundApp</title>
     <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
     <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
@@ -302,6 +307,7 @@
         window.addEventListener('bridge-ready', async (e) => {
             const data = e.detail || {};
             await main.init(data);
+            document.querySelector('main').classList.add('ready');
         });
     </script>
 </body>

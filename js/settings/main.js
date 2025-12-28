@@ -106,6 +106,7 @@ async function initOutputDevice() {
 	const deviceSelect = document.getElementById('outputDeviceSelect');
 	const deviceNotice = document.getElementById('deviceChangeNotice');
 	let deviceSelectWidget = null;
+	let deviceLoadDebounce = null;
 
 	async function loadAudioDevices() {
 		try {
@@ -142,10 +143,10 @@ async function initOutputDevice() {
 				deviceSelect.appendChild(option);
 			});
 
-			if (!deviceSelectWidget) {
-				deviceSelectWidget = superSelect(deviceSelect, { searchable: false });
-			} else {
+			if (deviceSelectWidget) {
 				deviceSelectWidget.reRender();
+			} else {
+				deviceSelectWidget = superSelect(deviceSelect, { searchable: false });
 			}
 
 			const currentDevId = getCfg(['audio','output','deviceId'], '');
@@ -160,8 +161,12 @@ async function initOutputDevice() {
 		}
 	}
 
-	loadAudioDevices();
-	navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices);
+	await loadAudioDevices();
+	
+	navigator.mediaDevices.addEventListener('devicechange', () => {
+		if (deviceLoadDebounce) clearTimeout(deviceLoadDebounce);
+		deviceLoadDebounce = setTimeout(loadAudioDevices, 500);
+	});
 
 	deviceSelect.addEventListener('change', () => {
 		const deviceId = deviceSelect.value;
@@ -303,7 +308,7 @@ function initFileAssociations() {
 	});
 }
 
-function init(data) {
+async function init(data) {
 	bridge = window.bridge;
 	config = data.config || {};
 	config_obj = data.config_obj || null;
@@ -320,7 +325,7 @@ function init(data) {
 	initDarkTheme();
 	initKeepRunningInTray();
 	initSampleRateListener();
-	initOutputDevice();
+	await initOutputDevice();
 	initBufferSize();
 	initDecoderThreads();
 	initMixerPreBuffer();

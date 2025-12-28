@@ -65,6 +65,10 @@ async function init(cmd){
 		}
 	}
 	
+	app.on('before-quit', () => {
+		isQuitting = true;
+	});
+
 	// Prevent quit when all windows closed if keep-in-tray is enabled
 	app.on('window-all-closed', () => {
 		// On macOS apps typically stay open; on Windows/Linux we check setting
@@ -183,6 +187,15 @@ async function appStart(){
 			if(!keep) return;
 			e.preventDefault();
 			try { wins.main.hide(); } catch(err) {}
+		});
+
+		wins.main.on('closed', () => {
+			let keep = false;
+			try {
+				let cnf = user_cfg ? (user_cfg.get() || {}) : {};
+				keep = !!(cnf && cnf.ui && cnf.ui.keepRunningInTray);
+			} catch(err) {}
+			if(!keep) app.quit();
 		});
 	} catch(err) {}
 

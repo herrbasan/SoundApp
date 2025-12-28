@@ -6,7 +6,7 @@ window.nui = nui;
 
 let main = {};
 
-function init(data) {
+async function init(data) {
 	console.log('Help window initialized:', data);
 
 	if (window.bridge && window.bridge.isElectron) {

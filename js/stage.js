@@ -302,6 +302,11 @@ async function init(){
 		// Return focus to stage window after small delay to ensure window is gone
 		setTimeout(() => g.win.focus(), 50);
 	});
+
+	ipcRenderer.on('window-hidden', (e, data) => {
+		g.windowsVisible[data.type] = false;
+		g.win.focus();
+	});
 	
 	ipcRenderer.on('browse-directory', async (e, data) => {
 		const result = await helper.dialog.showOpenDialog({
@@ -1513,6 +1518,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		type: type,
 		stageId: await g.win.getId(),
 		configName: g.configName,
+		config: g.config,
 		maxSampleRate: g.maxSampleRate,
 		currentSampleRate: g.audioContext.sampleRate,
 		ffmpeg_napi_path: g.ffmpeg_napi_path,
@@ -1546,8 +1552,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	// Mark window as visible after creation
 	g.windowsVisible[type] = true;
 	
-	// Show the newly created window
-	tools.sendToId(g.windows[type], 'show-window');
+	// Show the newly created window with a small delay to prevent white flash
+	setTimeout(() => {
+		tools.sendToId(g.windows[type], 'show-window');
+	}, 100);
 }
 
 async function scaleWindow(val){

@@ -25,9 +25,11 @@ if (isElectron) {
 		window: helper.window,
 		closeWindow: () => {
 			if (stageId && windowType) {
-				tools.sendToId(stageId, 'window-closed', { type: windowType, windowId: windowId });
+				tools.sendToId(stageId, 'window-hidden', { type: windowType });
 			}
-			helper.window.close();
+			// Trigger local hide-window listeners (e.g. for Mixer cleanup)
+			ipcRenderer.emit('hide-window', {}, {});
+			helper.window.hide();
 		},
 		isElectron: true,
 		get stageId() { return stageId; },
@@ -86,7 +88,13 @@ if (isElectron) {
 	// Wait for init_data from stage
 	ipcRenderer.once('init_data', async (e, data) => {
 		stageId = data.stageId;
-		windowId = await helper.window.getId();
+		
+		if(data.windowId){
+			windowId = data.windowId;
+		} else {
+			windowId = await helper.window.getId();
+		}
+		
 		windowType = data.type;
 		let closedSent = false;
 		let boundsSaveTimer = 0;
@@ -121,7 +129,7 @@ if (isElectron) {
 			config_obj = await helper.config.initRenderer(configName, (newConfig) => {
 				data.config = newConfig;
 				applyTheme(newConfig);
-			});
+			}, { initialConfig: data.config });
 		} catch(err) {
 			console.error('window-loader: initRenderer failed, falling back to init_data.config', err);
 		}
@@ -212,10 +220,10 @@ else {
 		}
 	});
 	
-	// Simulate init_data after short delay
+	// Simulate init_data after short delay to ensure page modules are ready
 	setTimeout(() => {
 		dispatchBridgeReady(getMockInitData());
-	}, 100);
+	}, 50);
 }
 
 window.bridge = bridge;
