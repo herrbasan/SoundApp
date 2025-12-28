@@ -164,6 +164,7 @@ async function appStart(){
 		resizable:true, 
 		devTools:false,
 		transparent:false,
+		backgroundColor:'#323232',
 		file:'html/stage.html',
 		webPreferences:{
 			navigateOnDragDrop: true

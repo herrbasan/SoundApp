@@ -185,6 +185,9 @@ async function init(){
 		await g.win.setBounds(nb);
 		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s|0 };
 	}
+	// Small delay to allow first paint before showing - workaround for white flash
+	//await new Promise(r => setTimeout(r, 5));
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 	g.win.show();
 	//g.win.transparent
 	if(!g.isPackaged) { g.win.toggleDevTools() }
@@ -415,7 +418,7 @@ async function appStart(){
 	g.top_num = g.top.el('.num');
 	g.top_close = g.top.el('.close')
 
-	g.bottom = ut.el('.bottom');
+	g.time_controls = ut.el('.time_controls');
 	g.playhead = ut.el('.playhead');
 	g.prog = ut.el('.playhead .prog');
 	g.cover = ut.el('.info .cover');
@@ -428,7 +431,7 @@ async function appStart(){
 	g.top_btn_playpause = ut.el('.top .content .playpause');
 
 	g.text = ut.el('.info .text');
-
+	g.text.innerHTML = '';
 	g.blocky = false;
 
 	
@@ -467,7 +470,7 @@ async function appStart(){
 		playAudio(g.music[g.idx])
 	}
 
-	g.bottom.addEventListener('mousedown', timeline)
+	g.time_controls.addEventListener('mousedown', timeline)
 	g.top_close.addEventListener('click', () => {
 		const cfg = g.config_obj ? g.config_obj.get() : g.config;
 		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
@@ -1179,8 +1182,8 @@ function volumeDown(){
 
 
 function seek(mx){
-	let max = g.bottom.offsetWidth;
-	let x = mx - ut.offset(g.bottom).left;
+	let max = g.time_controls.offsetWidth;
+	let x = mx - ut.offset(g.time_controls).left;
 	if(x < 0) { x = 0; }
 	if(x > max) { x = max; }
 	let proz = x / max;
@@ -1536,6 +1539,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		height: windowHeight,
 		x: x,
 		y: y,
+		backgroundColor: '#323232',
 		init_data: init_data
 	});
 	

@@ -10,6 +10,14 @@
 	--space-base: 14;
 }
 
+body.dark {
+	background-color: rgb(50,50,50);
+}
+
+.dark .nui-app {
+	background-color: rgb(50,50,50);
+}
+
 /* ============================================================
  * NUI App Window Layout (matching nui_app.css pattern)
  * ============================================================ */
@@ -33,7 +41,12 @@
 	inset: 0;
 	overflow-y: auto;
 	overflow-x: hidden;
+	scrollbar-gutter: stable;
     background-color: rgb(var(--color-shade3));
+}
+
+.dark .nui-app .content > main {
+	background-color: rgb(50,50,50);
 }
 
 /* ============================================================

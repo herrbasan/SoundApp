@@ -1,63 +1,97 @@
 <!DOCTYPE html>
 <html>
-    <head>
-		<title>SoundApp</title>
-		<link media="all" rel="stylesheet" type="text/css" href="../css/reset.css">
-		<link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
-		<link media="all" rel="stylesheet" type="text/css" href="../css/main.css">
-		<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
-    </head>
-    <body id="bod" class="w_main no-select dark">
-		<div id="frame" class="frame focus">
-			<!--<div class="alert">
+
+<head>
+	<title>SoundApp</title>
+	<link media="all" rel="stylesheet" type="text/css" href="../css/reset.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../css/main.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+</head>
+
+<body id="bod" class="w_main no-select dark">
+	<div id="frame" class="frame focus">
+		<!--<div class="alert">
 				<div class="inner">This is an Alert</div>
 			</div>-->
-			<div class="top">
-				<div class="content">
-					<div class="playpause"></div>
-					<div class="loop"></div>
-					<div class="shuffle"></div>
-					<div class="num"></div>
-					<div class="close">close</div>
-				</div>
-			</div>
-			<div class="info">
-				<div class="cover">
-					<div class="filetype">
-						<div class="type">MP3</div>
-						<div class="icon">speaker</div>
-					</div>
-				</div>
-				<div class="text">
-					
-				</div>
-			</div>
-			<div class="bottom">
-				<div class="playhead">
-					<div class="prog"></div>
-				</div>
-				<div class="playtime">
-					<div class="time">00:00</div>
-					<div class="volume"><label>Volume:</label><span>50%</span></div>
-					<div class="remain">00:00</div>
-				</div>
+		<div class="top">
+			<div class="content">
+				<div class="playpause"></div>
+				<div class="loop"></div>
+				<div class="shuffle"></div>
+				<div class="num"></div>
+				<div class="close">close</div>
 			</div>
 		</div>
-	</body>
-    <script language="JavaScript" type="module">
-		import ut from '../libs/nui/nui_ut.js';
-		import nui_app from '../libs/nui/nui_app.js';
-		import { ChiptuneJsPlayer } from '../js/chiptune/chiptune3.js';
-		window.chiptune = ChiptuneJsPlayer;
-		window.ut = ut;
-		window.nui_app = nui_app
-
-		// Import centralized shortcuts
-		const shortcuts = require('../js/shortcuts.js');
-		window.shortcuts = shortcuts;
-
-		let electron_stage = require('../js/stage.js');
 		
-		
-	</script>
+		<div class="info">
+			<!---->
+			<div class="cover">
+				<div class="filetype">
+					<div class="type">MP3</div>
+					<div class="icon">speaker</div>
+				</div>
+			</div>
+			<div class="text">
+				<!--<div id="#item_folder" class="item">
+					<div class="label">Folder:</div>
+					<div class="content">Test Files</div>
+				</div>
+				<div id="#item_folder" class="item">
+					<div class="label">File:</div>
+					<div class="content">10 to the 16th to 1 [B004FRN94I] - 1 - Chapter 1.m4b</div>
+				</div>
+				<div class="space"></div>
+				<div id="#item_folder" class="item">
+					<div class="label">Format:</div>
+					<div class="content">AAC (Advanced Audio Coding)</div>
+				</div>
+				<div id="#item_folder" class="item">
+					<div class="label"> </div>
+					<div class="content">64 kbps / stereo / 22050 Hz @ 16 Bit</div>
+				</div>
+				<div class="space"></div>
+				<div id="#item_folder" class="item">
+					<div class="label">Artist:</div>
+					<div class="content">James Patrick Kelly</div>
+				</div>
+				<div id="#item_folder" class="item">
+					<div class="label">Album:</div>
+					<div class="content">10 to the 16th to 1 (Unabridged)</div>
+				</div>
+				<div id="#item_folder" class="item">
+					<div class="label">Title:</div>
+					<div class="content">1 - 10 to the 16th to 1: Chapter 1</div>
+				</div>-->
+			</div>
+		</div>
+		<div class="time_controls">
+			<div class="playhead">
+				<div class="prog"></div>
+			</div>
+			<div class="playtime">
+				<div class="time">00:00</div>
+				<div class="volume"><label>Volume:</label><span>50%</span></div>
+				<div class="remain">00:00</div>
+			</div>
+		</div>
+	</div>
+</body>
+<script language="JavaScript" type="module">
+	import ut from '../libs/nui/nui_ut.js';
+	import nui_app from '../libs/nui/nui_app.js';
+	import { ChiptuneJsPlayer } from '../js/chiptune/chiptune3.js';
+	window.chiptune = ChiptuneJsPlayer;
+	window.ut = ut;
+	window.nui_app = nui_app
+
+	// Import centralized shortcuts
+	const shortcuts = require('../js/shortcuts.js');
+	window.shortcuts = shortcuts;
+
+	let electron_stage = require('../js/stage.js');
+
+
+</script>
+
 </html>

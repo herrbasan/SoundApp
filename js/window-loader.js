@@ -176,8 +176,8 @@ if (isElectron) {
 			document.body.classList.add('focus');
 		});
 		
-		// Show window once ready
-		helper.window.show();
+		// Window is shown via 'show-window' IPC from stage after creation
+		// Don't auto-show here to avoid white flash before content is ready
 	}
 } 
 else {
