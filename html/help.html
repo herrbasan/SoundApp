@@ -10,8 +10,8 @@
     <link rel="stylesheet" href="../css/window.css">
 </head>
 
-<body class="dark">
-    <div class="nui-app">
+<body class="dark" style="background-color:#323232">
+    <div class="nui-app" style="background-color:#323232">
         <div class="nui-title-bar">
             <div class="title">
                 <div class="nui-icon-container">
@@ -295,26 +295,13 @@
         <div class="nui-status-bar"></div>
     </div>
 
-    <script type="module">
-        import ut from '../libs/nui/nui_ut.js';
-        import nui from '../libs/nui/nui.js';
-        window.ut = ut;
-        window.nui = nui;
-    </script>
     <script src="../js/window-loader.js"></script>
-    <script>
-        // Help window initialization
-        window.addEventListener('bridge-ready', (e) => {
-            const data = e.detail;
-            console.log('Help window initialized:', data);
+    <script type="module">
+        import { main } from '../js/help/main.js';
 
-            // Load shortcuts module
-            const shortcuts = require('../js/shortcuts.js');
-            
-            // Handle keyboard shortcuts
-            window.addEventListener('keydown', (keyEvent) => {
-                shortcuts.handleShortcut(keyEvent, 'help');
-            });
+        window.addEventListener('bridge-ready', async (e) => {
+            const data = e.detail || {};
+            await main.init(data);
         });
     </script>
 </body>
