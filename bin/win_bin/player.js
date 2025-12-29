@@ -92,17 +92,6 @@ class FFmpegStreamPlayer {
     this.chunkSeconds = 0.10;
     this.chunkFrames = 0;
     this.chunkSize = 0; // samples per chunk (interleaved)
-    // Hard cap for per-tick/burst queue fill (prevents massive message backlogs).
-    // Set <= 0 to disable the cap (uncapped).
-    this.fillBurstMax = 16;
-    // If true, send audio chunks to the AudioWorklet using transferable ArrayBuffers.
-    // This avoids implicit copying in postMessage, at the cost of an explicit copy
-    // (we must allocate a fresh Float32Array per chunk).
-    this.transferChunks = false;
-
-    // If true, keep the AudioWorkletNode alive across open() calls.
-    // This is primarily an A/B option for isolating AudioWorkletNode lifecycle retention.
-    this.reuseWorkletNode = false;
     this._prebufferSize = (prebufferSize | 0) > 0 ? (prebufferSize | 0) : 10;
     this._queuedChunks = 0;
     this._queueEstimate = 0;
@@ -123,9 +112,6 @@ class FFmpegStreamPlayer {
     if (this.isDisposed) return;
     this.stop();
     this.isDisposed = true;
-    if (this.gainNode) {
-      try { this.gainNode.disconnect(); } catch(e) {}
-    }
     this.audioContext = null;
     this.gainNode = null;
   }
@@ -154,9 +140,7 @@ class FFmpegStreamPlayer {
     
     // Limit how many chunks we decode in one burst to prevent blocking the main thread,
     // especially when multiple players are active (mixer).
-    let hardMax = (this.fillBurstMax === undefined || this.fillBurstMax === null) ? 16 : (this.fillBurstMax | 0);
-    if (hardMax <= 0) hardMax = 1e9;
-    const burst = Math.min(maxChunks, hardMax, target - queued);
+    const burst = Math.min(maxChunks, target - queued);
     
     for (let i = 0; i < burst && queued < target && !this.decoderEOF; i++) {
       const eofBefore = this.decoderEOF;
@@ -216,18 +200,13 @@ class FFmpegStreamPlayer {
       await this.init(workletUrl);
     }
 
-    // Stop playback/graph, but keep the decoder wrapper object so rapid track
-    // skipping doesn't create hundreds of short-lived N-API instances.
-    // Optional: keep the AudioWorkletNode alive across opens for A/B testing.
-    this.stop(true, this.reuseWorkletNode ? { keepWorkletNode: true } : null);
+    this.stop();
 
     if (!FFmpegDecoder) {
       throw new Error('FFmpegDecoder not set. Call FFmpegStreamPlayer.setDecoder(FFmpegDecoder) first.');
     }
 
-    if (!this.decoder) {
-      this.decoder = new FFmpegDecoder();
-    }
+    this.decoder = new FFmpegDecoder();
     const ctxRate = (this.audioContext && this.audioContext.sampleRate) ? (this.audioContext.sampleRate | 0) : 44100;
     const threads = (this.threadCount | 0);
     if (!this.decoder.open(filePath, ctxRate, threads)) {
@@ -257,14 +236,12 @@ class FFmpegStreamPlayer {
     this._queuedChunks = 0;
     this._queueEstimate = 0;
 
-    // Create worklet node (or reuse an existing one)
-    if (!this.workletNode) {
-      this.workletNode = new AudioWorkletNode(this.audioContext, 'ffmpeg-stream', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2]
-      });
-    }
+    // Create worklet node
+    this.workletNode = new AudioWorkletNode(this.audioContext, 'ffmpeg-stream', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2]
+    });
 
     this.workletNode.port.onmessage = (event) => {
       switch (event.data.type) {
@@ -290,9 +267,8 @@ class FFmpegStreamPlayer {
           this.decoderEOF = false;
           this._queuedChunks = 0;
           this._queueEstimate = 0;
-          // Avoid burst enqueueing while loopChunk is playing.
-          // The regular feed loop will ramp the queue up; this prevents large message backlogs.
-          this._fillQueue(this._prebufferSize, 1);
+          // Burst-fill queue while loopChunk is playing
+          this._fillQueue(this._prebufferSize);
           break;
           
         case 'ended':
@@ -331,30 +307,18 @@ class FFmpegStreamPlayer {
       // Make a copy for the loop chunk
       const loopChunk = new Float32Array(result.samplesRead);
       loopChunk.set(result.buffer.subarray(0, result.samplesRead));
-
-      if (this.transferChunks) {
-        // Single message: store as loopChunk AND enqueue as the first regular chunk.
-        const buf = loopChunk.buffer;
-        this.workletNode.port.postMessage({
-          type: 'loopChunk',
-          buf: buf,
-          n: loopChunk.length,
-          enqueue: true
-        }, [buf]);
-      } else {
-        // Legacy message format (Float32Array).
-        // Send as loop chunk (for gapless looping)
-        this.workletNode.port.postMessage({
-          type: 'loopChunk',
-          samples: loopChunk
-        });
-
-        // Also send as first regular chunk (for initial playback)
-        this.workletNode.port.postMessage({
-          type: 'chunk',
-          samples: loopChunk
-        });
-      }
+      
+      // Send as loop chunk (for gapless looping)
+      this.workletNode.port.postMessage({ 
+        type: 'loopChunk', 
+        samples: loopChunk 
+      });
+      
+      // Also send as first regular chunk (for initial playback)
+      this.workletNode.port.postMessage({
+        type: 'chunk',
+        samples: loopChunk
+      });
 
       // Worklet queue now has at least the first chunk enqueued
       this._queuedChunks = 1;
@@ -416,17 +380,10 @@ class FFmpegStreamPlayer {
     const result = this.decoder.read(this.chunkSize);
     
     if (result.samplesRead > 0) {
-      if (this.transferChunks) {
-        const chunk = new Float32Array(result.samplesRead);
-        chunk.set(result.buffer.subarray(0, result.samplesRead));
-        const buf = chunk.buffer;
-        this.workletNode.port.postMessage({ type: 'chunk', buf: buf, n: chunk.length }, [buf]);
-      } else {
-        this.workletNode.port.postMessage({
-          type: 'chunk',
-          samples: result.buffer.subarray(0, result.samplesRead)
-        });
-      }
+      this.workletNode.port.postMessage({
+        type: 'chunk',
+        samples: result.buffer.subarray(0, result.samplesRead)
+      });
     } else {
       // EOF - signal worklet so it marks last queued chunk
       this.decoderEOF = true;
@@ -501,19 +458,7 @@ class FFmpegStreamPlayer {
 
     if (this.workletNode) {
       this.workletNode.port.postMessage({ type: 'pause', paused: true });
-    }
-  }
-
-  /**
-   * Clear queued audio chunks in the worklet without disposing the player.
-   * Useful to release memory while keeping the track loaded.
-   */
-  flush() {
-    this._queuedChunks = 0;
-    this._queueEstimate = 0;
-    this.decoderEOF = false;
-    if (this.workletNode) {
-      try { this.workletNode.port.postMessage({ type: 'clear' }); } catch(e) {}
+      try { this.workletNode.disconnect(); } catch(e) {}
     }
   }
 
@@ -579,41 +524,18 @@ class FFmpegStreamPlayer {
    * Stop playback and release resources
    */
   stop() {
-    // @param {boolean} keepDecoder - keep the decoder object allocated (closed) for reuse
-    // @param {{ keepWorkletNode?: boolean }} [opts] - when true, keeps the AudioWorkletNode alive
-    const keepDecoder = arguments.length > 0 ? !!arguments[0] : false;
-    const opts = (arguments.length > 1 && arguments[1] && typeof arguments[1] === 'object') ? arguments[1] : null;
-    const keepWorkletNode = !!(opts && opts.keepWorkletNode);
-
     this.pause();
 
     if (this.workletNode) {
-      const node = this.workletNode;
-      const port = node.port;
-
-      // Tell the processor to drop internal buffers. Do this BEFORE teardown.
-      try { port.postMessage({ type: 'dispose' }); } catch(e) {}
-
-      // Break JS-side references immediately.
-      try { port.onmessage = null; } catch(e) {}
-
-      // Always disconnect now to avoid retaining the destination graph.
-      try { node.disconnect(); } catch(e) {}
-
-      if (!keepWorkletNode) {
-        this.workletNode = null;
-
-        // Give the worklet message queue a moment to process 'dispose' before
-        // we close the port.
-        setTimeout(() => {
-          try { port.close(); } catch(e) {}
-        }, 25);
-      }
+      // Clear message handler to break closure references and prevent memory leaks
+      this.workletNode.port.onmessage = null;
+      try { this.workletNode.disconnect(); } catch(e) {}
+      this.workletNode = null;
     }
 
     if (this.decoder) {
       try { this.decoder.close(); } catch(e) { console.error('FFmpeg cleanup error:', e); }
-      if (!keepDecoder) this.decoder = null;
+      this.decoder = null;
     }
 
     this.isLoaded = false;

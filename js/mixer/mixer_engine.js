@@ -69,8 +69,6 @@ class MixerTrack {
 				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayer(ctx, initData.ffmpeg_worklet_path, bufferSize, 1, false);
 				// Keep player settings in sync with config changes.
 				player.prebufferSize = bufferSize;
-				// Reduce AudioWorkletNode churn when reloading tracks.
-				try { player.reuseWorkletNode = true; } catch(e) {}
 				let filePath = src;
 				if(filePath.startsWith('file:///')) filePath = decodeURIComponent(filePath.substring(8));
 				else if(filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.substring(7));
@@ -166,16 +164,6 @@ class MixerTrack {
 		this._bufStartCtxTime = -1;
 	}
 
-	_stopSourceFlush(){
-		if(this.ffPlayer){
-			this.ffPlayer.pause();
-			try { if(this.ffPlayer.flush) this.ffPlayer.flush(); } catch(e) {}
-			this._bufStartCtxTime = -1;
-			return;
-		}
-		this._stopSource();
-	}
-
 	_sendParams(){
 		const g = this._mute ? 0 : this._gain;
 		const pg = panToGains(this._pan);
@@ -215,13 +203,8 @@ class MixerTrack {
 			try { await this.ffPlayer.dispose(); } catch(e) {}
 			this.ffPlayer = null;
 		}
-		if(this.engine) this.engine._setTrackParams(this.idx, 0, 0, true);
+		this.engine._setTrackParams(this.idx, 0, 0, true);
 		this.buffer = null;
-		this.src = null;
-		if(this.engine){
-			try { this.engine.removeTrack(this); } catch(e) {}
-			this.engine = null;
-		}
 	}
 }
 
@@ -253,10 +236,6 @@ class MixerTransport {
 	start(){
 		if(this.state === 'started') return;
 		this.state = 'started';
-		try {
-			const ctx = this.engine && this.engine.ctx;
-			if(ctx && ctx.state === 'suspended') ctx.resume();
-		} catch(e) {}
 		const startTime = this.engine._startAll(this._offset);
 		this._t0 = startTime - this._offset;
 	}
@@ -265,21 +244,13 @@ class MixerTransport {
 		if(this.state !== 'started') return;
 		this._offset = this.seconds;
 		this.state = 'paused';
-		this.engine._stopAll(false);
-		try {
-			const ctx = this.engine && this.engine.ctx;
-			if(ctx && ctx.state === 'running') ctx.suspend();
-		} catch(e) {}
+		this.engine._stopAll();
 	}
 
 	stop(){
 		this._offset = 0;
 		this.state = 'stopped';
-		this.engine._stopAll(true);
-		try {
-			const ctx = this.engine && this.engine.ctx;
-			if(ctx && ctx.state === 'running') ctx.suspend();
-		} catch(e) {}
+		this.engine._stopAll();
 	}
 }
 
@@ -376,46 +347,22 @@ class MixerEngine {
 		}
 	}
 
-	_stopAll(flush){
+	_stopAll(){
 		const ar = this.tracks;
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(!tr) continue;
-			if(flush) tr._stopSourceFlush();
-			else tr._stopSource();
+			if(tr) tr._stopSource();
 		}
 	}
 
 	_seekAll(offset){
-		const ar = this.tracks;
-		let hasBuf = false;
-		for(let i=0; i<ar.length; i++){
-			const tr = ar[i];
-			if(!tr) continue;
-			if(!tr.ffPlayer && tr.buffer){
-				hasBuf = true;
-				break;
-			}
+		// Stop all tracks and restart at the specified offset.
+		// Don't use _restartAll() because it reads Transport.seconds which has stale _t0.
+		this._stopAll();
+		if(this.Transport.state === 'started'){
+			return this._startAll(offset);
 		}
-		// Buffer-based tracks require stop/recreate to seek accurately.
-		if(hasBuf){
-			return this._restartAll();
-		}
-
-		const preBufferMs = (this.initData && this.initData.config && this.initData.config.mixer && this.initData.config.mixer.preBuffer !== undefined)
-			? (this.initData.config.mixer.preBuffer | 0)
-			: 50;
-		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
-
-		// FFmpeg-only seek: keep nodes connected to avoid reconnect timing offsets.
-		for(let i=0; i<ar.length; i++){
-			const tr = ar[i];
-			if(tr && tr.ffPlayer){
-				tr.ffPlayer.seek(offset);
-				tr.ffPlayer.play(startTime);
-			}
-		}
-		return startTime;
+		return 0;
 	}
 
 	_startAll(offset){
@@ -454,20 +401,12 @@ class MixerEngine {
 	async dispose(){
 		this.Transport.stop();
 		const ar = this.tracks;
-		const pending = [];
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) pending.push(tr.dispose());
-		}
-		if(pending.length) {
-			try { await Promise.all(pending); } catch(e) {}
+			if(tr) tr.dispose();
 		}
 		this.tracks.length = 0;
-		if(this.mixNode){
-			try { this.mixNode.port.onmessage = null; } catch(e) {}
-			try { this.mixNode.disconnect(); } catch(e) {}
-			this.mixNode = null;
-		}
+		try { if(this.mixNode) this.mixNode.disconnect(); } catch(e) {}
 		try { this.masterGain.disconnect(); } catch(e) {}
 		try { if(this.ctx && this.ctx.state !== 'closed') await this.ctx.close(); } catch(e) {}
 	}
