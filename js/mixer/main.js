@@ -248,11 +248,122 @@ async function _disposeEngine(){
 }
 
 async function resetForNewPlaylist(paths){
-	await _resetUiToEmpty();
-	await _disposeEngine();
-	engine = new MixerEngine(g && g.initData ? g.initData : null);
-	Transport = engine.Transport;
-	if(paths && paths.length) await loadPaths(paths);
+	if(!engine){
+		// No engine yet - create fresh
+		await _resetUiToEmpty();
+		engine = new MixerEngine(g && g.initData ? g.initData : null);
+		Transport = engine.Transport;
+		if(paths && paths.length) await loadPaths(paths);
+		return;
+	}
+	
+	// Reuse engine and tracks where possible
+	engine.resetForReuse();
+	
+	const oldChannels = g.currentChannels || [];
+	const newCount = paths ? paths.length : 0;
+	
+	// Reset UI state
+	g.duration = 0;
+	hideNameTooltip();
+	if(g.transport_current) g.transport_current.innerText = '0:00';
+	if(g.transport_duration) g.transport_duration.innerText = '0:00';
+	if(g.transport_bar) g.transport_bar.style.width = '0%';
+	if(g.btn_play) g.btn_play.classList.remove('playing');
+	if(g.transport){
+		g.transport.duration = -1;
+		g.transport.current = -1;
+		g.transport.proz = -1;
+		g.transport.last_state = '';
+	}
+	
+	// Dispose and remove excess tracks
+	for(let i = newCount; i < oldChannels.length; i++){
+		const ch = oldChannels[i];
+		if(ch){
+			try { await ch.track.dispose(); } catch(e) {}
+			try { engine.removeTrack(ch.track); } catch(e) {}
+			try { ut.killMe(ch.el); } catch(e) {}
+		}
+	}
+	
+	if(newCount === 0){
+		// No new tracks - reset to empty state
+		for(let i = 0; i < oldChannels.length; i++){
+			const ch = oldChannels[i];
+			if(ch){
+				try { await ch.track.dispose(); } catch(e) {}
+				try { engine.removeTrack(ch.track); } catch(e) {}
+				try { ut.killMe(ch.el); } catch(e) {}
+			}
+		}
+		g.currentChannels = null;
+		// Restore dummy placeholder
+		const dummy = document.createElement('div');
+		dummy.className = 'dummy';
+		g.channels.insertBefore(dummy, g.add_zone);
+		g.channels.classList.add('empty');
+		return;
+	}
+	
+	await engine.start();
+	g.channels.classList.remove('empty');
+	if(!g.currentChannels){
+		g.currentChannels = [];
+		ut.killMe(ut.el('.channels .dummy'));
+	}
+	if(!_loopStarted){ _loopStarted = true; loop(); }
+	
+	// Reuse existing tracks or create new ones
+	for(let i = 0; i < newCount; i++){
+		const fp = paths[i];
+		let ch = oldChannels[i];
+		
+		if(ch){
+			// Reuse existing track - just reload
+			try {
+				await ch.track.load(fp);
+				if(ch.track.duration > g.duration) g.duration = ch.track.duration;
+				// Update channel strip label
+				const labelEl = ch.el.querySelector('.name');
+				if(labelEl) labelEl.textContent = fileBaseName(fp);
+				ch.el.setAttribute('data-path', fp);
+				// Reset strip UI state
+				ch.el.state.solo = false;
+				ch.el.state.mute = false;
+				ch.el.state.mute_mem = false;
+				const gainKnob = ch.el.querySelector('.knob.gain');
+				const panKnob = ch.el.querySelector('.knob.pan');
+				if(gainKnob && gainKnob.nui) gainKnob.nui.set(1);
+				if(panKnob && panKnob.nui) panKnob.nui.set(0.5);
+				ch.track.setGain(1);
+				ch.track.setPan(0);
+				ch.track.setMute(false);
+			} catch(err) {
+				console.error('Mixer reload failed:', fp, err);
+			}
+		} else {
+			// Create new track
+			const track = engine.createTrack();
+			const el = g.channels.insertBefore(renderChannel(i, fp, i + 1), g.add_zone);
+			try {
+				await track.load(fp);
+				if(track.duration > g.duration) g.duration = track.duration;
+			} catch(err) {
+				console.error('Mixer load failed:', fp, err);
+			}
+			g.currentChannels.push({ el, track });
+		}
+	}
+	
+	// Trim currentChannels array if we had more before
+	if(oldChannels.length > newCount){
+		g.currentChannels = g.currentChannels.slice(0, newCount);
+	}
+	
+	// Clear solo state
+	g.exclusiveSoloTrack = null;
+	g.soloSnapshot = null;
 }
 
 function fileBaseName(fp){

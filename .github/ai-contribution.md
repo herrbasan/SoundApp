@@ -1,4 +1,4 @@
-# AI Contribution Notes
+﻿# AI Contribution Notes
 
 ## Session: December 20, 2025 - Project Foundation & Roadmap
 
@@ -20,7 +20,7 @@
 1. **Remove Howler.js** - Priority #1 for v1.1.2, establishes Web Audio foundation
 2. **Unified Audio Controller** - Critical for all future features (speed, mixer, etc.)
 3. **FFmpeg Streaming** - Hybrid approach (streaming + buffered looping)
-4. **Version Roadmap** - Clear priorities: 1.1.2 → 1.2 → 2.0
+4. **Version Roadmap** - Clear priorities: 1.1.2 â†’ 1.2 â†’ 2.0
 
 ### Key Insights About the Project
 
@@ -119,7 +119,7 @@ User prefers:
 
 ### What We Accomplished
 
-**Howler.js Removal - COMPLETE ✅**
+**Howler.js Removal - COMPLETE âœ…**
 - Created `js/audio_controller.js` - Unified AudioController class using Web Audio API
 - Removed all Howler.js dependencies from codebase
 - Merged `playAudio()` and `playAudioLoop()` into single function with mode switching
@@ -185,19 +185,19 @@ player.gain.connect(g.audioContext.destination);
 3. Help/Documentation Window
 
 **Foundation Now In Place For v1.2:**
-- Unified audio routing through Web Audio API ✅
-- Gain nodes ready for effects chain ✅
-- Architecture supports speed control, multi-track mixer ✅
-- Ready for FFmpeg streaming implementation ✅
+- Unified audio routing through Web Audio API âœ…
+- Gain nodes ready for effects chain âœ…
+- Architecture supports speed control, multi-track mixer âœ…
+- Ready for FFmpeg streaming implementation âœ…
 
 ### State of the Codebase
 
 **What's Working:**
-- All playback modes: native formats, chiptune, FFmpeg transcoding ✅
-- Loop mode with gapless playback ✅
-- Seeking in all modes including loop ✅
-- Volume control ✅
-- Progress bar tracking ✅
+- All playback modes: native formats, chiptune, FFmpeg transcoding âœ…
+- Loop mode with gapless playback âœ…
+- Seeking in all modes including loop âœ…
+- Volume control âœ…
+- Progress bar tracking âœ…
 
 ---
 
@@ -226,7 +226,7 @@ player.gain.connect(g.audioContext.destination);
 **Files Modified:**
 - `js/stage.js` - Updated `openWindow`, `dropHandler`, and IPC handlers for focus and pause logic.
 - `js/mixer/main.js` - Added sync-on-drop logic and improved `removeTrack` cleanup.
-- Play/pause/stop controls ✅
+- Play/pause/stop controls âœ…
 
 **Performance Characteristics:**
 - Loop mode: Higher memory (full AudioBuffer), instant seeking
@@ -245,7 +245,7 @@ player.gain.connect(g.audioContext.destination);
 
 ### What We Accomplished
 
-**FFmpeg NAPI Player Integration - COMPLETE ✅**
+**FFmpeg NAPI Player Integration - COMPLETE âœ…**
 - Integrated `ffmpeg-napi-interface` package (v1.1.3) with SoundApp
 - Unified streaming player with gapless looping in all modes
 - No more separate "loop mode" requiring full file decode
@@ -318,26 +318,26 @@ See `docs/ffmpeg-player-review.md` for critical analysis:
 
 ### What We Accomplished
 
-**Multi-Window System Architecture - COMPLETE ✅**
+**Multi-Window System Architecture - COMPLETE âœ…**
 - Designed and documented complete window system architecture
 - Self-contained HTML pages work in both Electron and browser preview
 - Created `js/window-loader.js` for context detection and bridge creation
 - Implemented first window: `html/help.html` with keyboard shortcuts documentation
 
-**Global Theme Toggle System - COMPLETE ✅**
+**Global Theme Toggle System - COMPLETE âœ…**
 - Implemented X key shortcut to toggle dark/light theme globally
 - Theme state tracked in main process (app.js)
 - Broadcasts to all windows using `tools.broadcast()`
 - Theme persists to config file via stage window
 - Works from any window (stage or secondary windows)
 
-**Browser Preview Mode - COMPLETE ✅**
+**Browser Preview Mode - COMPLETE âœ…**
 - All secondary windows previewable with live-server
 - X key toggles theme in browser mode (localStorage persistence)
 - Mock bridge logs IPC commands to console
 - Separate theme state for browser vs Electron
 
-**Same-Screen Window Positioning - COMPLETE ✅**
+**Same-Screen Window Positioning - COMPLETE âœ…**
 - Windows open on same display as stage window
 - Finds correct display in multi-monitor setups
 - Centers new window on target display
@@ -413,14 +413,14 @@ let targetDisplay = displays.find(d =>
 
 ### What We Accomplished
 
-**GitHub Repository Setup - COMPLETE ✅**
+**GitHub Repository Setup - COMPLETE âœ…**
 - Fixed README screenshot display issue
   - Root cause: Screenshot file wasn't committed to repository
   - Added `build/screenshot.png` to git
   - Updated README to use raw GitHub URL: `https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot.png`
   - Screenshot now displays correctly on GitHub
 
-**Project Licensing - COMPLETE ✅**
+**Project Licensing - COMPLETE âœ…**
 - Analyzed all project dependencies (MIT licensed: nui, electron_helper, native-registry, chiptune)
 - Selected MIT License as best fit for open source desktop application
 - Created and committed LICENSE file
@@ -439,12 +439,12 @@ let targetDisplay = displays.find(d =>
 
 ### Window System Status Summary
 **Foundation Complete:**
-- Core window system with NUI framework ✅
-- window-loader.js with Electron/browser detection ✅
-- Help window with keyboard shortcuts ✅
-- Window reuse and cleanup system ✅
-- Theme broadcasting across windows ✅
-- Browser preview mode ✅
+- Core window system with NUI framework âœ…
+- window-loader.js with Electron/browser detection âœ…
+- Help window with keyboard shortcuts âœ…
+- Window reuse and cleanup system âœ…
+- Theme broadcasting across windows âœ…
+- Browser preview mode âœ…
 
 **Next Up:**
 - Settings window (settings.html)
@@ -463,37 +463,37 @@ let targetDisplay = displays.find(d =>
 
 ### What We Accomplished
 
-**Settings Window - COMPLETE ✅**
+**Settings Window - COMPLETE âœ…**
 - Created `html/settings.html` with NUI framework components
 - Implemented HQ Mode toggle using NUI checkbox (not custom toggle switch)
 - Added default directory browser with path display
 - Integrated with centralized CSS in `css/window.css`
 - Settings persist via electron_helper config system
 
-**HQ Mode Feature - COMPLETE ✅**
+**HQ Mode Feature - COMPLETE âœ…**
 - Configurable sample rate for audio playback (44.1kHz standard vs 192kHz HQ)
 - Modified FFmpeg NAPI decoder C++ code to accept configurable output sample rates
   - Changed `OUTPUT_SAMPLE_RATE` from static const to member variable `outputSampleRate`
   - Updated constructor signature: `FFmpegDecoder(int sampleRate = 44100)`
   - Modified SwResample initialization to use dynamic sample rate
 - AudioContext now created with configurable sample rate
-- Sample rate detection probes hardware: 192k→176.4k→96k→88.2k→48k→44.1k
+- Sample rate detection probes hardware: 192kâ†’176.4kâ†’96kâ†’88.2kâ†’48kâ†’44.1k
 - Real-time switching: destroys and recreates AudioContext, FFmpegPlayer, chiptune player
 - Audio system info display shows max supported and current sample rates
 - Measured CPU impact: 44.1kHz peaks at 1.5%, 192kHz peaks at 2.3% (~0.5% difference)
 
-**Navigation Rate Limiting - COMPLETE ✅**
+**Navigation Rate Limiting - COMPLETE âœ…**
 - Added 100ms rate limiting for next/previous track keyboard shortcuts
 - Prevents rapid track skipping and UI flashing
 
-**Centralized Keyboard Shortcuts - COMPLETE ✅**
+**Centralized Keyboard Shortcuts - COMPLETE âœ…**
 - Created `js/shortcuts.js` module for shared shortcut definitions
 - H (Help), S (Settings), X (Theme) work from any app window
 - Shortcuts only active when app windows have focus (not system-wide)
 - Input field detection prevents interference with typing
 - Help/Settings windows forward shortcuts to stage via IPC bridge
 
-**Window Management Improvements - COMPLETE ✅**
+**Window Management Improvements - COMPLETE âœ…**
 - Windows now hide/show instead of close/create for reliable toggling
 - Visibility state tracked with `g.windowsVisible` object
 - Focus returns to stage window when hiding/closing secondary windows
@@ -514,7 +514,7 @@ let targetDisplay = displays.find(d =>
 - `js/stage.js` - Sample rate detection, HQ mode toggle, window management fixes
 - `js/window-loader.js` - Added hide-window listener, removed duplicate theme handler
 - `css/window.css` - Settings window specific styles
-- `html/help.html` - Keyboard shortcut updates (Q→S)
+- `html/help.html` - Keyboard shortcut updates (Qâ†’S)
 - `.github/copilot-instructions.md` - Removed help window from backlog
 
 ### Technical Insights
@@ -546,12 +546,12 @@ async function detectMaxSampleRate() {
 **Window Visibility Tracking Fix:**
 ```javascript
 // Bug: tools.executeOnId doesn't exist
-let isVisible = await tools.executeOnId(g.windows[type], 'isVisible'); // ❌ Throws error
+let isVisible = await tools.executeOnId(g.windows[type], 'isVisible'); // âŒ Throws error
 
 // Solution: Track state ourselves
 g.windowsVisible = { help: false, settings: false, playlist: false };
 if (g.windowsVisible[type]) {
-  tools.sendToId(g.windows[type], 'hide-window'); // ✅ Works reliably
+  tools.sendToId(g.windows[type], 'hide-window'); // âœ… Works reliably
 }
 ```
 
@@ -600,17 +600,17 @@ if (g.windowsVisible[type]) {
 - Difference: ~0.5% (negligible on modern hardware)
 
 **Sample Rate Hardware Support (tested system):**
-- Maximum supported: 192000 Hz ✅
+- Maximum supported: 192000 Hz âœ…
 - Tested and working at: 192k, 96k, 48k, 44.1k
 
 ### Ready for Next Phase
 
 **Settings Window Complete:**
-- ✅ HQ mode toggle with real-time switching
-- ✅ Default directory browser
-- ✅ Audio system info display
-- ✅ Settings persistence
-- ✅ NUI framework integration
+- âœ… HQ mode toggle with real-time switching
+- âœ… Default directory browser
+- âœ… Audio system info display
+- âœ… Settings persistence
+- âœ… NUI framework integration
 
 **Future Settings (documented in docs/settings-ideas.md):**
 - Output device selection
@@ -623,12 +623,12 @@ if (g.windowsVisible[type]) {
 ### State of the Codebase
 
 **Working Features:**
-- Multi-window system with hide/show toggle ✅
-- Centralized keyboard shortcuts (H, S, X) ✅
-- Theme toggle across all windows ✅
-- HQ mode with configurable sample rates ✅
-- Settings persistence ✅
-- Focus management ✅
+- Multi-window system with hide/show toggle âœ…
+- Centralized keyboard shortcuts (H, S, X) âœ…
+- Theme toggle across all windows âœ…
+- HQ mode with configurable sample rates âœ…
+- Settings persistence âœ…
+- Focus management âœ…
 
 **Next Immediate Steps:**
 1. Test HQ mode with various file formats
@@ -641,7 +641,7 @@ if (g.windowsVisible[type]) {
 
 ### What We Accomplished
 
-**Multi-Track Mixer Prototype - COMPLETE ✅**
+**Multi-Track Mixer Prototype - COMPLETE âœ…**
 - Created a standalone mixer prototype in `mixer/` folder.
 - Implemented a custom `AudioWorklet` mixing engine (`soundapp-mixer`) supporting 128 tracks.
 - Designed a compact, responsive UI with channel strips that wrap and fill space.
@@ -704,7 +704,7 @@ if (g.windowsVisible[type]) {
 
 ### Notes / Limitations (Known)
 
-- Network-drive / custom-protocol loading for the mixer’s `fetch()` path is still under investigation; current mixer URL strategy was rolled back to keep local paths working.
+- Network-drive / custom-protocol loading for the mixerâ€™s `fetch()` path is still under investigation; current mixer URL strategy was rolled back to keep local paths working.
 
 ---
 
@@ -712,9 +712,9 @@ if (g.windowsVisible[type]) {
 
 ### What We Accomplished
 
-**Fixed “added track is permanently delayed” when drag & dropping into the mixer:**
+**Fixed â€œadded track is permanently delayedâ€ when drag & dropping into the mixer:**
 - Root cause: dropped items often lacked a usable filesystem path string, so the mixer fell back to buffer decoding (`buf`) instead of FFmpeg streaming (`ff`). Mixed pipelines led to a persistent offset.
-- Fix: in Electron, resolve dropped `File` objects to absolute filesystem paths (matching Stage’s drop strategy) so new tracks consistently load via the FFmpeg streaming path.
+- Fix: in Electron, resolve dropped `File` objects to absolute filesystem paths (matching Stageâ€™s drop strategy) so new tracks consistently load via the FFmpeg streaming path.
 
 **Added a timing/sync diagnostics overlay (hidden by default):**
 - Floating overlay with per-track mode (`ff`/`buf`), time, drift vs transport/reference, queue depth, and underrun metrics.
@@ -723,14 +723,14 @@ if (g.windowsVisible[type]) {
 
 **Reduced apparent drift caused by worklet message cadence:**
 - Worklet position updates arrive about every 50ms.
-- `FFmpegStreamPlayer` now extrapolates current time using `AudioContext.currentTime` since the last reported position, reducing “false” drift in the overlay.
+- `FFmpegStreamPlayer` now extrapolates current time using `AudioContext.currentTime` since the last reported position, reducing â€œfalseâ€ drift in the overlay.
 
 **Improved seeking sync when all tracks are FFmpeg-streamed:**
 - When seeking while playing and all tracks are `ff`, the mixer now seeks in-place per track (avoids stop/restart ordering seams).
 - If any track is `buf`, seeking falls back to the restart approach.
 
-**Stage → Mixer refresh reliability:**
-- “Open in Mixer” now force-shows the existing mixer window and always sends an updated `mixer-playlist`.
+**Stage â†’ Mixer refresh reliability:**
+- â€œOpen in Mixerâ€ now force-shows the existing mixer window and always sends an updated `mixer-playlist`.
 - Mixer reset on new playlist preserves `initData` so FFmpeg stays available (prevents unexpected `buf` fallback after refresh).
 
 ## Session: December 26, 2025 - Mixer Synchronization & Robust Streaming
@@ -868,3 +868,96 @@ if (g.windowsVisible[type]) {
 **Files Modified:**
 - `js/mixer/main.js`
 
+
+
+## Session: December 29, 2025 - SAB Audio Pipeline & Memory Leak Hunt
+
+### What We Accomplished
+
+**Major Architecture Change: SharedArrayBuffer Streaming**
+
+Replaced the chunk-based postMessage streaming with a SharedArrayBuffer (SAB) ring buffer architecture:
+
+- **Zero-copy audio transfer:** Main thread writes decoded audio directly to shared memory
+- **Lock-free synchronization:** Uses Atomics on Int32Array control buffer
+- **Ring buffer design:** ~4 seconds of stereo float32 audio at 48kHz per player
+
+**The Great Memory Leak Hunt**
+
+Investigated memory growth of ~8-10MB per 30 track switches that never released.
+
+**Isolation Testing Strategy:**
+1. `testDecoderLeak()` - Decoder only: NO LEAK (200 iterations, stable)
+2. `testAudioGraphLeak()` - Worklet only: NO LEAK (50 iterations, stable)
+3. `testDecoderWithSAB()` - Decoder + SAB writes (no worklet): NO LEAK
+4. `testFullPipelineLeak()` - Decoder + SAB + Worklet: LEAKED (~140MB over 300 iterations)
+
+**Root Cause Identified:**
+Chrome's AudioWorkletNode doesn't garbage collect properly when rapidly created/destroyed. The `clearAudio()` function was calling `stop()` instead of `stop(true)`, causing full disposal and recreation of AudioWorkletNode + SABs on every track switch.
+
+**The Fix: Persistent Worklet Reuse Pattern**
+- **`stop(true)`** keeps SABs and workletNode alive for reuse
+- **`stop()` or `dispose()`** performs full cleanup
+- Track switches now reuse existing resources via `clearAudio()` -> `stop(true)`
+- Only `dispose()` or closing the app fully releases resources
+
+**Result:** 200 track test showed only ~13MB growth (vs 300+MB before) - just metadata/cover art caching.
+
+**CPU Optimization: Disconnect on Pause**
+- Discovered worklet's `process()` runs ~375x/sec even when paused
+- Fix: Disconnect workletNode from destination on pause, reconnect on play
+- Worklet's `process()` now returns `false` on dispose for clean termination
+
+**Mixer Reuse Pattern**
+
+Applied the same reuse strategy to the multi-track mixer:
+
+- **`MixerTrack.reset()`** - Calls `ffPlayer.stop(true)` to keep SABs/worklet
+- **`MixerEngine.resetForReuse()`** - Resets all tracks without disposing
+- **`resetForNewPlaylist()`** - Reuses existing tracks, only creates/disposes when count changes
+- **Stage's `openWindow('mixer')`** - No longer closes/reopens, just sends new playlist
+
+**Bug Fixed: Ring Buffer Size**
+Caught a bug where mixer was passing `bufferSize` (20+ chunks) as `ringSeconds`, creating 20+ second ring buffers per track (~7.68MB each). Fixed to use 4 seconds (~1.5MB per track).
+
+**Documentation Updates:**
+- Created comprehensive `docs/sab-player-architecture.md`
+- Updated `.github/copilot-instructions.md` with SAB pipeline section
+- Added Version 1.3 to release history
+
+### Key Technical Insights
+
+**Chrome's AudioWorkletNode GC Issue:**
+The browser doesn't properly garbage collect rapidly created AudioWorkletNodes. Each node creates internal audio routing resources that persist longer than expected. The solution is to create once and reuse across track switches.
+
+**Memory Budget (Mixer):**
+- 20 tracks x 1.5MB SAB = ~30MB for ring buffers
+- Plus decoder buffers, worklet overhead
+- Total: ~400MB for 20-track mixer (stable, doesn't grow)
+
+### Files Modified
+
+- `bin/win_bin/player-sab.js` - Persistent worklet reuse, stop(true) pattern
+- `bin/win_bin/ffmpeg-worklet-sab.js` - shouldTerminate flag, clean dispose
+- `js/stage.js` - clearAudio() uses stop(true), removed diagnostic functions
+- `js/mixer/mixer_engine.js` - Added reset(), resetForReuse(), fixed ring buffer size
+- `js/mixer/main.js` - Reuse tracks on playlist switch
+- `docs/sab-player-architecture.md` - New architecture documentation
+- `.github/copilot-instructions.md` - SAB pipeline docs, v1.3 release notes
+- `libs/ffmpeg-napi-interface/` - Synced all changes to submodule
+
+### Collaboration Notes
+
+This was an intense debugging session. The systematic isolation testing approach proved invaluable - by testing each component in isolation, we definitively ruled out the decoder and SABs as leak sources, narrowing it down to Chrome's AudioWorkletNode behavior.
+
+The user's patience during the hunt was appreciated. When things looked grim ("only after 30 tracks the memory grew from 250 to 500 and stays persistently"), we kept pushing until we found the real culprit hiding in a simple function call (`stop()` vs `stop(true)`).
+
+**What Made This Session Work:**
+- Systematic elimination testing over guessing
+- Understanding the browser's behavior (Chrome's worklet GC issue)
+- Applying the fix consistently (main player AND mixer)
+- Catching secondary bugs (ring buffer size) along the way
+
+---
+
+*Claude (Opus 4) - December 29, 2025*

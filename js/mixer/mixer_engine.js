@@ -60,16 +60,11 @@ class MixerTrack {
 				const { FFmpegStreamPlayerSAB } = require(initData.ffmpeg_player_path);
 				FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 				
-				// Use the user-configured buffer size, but ensure a minimum of 20 chunks for mixer stability.
-				// Force 1 thread per track to avoid CPU over-subscription with many parallel decoders.
-				const cfgBuf = (initData && initData.config && initData.config.ffmpeg && initData.config.ffmpeg.stream && initData.config.ffmpeg.stream.prebufferChunks !== undefined)
-					? (initData.config.ffmpeg.stream.prebufferChunks | 0)
-					: 10;
-				const bufferSize = Math.max(20, cfgBuf);
+				// Ring buffer: 4 seconds is plenty for streaming.
+				// Thread count: 1 per track to avoid CPU over-subscription.
+				const ringSeconds = 4;
 				const workletPath = initData.ffmpeg_worklet_path;
-				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayerSAB(ctx, workletPath, bufferSize, 1, false);
-				// Keep player settings in sync with config changes.
-				if(player.prebufferSize !== undefined) player.prebufferSize = bufferSize;
+				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayerSAB(ctx, workletPath, ringSeconds, 1, false);
 				let filePath = src;
 				if(filePath.startsWith('file:///')) filePath = decodeURIComponent(filePath.substring(8));
 				else if(filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.substring(7));
@@ -196,6 +191,24 @@ class MixerTrack {
 
 	_setMeter(v){
 		this._meter = v;
+	}
+
+	reset(){
+		this._stopSource();
+		if(this.ffPlayer){
+			try { this.ffPlayer.stop(true); } catch(e) {}  // Keep SABs/worklet for reuse
+		}
+		this.buffer = null;
+		this.duration = 0;
+		this.src = null;
+		this.lastLoadError = '';
+		this.lastLoadMode = '';
+		this.lastLoadNote = '';
+		this._gain = 1;
+		this._pan = 0;
+		this._mute = false;
+		this._meter = 0;
+		this._sendParams();
 	}
 
 	async dispose(){
@@ -397,6 +410,16 @@ class MixerEngine {
 			return this._startAll(this.Transport.seconds);
 		}
 		return 0;
+	}
+
+	resetForReuse(){
+		this.Transport.stop();
+		const ar = this.tracks;
+		for(let i=0; i<ar.length; i++){
+			const tr = ar[i];
+			if(tr) tr.reset();
+		}
+		this.loop = true;
 	}
 
 	async dispose(){

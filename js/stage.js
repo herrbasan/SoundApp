@@ -1507,18 +1507,24 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	if (g.windows[type]) {
 		// Window exists
 		if(forceShow){
-			// For Mixer playlist replacement we want a clean renderer: close and reopen.
+			// For Mixer playlist replacement, send new playlist (reuse pattern avoids memory leaks).
 			if(type === 'mixer'){
-				const oldId = g.windows[type];
-				g.windowsClosing[type] = true;
-				try { tools.sendToId(oldId, 'close-window'); } catch(e) {}
-				await waitForWindowClosed(type, oldId, 2500);
-				// Window handle will be cleared by the window-closed handler. If not, clear it here.
-				if(g.windows[type] === oldId) g.windows[type] = null;
-				g.windowsVisible[type] = false;
-				g.windowsClosing[type] = false;
-				// Immediately reopen a fresh mixer window with the new playlist.
-				return await openWindow(type, false, contextFile);
+				if(g.currentAudio && !g.currentAudio.paused){
+					g.currentAudio.pause();
+					checkState();
+				}
+				const playlist = await getMixerPlaylist(contextFile);
+				tools.sendToId(g.windows[type], 'mixer-playlist', {
+					paths: playlist.paths.slice(0, 20),
+					idx: playlist.idx
+				});
+				if(!g.windowsVisible[type]){
+					tools.sendToId(g.windows[type], 'show-window');
+					g.windowsVisible[type] = true;
+				} else {
+					tools.sendToId(g.windows[type], 'show-window');
+				}
+				return;
 			} else {
 				if(!g.windowsVisible[type]){
 					tools.sendToId(g.windows[type], 'show-window');
@@ -1532,14 +1538,6 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 		// Default behavior: toggle visibility based on tracked state
 		if (g.windowsVisible[type]) {
-			// For Mixer we want a real close/destroy (memory experiments).
-			if(type === 'mixer'){
-				g.windowsClosing[type] = true;
-				tools.sendToId(g.windows[type], 'close-window');
-				g.windowsVisible[type] = false;
-				g.win.focus();
-				return;
-			}
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
 			// Return focus to stage window when hiding
