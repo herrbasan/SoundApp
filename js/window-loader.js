@@ -24,11 +24,19 @@ if (isElectron) {
 		config: helper.config,
 		window: helper.window,
 		closeWindow: () => {
+			// Always trigger local hide-window listeners (e.g. Mixer cleanup) before we hide/close.
+			ipcRenderer.emit('hide-window', {}, {});
+
+			// For Mixer we want a real close/destroy (memory experiments).
+			if(windowType === 'mixer'){
+				try { helper.window.close(); } catch(e) {}
+				return;
+			}
+
+			// Default behavior for secondary windows: hide (fast reopen)
 			if (stageId && windowType) {
 				tools.sendToId(stageId, 'window-hidden', { type: windowType });
 			}
-			// Trigger local hide-window listeners (e.g. for Mixer cleanup)
-			ipcRenderer.emit('hide-window', {}, {});
 			helper.window.hide();
 		},
 		isElectron: true,

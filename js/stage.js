@@ -19,6 +19,7 @@ g.audioContext = null;
 g.ffmpegPlayer = null;
 g.windows = { help: null, settings: null, playlist: null, mixer: null };
 g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false };
+g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 g.music = [];
@@ -301,12 +302,14 @@ async function init(){
 			g.windows[data.type] = null;
 			g.windowsVisible[data.type] = false;
 		}
+		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
 		// Return focus to stage window after small delay to ensure window is gone
 		setTimeout(() => g.win.focus(), 50);
 	});
 
 	ipcRenderer.on('window-hidden', (e, data) => {
 		g.windowsVisible[data.type] = false;
+		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
 		g.win.focus();
 	});
 	
@@ -369,8 +372,12 @@ async function init(){
 			openWindow('settings');
 		}
 		else if (data.action === 'toggle-mixer') {
-			const fp = g.currentAudio ? g.currentAudio.fp : null;
-			clearAudio();
+			const fp = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : ((g.music && g.music[g.idx]) ? g.music[g.idx] : null);
+			// Keep the main player loaded; just pause while the mixer runs independently.
+			if(g.currentAudio && !g.currentAudio.paused){
+				g.currentAudio.pause();
+				checkState();
+			}
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-theme') {
@@ -1191,12 +1198,23 @@ function volumeDown(){
 
 
 function seek(mx){
+	if(!g.currentAudio) return;
+	let dur = g.currentAudio.duration;
+	if(!(dur > 0)){
+		// Fallbacks in case duration isn't populated yet (paused edge cases)
+		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
+		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
+	}
+	if(!(dur > 0)) return;
 	let max = g.time_controls.offsetWidth;
 	let x = mx - ut.offset(g.time_controls).left;
 	if(x < 0) { x = 0; }
 	if(x > max) { x = max; }
 	let proz = x / max;
-	seekTo(g.currentAudio.duration * proz);
+	let s = dur * proz;
+	if(s < 0) s = 0;
+	if(s > dur) s = dur;
+	seekTo(s);
 }
 
 function seekTo(s){
@@ -1444,32 +1462,68 @@ async function getMixerPlaylist(contextFile = null) {
 }
 
 async function openWindow(type, forceShow = false, contextFile = null) {
+	async function waitForWindowClosed(t, id, timeoutMs = 2000){
+		return await new Promise((resolve) => {
+			let done = false;
+			const to = setTimeout(() => {
+				if(done) return;
+				done = true;
+				ipcRenderer.removeListener('window-closed', onClosed);
+				resolve(false);
+			}, timeoutMs|0);
+			function onClosed(e, data){
+				if(done) return;
+				if(!data || data.type !== t || data.windowId !== id) return;
+				done = true;
+				clearTimeout(to);
+				ipcRenderer.removeListener('window-closed', onClosed);
+				resolve(true);
+			}
+			ipcRenderer.on('window-closed', onClosed);
+		});
+	}
+
+	// If a window is currently closing, wait briefly so we don't race against the old instance.
+	if(g.windows[type] && g.windowsClosing[type]){
+		await waitForWindowClosed(type, g.windows[type], 2000);
+	}
+
 	if (g.windows[type]) {
 		// Window exists
 		if(forceShow){
-			if(!g.windowsVisible[type]){
-				tools.sendToId(g.windows[type], 'show-window');
-				g.windowsVisible[type] = true;
-			} else {
-				tools.sendToId(g.windows[type], 'show-window');
-			}
-			// Always refresh mixer playlist when explicitly opening from Stage actions (e.g. drag&drop)
+			// For Mixer playlist replacement we want a clean renderer: close and reopen.
 			if(type === 'mixer'){
-				if(g.currentAudio && !g.currentAudio.paused){
-					g.currentAudio.pause();
-					checkState();
+				const oldId = g.windows[type];
+				g.windowsClosing[type] = true;
+				try { tools.sendToId(oldId, 'close-window'); } catch(e) {}
+				await waitForWindowClosed(type, oldId, 2500);
+				// Window handle will be cleared by the window-closed handler. If not, clear it here.
+				if(g.windows[type] === oldId) g.windows[type] = null;
+				g.windowsVisible[type] = false;
+				g.windowsClosing[type] = false;
+				// Immediately reopen a fresh mixer window with the new playlist.
+				return await openWindow(type, false, contextFile);
+			} else {
+				if(!g.windowsVisible[type]){
+					tools.sendToId(g.windows[type], 'show-window');
+					g.windowsVisible[type] = true;
+				} else {
+					tools.sendToId(g.windows[type], 'show-window');
 				}
-				const playlist = await getMixerPlaylist(contextFile);
-				tools.sendToId(g.windows[type], 'mixer-playlist', {
-					paths: playlist.paths.slice(0, 20),
-					idx: playlist.idx
-				});
+				return;
 			}
-			return;
 		}
 
 		// Default behavior: toggle visibility based on tracked state
 		if (g.windowsVisible[type]) {
+			// For Mixer we want a real close/destroy (memory experiments).
+			if(type === 'mixer'){
+				g.windowsClosing[type] = true;
+				tools.sendToId(g.windows[type], 'close-window');
+				g.windowsVisible[type] = false;
+				g.win.focus();
+				return;
+			}
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
 			// Return focus to stage window when hiding
