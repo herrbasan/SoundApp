@@ -212,6 +212,7 @@ body.loop .top .content .loop::after{
 
 .info {
 	margin: var(--space-frame);
+	margin-bottom: 0;
 	display: grid;
 	grid-template-columns: var(--cover-size) auto;
 	gap: 1rem;
@@ -411,6 +412,7 @@ body.loop .top .content .loop::after{
 
 
 .time_controls {
+	padding-top: var(--space-frame);
 	padding-left: var(--space-frame);
 	padding-right: var(--space-frame);
 	font-size: 0.7rem;

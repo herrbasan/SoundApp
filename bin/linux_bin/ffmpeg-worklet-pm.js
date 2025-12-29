@@ -46,16 +46,6 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
 
     this.port.onmessage = this.onMessage.bind(this);
   }
-
-  _coerceSamples(d) {
-    // Backward compatible: accept either a Float32Array (d.samples)
-    // or a transferred ArrayBuffer (d.buf + d.n).
-    if (d && d.samples) return d.samples;
-    if (d && d.buf && (d.n | 0) > 0) {
-      try { return new Float32Array(d.buf, 0, d.n | 0); } catch(e) { return null; }
-    }
-    return null;
-  }
   
   onMessage(event) {
     switch (event.data.type) {
@@ -69,12 +59,10 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
 
       case 'chunk':
         // Regular chunk
-        {
-          const samples = this._coerceSamples(event.data);
-          if (samples) {
-            this.chunks.push({ samples: samples, isLast: false });
-          }
-        }
+        this.chunks.push({
+          samples: event.data.samples,
+          isLast: false
+        });
         break;
         
       case 'eof':
@@ -89,17 +77,7 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
         
       case 'loopChunk':
         // Store the first chunk for looping
-        {
-          const samples = this._coerceSamples(event.data);
-          if (samples) {
-            this.loopChunk = samples;
-
-            // Optional: also enqueue this as the first regular chunk.
-            if (event.data && event.data.enqueue) {
-              this.chunks.push({ samples: samples, isLast: false });
-            }
-          }
-        }
+        this.loopChunk = event.data.samples;
         break;
         
       case 'setLoop':
@@ -115,21 +93,6 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
         this.playingLoopChunk = false;
         this.hasEnded = false;  // Reset the ended flag on clear
         this.reachedEOF = false;  // Reset EOF flag on clear (e.g., seek)
-        this.underrunFrames = 0;
-        break;
-
-      case 'dispose':
-        this.paused = true;
-        this.chunks = [];
-        this.currentChunk = null;
-        this.currentChunkIndex = 0;
-        this.currentChunkIsLast = false;
-        this.loopChunk = null;
-        this.loopChunkIndex = 0;
-        this.playingLoopChunk = false;
-        this.hasEnded = false;
-        this.reachedEOF = false;
-        this.framesPlayed = 0;
         this.underrunFrames = 0;
         break;
         

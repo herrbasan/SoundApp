@@ -49,11 +49,15 @@ if (-not (Test-Path $linuxBin)) {
 
 Write-Host "Syncing FFmpeg NAPI files from submodule..." -ForegroundColor Green
 
-$files = @(
-    "player.js",
-    "ffmpeg-worklet-processor.js",
-    "index.js"
-)
+
+# Copy all runtime JS files from the submodule lib/ folder.
+# (Historically we had additional filenames here; using discovery avoids the script going stale.)
+$files = @(Get-ChildItem -Path $submoduleLibPath -File | Where-Object { $_.Extension -eq ".js" } | Select-Object -ExpandProperty Name)
+
+if (-not $files -or $files.Count -eq 0) {
+    Write-Host "ERROR: No .js files found in submodule lib/ at $submoduleLibPath" -ForegroundColor Red
+    exit 1
+}
 
 foreach ($file in $files) {
     $src = Join-Path $submoduleLibPath $file

@@ -80,11 +80,18 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
         break;
         
       case 'dispose':
+        // Clear all state
         this.isReady = false;
         this.shouldTerminate = true;  // Signal process() to return false
         this.controlBuffer = null;
         this.audioBuffer = null;
         this.ringSize = 0;
+        this.channels = 2;
+        this.hasEnded = false;
+        this.framesPlayed = 0;
+        this.startTime = 0;
+        // Remove message handler to break any reference cycles
+        this.port.onmessage = null;
         break;
     }
   }

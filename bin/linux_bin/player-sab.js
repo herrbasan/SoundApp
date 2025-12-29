@@ -94,6 +94,12 @@ class FFmpegStreamPlayerSAB {
     this._sampleRate = 44100;
     this._channels = 2;
     this.totalFrames = 0;
+
+    // End-of-track tracking (important for reliable playlist advance)
+    // Worklet compares framesPlayed (relative to current position) against CONTROL.TOTAL_FRAMES.
+    this._framesWritten = 0;     // Frames decoded+written since last open/seek
+    this._targetFrames = 0;      // Frames expected to play from current position (estimate, then corrected at EOF)
+    this._eof = false;
     
     this.onEndedCallback = null;
     this.workletReady = false;
@@ -104,20 +110,68 @@ class FFmpegStreamPlayerSAB {
     this._posMsgAt = 0;        // AudioContext time when last position message received
     this._posMsgFrames = 0;    // Frames played at that time
     this._seekOffset = 0;      // Seek offset in seconds
-    
-    // Chunk size for feeding (in frames)
-    this.chunkFrames = 4096;
+
+    // Mixer UI expects these (best-effort diagnostics)
+    this.currentFrames = 0;
+    this._queuedChunks = 0;
+    this._underrunFrames = 0;
+
+    // Feeding / buffering settings
+    this.prebufferSize = 10;      // Target queue depth in chunks (compatible with old UI setting)
+    this.chunkSeconds = 0.10;     // Decode granularity target (seconds)
+    this.chunkFrames = 4096;      // Will be recomputed on open() based on sample rate
+    this.feedIntervalMs = 20;     // Feeder cadence (ms)
+    this._feedNextAtMs = 0;
   }
 
   dispose() {
     if (this.isDisposed) return;
-    this.stop();
     this.isDisposed = true;
+    
+    // Stop feed timer first
+    if (this.feedTimer) {
+      clearTimeout(this.feedTimer);
+      this.feedTimer = null;
+    }
+    
+    // Dispose worklet - send message, disconnect, remove listener
+    if (this.workletNode) {
+      try { this.workletNode.port.postMessage({ type: 'dispose' }); } catch(e) {}
+      try { this.workletNode.disconnect(); } catch(e) {}
+      this.workletNode.port.onmessage = null;
+      this.workletNode = null;
+    }
+    
+    // Disconnect gain node from destination
     if (this.gainNode) {
       try { this.gainNode.disconnect(); } catch(e) {}
+      this.gainNode = null;
     }
+    
+    // Close decoder and release native resources
+    if (this.decoder) {
+      try { this.decoder.close(); } catch(e) {}
+      this.decoder = null;
+    }
+    
+    // Clear all SAB references
+    this.controlSAB = null;
+    this.audioSAB = null;
+    this.controlBuffer = null;
+    this.audioBuffer = null;
+    this.ringSize = 0;
+    
+    // Clear all callbacks
+    this.onEndedCallback = null;
+    
+    // Clear context reference (don't close it - not our responsibility)
     this.audioContext = null;
-    this.gainNode = null;
+    
+    // Reset all state
+    this.isPlaying = false;
+    this.isLoaded = false;
+    this.filePath = null;
+    this.duration = 0;
   }
 
   get volume() {
@@ -180,6 +234,17 @@ class FFmpegStreamPlayerSAB {
     this._channels = this.decoder.getChannels() || 2;
     this.duration = this.decoder.getDuration() || 0;
     this.totalFrames = Math.floor(this.duration * this._sampleRate);
+
+    // Recompute chunk size for this sample rate (keep it aligned to the worklet block size)
+    let cf = (this._sampleRate * this.chunkSeconds) | 0;
+    cf = (cf + 127) & ~127; // align to 128 frames
+    if (cf < 2048) cf = 2048;
+    this.chunkFrames = cf;
+
+    // Reset end tracking for a new file
+    this._framesWritten = 0;
+    this._targetFrames = this.totalFrames;
+    this._eof = false;
     
     // Calculate ring buffer size
     const neededRingSize = Math.ceil(this.ringSeconds * this._sampleRate);
@@ -218,7 +283,9 @@ class FFmpegStreamPlayerSAB {
     Atomics.store(this.controlBuffer, CONTROL.LOOP_ENABLED, this.isLoop ? 1 : 0);
     Atomics.store(this.controlBuffer, CONTROL.LOOP_START, 0);
     Atomics.store(this.controlBuffer, CONTROL.LOOP_END, this.totalFrames);
-    Atomics.store(this.controlBuffer, CONTROL.TOTAL_FRAMES, this.totalFrames);
+    // TOTAL_FRAMES is interpreted by the worklet as "frames to play" from current position.
+    // Keep it in sync, especially for seek() and for formats where duration is slightly off.
+    Atomics.store(this.controlBuffer, CONTROL.TOTAL_FRAMES, this._targetFrames);
     Atomics.store(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_HI, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_LO, 0);
@@ -228,6 +295,8 @@ class FFmpegStreamPlayerSAB {
     if (this.workletNode && !needNewSAB) {
       // Just reset the worklet state, no new node needed
       this.workletNode.port.postMessage({ type: 'reset' });
+      // Reconnect (was disconnected in stop)
+      try { this.workletNode.connect(this.gainNode); } catch(e) {}
     } else {
       // Need new worklet node - clean up old one first
       if (this.workletNode) {
@@ -254,6 +323,7 @@ class FFmpegStreamPlayerSAB {
             // Track position for getCurrentTime
             this._posMsgAt = this.audioContext.currentTime;
             this._posMsgFrames = event.data.frames | 0;
+            this.currentFrames = this._posMsgFrames | 0;
             break;
         }
       };
@@ -282,49 +352,111 @@ class FFmpegStreamPlayerSAB {
     };
   }
 
+  _getBufferedFrames(writePtr, readPtr) {
+    let buffered = (writePtr | 0) - (readPtr | 0);
+    if (buffered < 0) buffered += this.ringSize;
+    return buffered;
+  }
+
+  _updateDiagnosticsFromControl(writePtr, readPtr) {
+    if (!this.controlBuffer) return;
+    const buffered = this._getBufferedFrames(writePtr, readPtr);
+    const cf = this.chunkFrames | 0;
+    this._queuedChunks = cf > 0 ? ((buffered / cf) | 0) : 0;
+    this._underrunFrames = Atomics.load(this.controlBuffer, CONTROL.UNDERRUN_COUNT) | 0;
+  }
+
+  _pump(maxChunks = 4) {
+    if (!this.decoder || !this.controlBuffer || !this.audioBuffer || !this.ringSize) return 0;
+    let totalRead = 0;
+
+    // Target buffering (low/high watermark) expressed as chunks
+    let pb = (this.prebufferSize | 0);
+    if (pb <= 0) pb = 10;
+    const cf = this.chunkFrames | 0;
+    let low = pb * cf;
+    if (low < (cf * 2)) low = cf * 2;
+    let high = low + (cf * 2);
+    const cap = (this.ringSize - 1) | 0;
+    if (high > cap) high = cap;
+    if (low > cap) low = cap;
+
+    for (let i = 0; i < maxChunks; i++) {
+      const writePtr = Atomics.load(this.controlBuffer, CONTROL.WRITE_PTR) | 0;
+      const readPtr = Atomics.load(this.controlBuffer, CONTROL.READ_PTR) | 0;
+      const buffered = this._getBufferedFrames(writePtr, readPtr);
+      if (buffered >= high) {
+        this._updateDiagnosticsFromControl(writePtr, readPtr);
+        break;
+      }
+
+      // Space available in ring
+      const available = this.ringSize - buffered - 1;
+      if (available <= 0) {
+        this._updateDiagnosticsFromControl(writePtr, readPtr);
+        break;
+      }
+
+      const framesToRead = Math.min(available, cf);
+      const samplesToRead = framesToRead * this._channels;
+      const result = this.decoder.read(samplesToRead);
+      if (result.samplesRead <= 0) {
+        // EOF
+        if (this.isLoop) {
+          this.decoder.seek(0);
+          this._framesWritten = 0;
+          this._eof = false;
+        }
+        else {
+          this._eof = true;
+          Atomics.store(this.controlBuffer, CONTROL.TOTAL_FRAMES, this._framesWritten | 0);
+        }
+        this._updateDiagnosticsFromControl(writePtr, readPtr);
+        break;
+      }
+
+      const framesRead = Math.floor((result.samplesRead | 0) / this._channels);
+      if (framesRead <= 0) {
+        this._updateDiagnosticsFromControl(writePtr, readPtr);
+        break;
+      }
+
+      // Track produced frames (relative to current open/seek position)
+      this._framesWritten += framesRead;
+
+      // Fast ring write (two-part copy for wrap)
+      const samplesRead = framesRead * this._channels;
+      const src = result.buffer;
+      const srcView = (src.subarray ? src.subarray(0, samplesRead) : src);
+
+      const writeFrame = writePtr;
+      const dst0 = writeFrame * this._channels;
+      const framesToEnd = this.ringSize - writeFrame;
+      const samplesToEnd = framesToEnd * this._channels;
+      if (samplesRead <= samplesToEnd) {
+        this.audioBuffer.set(srcView, dst0);
+      } else {
+        this.audioBuffer.set(srcView.subarray(0, samplesToEnd), dst0);
+        this.audioBuffer.set(srcView.subarray(samplesToEnd, samplesRead), 0);
+      }
+
+      const newWrite = (writeFrame + framesRead) % this.ringSize;
+      Atomics.store(this.controlBuffer, CONTROL.WRITE_PTR, newWrite);
+
+      totalRead += framesRead;
+      if (buffered + framesRead >= low) {
+        // Good enough; don't monopolize the JS thread
+        this._updateDiagnosticsFromControl(newWrite, readPtr);
+        break;
+      }
+    }
+
+    return totalRead;
+  }
+
   _fillRingBuffer() {
     if (!this.decoder || !this.controlBuffer || !this.audioBuffer) return 0;
-    
-    const writePtr = Atomics.load(this.controlBuffer, CONTROL.WRITE_PTR);
-    const readPtr = Atomics.load(this.controlBuffer, CONTROL.READ_PTR);
-    
-    // Calculate how much space is available
-    let used = writePtr - readPtr;
-    if (used < 0) used += this.ringSize;
-    const available = this.ringSize - used - 1; // -1 to distinguish full from empty
-    
-    if (available <= 0) return 0;
-    
-    // Decode in chunks
-    const framesToRead = Math.min(available, this.chunkFrames);
-    const samplesToRead = framesToRead * this._channels;
-    
-    const result = this.decoder.read(samplesToRead);
-    if (result.samplesRead <= 0) {
-      // EOF
-      if (this.isLoop) {
-        this.decoder.seek(0);
-      }
-      return 0;
-    }
-    
-    const framesRead = Math.floor(result.samplesRead / this._channels);
-    
-    // Write to ring buffer (handle wrap-around)
-    let localWritePtr = writePtr;
-    for (let i = 0; i < framesRead; i++) {
-      const srcIdx = i * this._channels;
-      const dstIdx = (localWritePtr % this.ringSize) * this._channels;
-      
-      this.audioBuffer[dstIdx] = result.buffer[srcIdx];
-      this.audioBuffer[dstIdx + 1] = result.buffer[srcIdx + 1];
-      
-      localWritePtr++;
-    }
-    
-    // Update write pointer atomically
-    Atomics.store(this.controlBuffer, CONTROL.WRITE_PTR, localWritePtr % this.ringSize);
-    return framesRead;
+    return this._pump(1);
   }
 
   /**
@@ -346,11 +478,21 @@ class FFmpegStreamPlayerSAB {
 
   _startFeedLoop() {
     if (this.isDisposed || !this.isPlaying) return;
-    
-    this._fillRingBuffer();
-    
-    // Continue feeding at ~20ms intervals
-    this.feedTimer = setTimeout(() => this._startFeedLoop(), 20);
+
+    // Fill toward our target buffer depth; no-op when already sufficiently buffered
+    this._pump(4);
+
+    // Drift-corrected scheduling (avoids long-term drift from chained setTimeout)
+    const interval = (this.feedIntervalMs | 0) > 0 ? (this.feedIntervalMs | 0) : 20;
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!this._feedNextAtMs || (now - this._feedNextAtMs) > (interval * 10)) {
+      this._feedNextAtMs = now + interval;
+    } else {
+      this._feedNextAtMs += interval;
+    }
+    let delay = this._feedNextAtMs - now;
+    if (delay < 0) delay = 0;
+    this.feedTimer = setTimeout(() => this._startFeedLoop(), delay);
   }
 
   _setScheduledStart(when) {
@@ -384,6 +526,7 @@ class FFmpegStreamPlayerSAB {
     if (this.isPlaying) return;
     
     this.isPlaying = true;
+    this._feedNextAtMs = 0;
     this._startFeedLoop();
   }
 
@@ -422,6 +565,12 @@ class FFmpegStreamPlayerSAB {
       this._seekOffset = seconds;
       this._posMsgAt = 0;
       this._posMsgFrames = 0;
+
+      // Worklet frame counter resets on seek, so TOTAL_FRAMES must represent remaining frames.
+      this._framesWritten = 0;
+      this._eof = false;
+      this._targetFrames = Math.max(0, (this.totalFrames | 0) - Math.floor(seconds * this._sampleRate));
+      Atomics.store(this.controlBuffer, CONTROL.TOTAL_FRAMES, this._targetFrames | 0);
       
       // Tell worklet to reset its internal counters
       if (this.workletNode) {
@@ -479,19 +628,34 @@ class FFmpegStreamPlayerSAB {
   }
 
   stop(keepDecoder = false) {
-    this.pause();
+    // Stop playback state first
+    this.isPlaying = false;
     
+    // Clear feed timer
+    if (this.feedTimer) {
+      clearTimeout(this.feedTimer);
+      this.feedTimer = null;
+    }
+    
+    // Update control buffer state
     if (this.controlBuffer) {
       Atomics.store(this.controlBuffer, CONTROL.STATE, STATE.STOPPED);
       Atomics.store(this.controlBuffer, CONTROL.WRITE_PTR, 0);
       Atomics.store(this.controlBuffer, CONTROL.READ_PTR, 0);
     }
     
+    // Handle worklet based on keepDecoder flag
     if (this.workletNode) {
-      this.workletNode.port.postMessage({ type: 'dispose' });
-      try { this.workletNode.disconnect(); } catch(e) {}
-      this.workletNode.port.onmessage = null;
-      this.workletNode = null;
+      if (keepDecoder) {
+        // Just disconnect to stop CPU, keep node alive for reuse
+        try { this.workletNode.disconnect(); } catch(e) {}
+      } else {
+        // Full dispose - send message, disconnect, remove listener, null reference
+        try { this.workletNode.port.postMessage({ type: 'dispose' }); } catch(e) {}
+        try { this.workletNode.disconnect(); } catch(e) {}
+        this.workletNode.port.onmessage = null;
+        this.workletNode = null;
+      }
     }
     
     // Clear SAB references to allow GC (unless we might reuse them)
