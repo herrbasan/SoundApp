@@ -1,6 +1,6 @@
 {
   "name": "soundapp",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "SoundApp",
   "main": "js/app.js",
   "scripts": {
