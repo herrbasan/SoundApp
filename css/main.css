@@ -489,6 +489,7 @@ body.loop .top .content .loop::after{
 	padding-right: var(--space-frame);
 	border-top: solid 1px rgb(var(--color-shade1));
 	background-color: rgb(45,45,45);
+	display:none;
 }
 .controls .button {
 	width: 2rem;
