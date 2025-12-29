@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>SoundApp Memory Harness</title>
+	<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+	<div class="wrap">
+		<h1>SoundApp Memory Harness</h1>
+
+		<div class="row">
+			<div class="col">
+				<label>Test folders (one per line)</label>
+				<textarea id="folders" spellcheck="false" placeholder="D:\\Music\\testset\\\nD:\\Music\\stems\\"></textarea>
+				<div class="btnrow">
+					<button id="scan">Scan folders</button>
+					<button id="snap">Mem snapshot</button>
+					<button id="telemetry">Telemetry: off</button>
+				</div>
+				<div id="scaninfo" class="muted">No scan yet.</div>
+			</div>
+			<div class="col">
+				<label>Run config</label>
+				<div class="cfg">
+					<div class="line"><span>Iterations</span><input id="iters" type="number" min="1" value="50" /></div>
+					<div class="line"><span>Tracks (multi)</span><input id="tracks" type="number" min="1" value="12" /></div>
+					<div class="line"><span>Hold ms</span><input id="hold" type="number" min="0" value="250" /></div>
+					<div class="line"><span>Seek per iter</span><input id="seeks" type="number" min="0" value="2" /></div>
+					<div class="line"><span>Force GC</span><input id="forcegc" type="checkbox" checked /></div>
+				</div>
+				<div class="btnrow">
+					<button id="runSingle">Run: single-track</button>
+					<button id="runMulti">Run: multi-track</button>
+					<button id="stop">Stop</button>
+				</div>
+				<div class="muted">Logs go to DevTools console.</div>
+			</div>
+		</div>
+
+		<div class="row">
+			<div class="col">
+				<label>Status</label>
+				<pre id="status"></pre>
+			</div>
+		</div>
+	</div>
+
+	<script src="renderer.js"></script>
+</body>
+</html>

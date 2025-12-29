@@ -69,6 +69,8 @@ class MixerTrack {
 				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayer(ctx, initData.ffmpeg_worklet_path, bufferSize, 1, false);
 				// Keep player settings in sync with config changes.
 				player.prebufferSize = bufferSize;
+				// Reduce AudioWorkletNode churn when reloading tracks.
+				try { player.reuseWorkletNode = true; } catch(e) {}
 				let filePath = src;
 				if(filePath.startsWith('file:///')) filePath = decodeURIComponent(filePath.substring(8));
 				else if(filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.substring(7));

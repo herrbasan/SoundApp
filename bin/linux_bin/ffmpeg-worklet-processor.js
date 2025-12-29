@@ -46,6 +46,16 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
 
     this.port.onmessage = this.onMessage.bind(this);
   }
+
+  _coerceSamples(d) {
+    // Backward compatible: accept either a Float32Array (d.samples)
+    // or a transferred ArrayBuffer (d.buf + d.n).
+    if (d && d.samples) return d.samples;
+    if (d && d.buf && (d.n | 0) > 0) {
+      try { return new Float32Array(d.buf, 0, d.n | 0); } catch(e) { return null; }
+    }
+    return null;
+  }
   
   onMessage(event) {
     switch (event.data.type) {
@@ -59,10 +69,12 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
 
       case 'chunk':
         // Regular chunk
-        this.chunks.push({
-          samples: event.data.samples,
-          isLast: false
-        });
+        {
+          const samples = this._coerceSamples(event.data);
+          if (samples) {
+            this.chunks.push({ samples: samples, isLast: false });
+          }
+        }
         break;
         
       case 'eof':
@@ -77,7 +89,17 @@ class FFmpegStreamProcessor extends AudioWorkletProcessor {
         
       case 'loopChunk':
         // Store the first chunk for looping
-        this.loopChunk = event.data.samples;
+        {
+          const samples = this._coerceSamples(event.data);
+          if (samples) {
+            this.loopChunk = samples;
+
+            // Optional: also enqueue this as the first regular chunk.
+            if (event.data && event.data.enqueue) {
+              this.chunks.push({ samples: samples, isLast: false });
+            }
+          }
+        }
         break;
         
       case 'setLoop':

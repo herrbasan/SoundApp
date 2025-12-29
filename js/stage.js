@@ -242,6 +242,8 @@ async function init(){
 	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
 	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
+	// Reduce AudioWorkletNode churn when switching tracks / reopening files.
+	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
 	try {
 		await g.ffmpegPlayer.init();
 	} catch (err) {
@@ -1110,6 +1112,8 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
 	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
+	// Reduce AudioWorkletNode churn when reopening after AudioContext rebuild.
+	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
 	await g.ffmpegPlayer.init();
 	
 	const modConfig = {

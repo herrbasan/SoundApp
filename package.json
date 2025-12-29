@@ -5,6 +5,7 @@
   "main": "js/app.js",
   "scripts": {
     "start": "electron-forge start",
+    "harness": "electron harness/main.js",
     "package": "electron-forge package",
     "dist": "electron-builder",
     "make": "electron-forge make"
@@ -27,6 +28,7 @@
           "_Material",
           "_gsdata_",
           ".vscode",
+          "harness",
           "build",
           "bin",
           "node_modules",
