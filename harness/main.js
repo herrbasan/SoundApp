@@ -7,28 +7,15 @@ const fs = require('fs').promises;
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('enable-precise-memory-info');
 app.commandLine.appendSwitch('js-flags', '--expose-gc');
+// Enable SharedArrayBuffer (required for SAB experiment)
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
 let win = null;
 let telemetryTimer = null;
 
 const VARIANTS = [
 	{ id: 'A0', title: 'baseline', exp: {} },
-	{ id: 'B1', title: 'disableAggressiveFill', exp: { disableAggressiveFill: true } },
-	{ id: 'C8', title: 'fillBurstMax 8', exp: { fillBurstMax: 8 } },
-	{ id: 'C16', title: 'fillBurstMax 16', exp: { fillBurstMax: 16 } },
-	{ id: 'C32', title: 'fillBurstMax 32', exp: { fillBurstMax: 32 } },
-	{ id: 'C64', title: 'fillBurstMax 64', exp: { fillBurstMax: 64 } },
-	{ id: 'R1', title: 'reuseWorkletNode', exp: { reuseWorkletNode: true } },
-	{ id: 'W1', title: 'dropChunksWorklet', exp: { dropChunksWorklet: true } },
-	{ id: 'S20', title: 'chunkSeconds 0.02', exp: { chunkSecondsMs: 20 } },
-	{ id: 'S50', title: 'chunkSeconds 0.05', exp: { chunkSecondsMs: 50 } },
-	{ id: 'S100', title: 'chunkSeconds 0.10', exp: { chunkSecondsMs: 100 } },
-	{ id: 'D1', title: 'recreatePlayersPerIter', exp: { recreatePlayersPerIter: true } },
-	// Context recreation requires players to be recreated too.
-	{ id: 'D2', title: 'recreateContextPerIter', exp: { recreatePlayersPerIter: true, recreateContextPerIter: true } },
-	{ id: 'T1', title: 'transferChunks', exp: { transferChunks: true } },
-	{ id: 'E500', title: 'postStopSettleMs 500', exp: { postStopSettleMs: 500 } },
-	{ id: 'E2000', title: 'postStopSettleMs 2000', exp: { postStopSettleMs: 2000 } }
+	{ id: 'SAB', title: 'SharedArrayBuffer player', exp: { useSAB: true } }
 ];
 
 let controller = {
@@ -246,7 +233,13 @@ ipcMain.handle('variant-finished', async (ev, payload) => {
 
 	// Close window to force a fresh renderer for the next variant.
 	try { if(win && !win.isDestroyed()) win.close(); } catch(e) {}
-	setTimeout(() => { try { nextVariant(); } catch(e) {} }, 250);
+	
+	// Allow system to breathe and clear memory between variants
+	console.log('[HARNESS][AB] Waiting 2s for memory cleanup before next variant...');
+	setTimeout(() => {
+		try { if(global.gc) global.gc(); } catch(e) {}
+		setTimeout(() => { try { nextVariant(); } catch(e) {} }, 1000);
+	}, 1000);
 	return true;
 });
 

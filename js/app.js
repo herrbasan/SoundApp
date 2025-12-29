@@ -25,6 +25,8 @@ let isQuitting = false;
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
 //app.commandLine.appendSwitch('--js-flags', '--experimental-module');
 //app.disableHardwareAcceleration();
+// Enable SharedArrayBuffer (required for SAB-based streaming player)
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 //protocol.registerSchemesAsPrivileged([{ scheme: 'raum', privileges: { bypassCSP: true, supportFetchAPI:true } }])
 
 async function init(cmd){

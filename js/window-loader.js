@@ -41,7 +41,8 @@ if (isElectron) {
 		},
 		isElectron: true,
 		get stageId() { return stageId; },
-		get windowId() { return windowId; }
+		get windowId() { return windowId; },
+		toggleDevTools: () => helper.window.toggleDevTools()
 	};
 	
 	// Listen for theme changes (register early)
@@ -85,7 +86,8 @@ if (isElectron) {
 	
 	// Add global keyboard shortcuts
 	document.addEventListener('keydown', (e) => {
-		if(e.keyCode == 122){ // F11 - toggle DevTools
+		// F12 (keyCode 123) or F11 (keyCode 122) - toggle DevTools
+		if(e.keyCode === 123 || e.keyCode === 122){
 			helper.window.toggleDevTools();
 		}
 	});

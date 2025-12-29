@@ -45,6 +45,16 @@ function getDropWorkletPath(){
 	return path.resolve(root, 'libs/ffmpeg-napi-interface/lib/ffmpeg-worklet-processor-drop.js');
 }
 
+function getSABWorkletPath(){
+	const root = getRoot();
+	return path.resolve(root, 'bin/win_bin/ffmpeg-worklet-sab.js');
+}
+
+function getSABPlayerLibPath(){
+	const root = getRoot();
+	return path.resolve(root, 'bin/win_bin/player-sab.js');
+}
+
 function getPlayerLibPath(){
 	const root = getRoot();
 	return path.resolve(root, 'libs/ffmpeg-napi-interface/lib/player.js');
@@ -71,7 +81,7 @@ const AUTOPILOT = {
 	// Keep runs short enough to observe in limited logs.
 	itersSingle: 20,
 	itersDecoder: 15,
-	itersMulti: 25,
+	itersMulti: 50,
 	tracks: 20,
 	seeks: 2,
 	holdMs: 250,
@@ -105,7 +115,9 @@ const DEFAULT_EXPERIMENTS = {
 	// 0 = use AUTOPILOT.postStopSettleMs; >0 overrides settle window.
 	postStopSettleMs: 0,
 	// If true, players send chunks as transferable ArrayBuffers.
-	transferChunks: false
+	transferChunks: false,
+	// If true, use SharedArrayBuffer-based player (experimental).
+	useSAB: false
 };
 
 const EXPERIMENTS = Object.assign({}, DEFAULT_EXPERIMENTS);
@@ -194,11 +206,14 @@ function emitRendererMem(tag){
 
 async function maybeGc(force){
 	if(!force) return;
-	await sleep(0);
-	try { if(typeof gc === 'function') gc(); } catch(e) {}
-	await sleep(0);
-	try { if(globalThis && typeof globalThis.gc === 'function') globalThis.gc(); } catch(e) {}
-	await sleep(50);
+	// Multiple GC passes with delays to ensure thorough cleanup
+	for(let pass = 0; pass < 3; pass++){
+		await sleep(20);
+		try { if(typeof gc === 'function') gc(); } catch(e) {}
+		await sleep(20);
+		try { if(globalThis && typeof globalThis.gc === 'function') globalThis.gc(); } catch(e) {}
+	}
+	await sleep(100);
 }
 
 async function memSnap(tag){
@@ -336,6 +351,7 @@ function getPrebufferSizeForChunkSeconds(baseChunks, baseChunkSeconds, chunkSeco
 function aggressiveFill(p){
 	if(!WORST.aggressiveFill) return;
 	if(EXPERIMENTS.disableAggressiveFill) return;
+	if(EXPERIMENTS.useSAB) return; // SAB uses fixed ring buffer, aggressive fill not applicable
 	try {
 		if(p && typeof p._fillQueue === 'function'){
 			// MaxChunks intentionally large: this is a stress harness.
@@ -432,7 +448,13 @@ async function runSingle(fileList, label){
 	if(EXPERIMENTS.callFlushOnStop && player.flush) try { player.flush(); } catch(e) {}
 	try { player.dispose(); } catch(e) {}
 	try { await ctx.close(); } catch(e) {}
+	
+	// Aggressive cleanup: null references and settle
+	await sleep(200);
 	await maybeGc(cfg.forceGc);
+	await sleep(200);
+	await maybeGc(cfg.forceGc);
+	
 	recordGrowth('single:' + tag);
 	await memSnap('single:' + tag + ':after');
 	status('Single-track done (' + tag + ').');
@@ -448,8 +470,20 @@ async function runMulti(fileList, label){
 
 	let { native, mod, workletPath } = await ensureDeps();
 	if(EXPERIMENTS.dropChunksWorklet) workletPath = getDropWorkletPath();
-	const { FFmpegStreamPlayer } = mod;
-	FFmpegStreamPlayer.setDecoder(native.FFmpegDecoder);
+	
+	// SAB experiment: use SharedArrayBuffer-based player
+	let PlayerClass;
+	if(EXPERIMENTS.useSAB){
+		const sabMod = require(getSABPlayerLibPath());
+		PlayerClass = sabMod.FFmpegStreamPlayerSAB;
+		workletPath = getSABWorkletPath();
+		PlayerClass.setDecoder(native.FFmpegDecoder);
+		log('Using SharedArrayBuffer player');
+	} else {
+		const { FFmpegStreamPlayer } = mod;
+		FFmpegStreamPlayer.setDecoder(native.FFmpegDecoder);
+		PlayerClass = FFmpegStreamPlayer;
+	}
 
 	const chunkSeconds = getChunkSeconds();
 	const prebufferMulti = getPrebufferSizeForChunkSeconds(WORST.prebufferMulti, WORST.chunkSeconds, chunkSeconds);
@@ -463,7 +497,7 @@ async function runMulti(fileList, label){
 	function createPlayers(){
 		players = [];
 		for(let i=0; i<cfg.tracks; i++){
-			const p = worstcaseTweakPlayer(new FFmpegStreamPlayer(ctx, workletPath, prebufferMulti, 1, false));
+			const p = worstcaseTweakPlayer(new PlayerClass(ctx, workletPath, prebufferMulti, 1, false));
 			try { p.chunkSeconds = chunkSeconds; } catch(e) {}
 			try { p.reuseWorkletNode = !!EXPERIMENTS.reuseWorkletNode; } catch(e) {}
 			if(EXPERIMENTS.fillBurstMax !== 0) p.fillBurstMax = (EXPERIMENTS.fillBurstMax|0);
@@ -476,9 +510,13 @@ async function runMulti(fileList, label){
 		for(let t=0; t<players.length; t++){
 			try {
 				if(EXPERIMENTS.callFlushOnStop && players[t].flush) players[t].flush();
+				players[t].stop(false); // full stop, close decoder
+				players[t].disconnect();
 				players[t].dispose();
 			} catch(e) {}
+			players[t] = null; // clear reference
 		}
+		players.length = 0;
 		players = [];
 	}
 	async function recreateContext(){
@@ -535,10 +573,10 @@ async function runMulti(fileList, label){
 		for(let t=0; t<players.length; t++) players[t].pause();
 		await sleep(10);
 
-		// Stop players
+		// Stop players - SAB uses keepDecoder=true to preserve SABs for reuse
 		for(let t=0; t<players.length; t++){
 			if(EXPERIMENTS.callFlushOnStop && players[t].flush) try { players[t].flush(); } catch(e) {}
-			players[t].stop(true);
+			players[t].stop(EXPERIMENTS.useSAB ? true : false);
 		}
 		const settleMs = (EXPERIMENTS.postStopSettleMs|0) > 0 ? (EXPERIMENTS.postStopSettleMs|0) : (AUTOPILOT.postStopSettleMs|0);
 		if(settleMs > 0) await sleep(settleMs);
@@ -559,8 +597,27 @@ async function runMulti(fileList, label){
 
 	disposePlayers();
 	try { master.disconnect(); } catch(e) {}
+	master = null;
 	try { await ctx.close(); } catch(e) {}
+	ctx = null;
+	
+	// Aggressive cleanup: multiple GC passes with delays
+	await sleep(300);
 	await maybeGc(cfg.forceGc);
+	await sleep(300);
+	await maybeGc(cfg.forceGc);
+	
+	// Clear require cache for player modules to release any held references
+	try {
+		const playerPath = getPlayerLibPath();
+		const sabPath = getSABPlayerLibPath();
+		if(require.cache[playerPath]) delete require.cache[playerPath];
+		if(require.cache[sabPath]) delete require.cache[sabPath];
+	} catch(e) {}
+	
+	await sleep(200);
+	await maybeGc(cfg.forceGc);
+	
 	recordGrowth('multi:' + tag);
 	await memSnap('multi:' + tag + ':after');
 	status('Multi-track done (' + tag + ').');
@@ -620,10 +677,10 @@ async function autoPilot(){
 
 	// Apply short autopilot values (still worst-case buffering).
 	// Controller mode uses even smaller per-variant runtime.
-	el('iters').value = '' + (ctrl ? 6 : AUTOPILOT.itersSingle);
+	el('iters').value = '' + (ctrl ? 20 : AUTOPILOT.itersSingle);
 	el('tracks').value = '' + AUTOPILOT.tracks;
-	el('hold').value = '' + (ctrl ? 120 : AUTOPILOT.holdMs);
-	el('seeks').value = '' + (ctrl ? 1 : AUTOPILOT.seeks);
+	el('hold').value = '' + (ctrl ? 150 : AUTOPILOT.holdMs);
+	el('seeks').value = '' + (ctrl ? 2 : AUTOPILOT.seeks);
 	g.snapEvery = AUTOPILOT.snapEvery;
 
 	if(!ctrl){
@@ -710,7 +767,7 @@ window.addEventListener('DOMContentLoaded', () => {
 	el('tracks').value = '' + AUTOPILOT.tracks;
 	el('hold').value = '' + AUTOPILOT.holdMs;
 	el('seeks').value = '' + AUTOPILOT.seeks;
-	el('forcegc').checked = true;
+	el('forcegc').checked = false;
 
 	el('scan').addEventListener('click', () => scan());
 	el('snap').addEventListener('click', () => memSnap('manual'));

@@ -16,7 +16,7 @@ module.exports = {
 	},
 
 	ffmpeg: {
-		stream: { prebufferChunks: 10 },
+		stream: { prebufferChunks: 50 },
 		decoder: { threads: 0 },
 		transcode: { ext: '.wav', cmd: '-c:a pcm_s16le' }
 	},
@@ -27,7 +27,8 @@ module.exports = {
 	},
 
 	mixer: {
-		preBuffer: 50
+		preBuffer: 50,
+		useSAB: false  // Experimental: use SharedArrayBuffer player instead of postMessage
 	},
 
 	// Window/bounds persistence

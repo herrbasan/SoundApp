@@ -198,13 +198,21 @@ async function init(){
 
 	if(os.platform() == 'linux'){
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/linux_bin/ffmpeg_napi.node');
-		g.ffmpeg_player_path = path.resolve(fp + '/bin/linux_bin/player.js');
-		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-processor.js');
+		g.ffmpeg_player_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
+		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
+		g.ffmpeg_player_pm_path = path.resolve(fp + '/bin/linux_bin/player-pm.js');
+		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-pm.js');
+		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
+		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
 	}
 	else {
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
-		g.ffmpeg_player_path = path.resolve(fp + '/bin/win_bin/player.js');
-		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-processor.js');
+		g.ffmpeg_player_path = path.resolve(fp + '/bin/win_bin/player-sab.js');
+		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-sab.js');
+		g.ffmpeg_player_pm_path = path.resolve(fp + '/bin/win_bin/player-pm.js');
+		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-pm.js');
+		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/win_bin/player-sab.js');
+		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-sab.js');
 	}
 
 	/* Detect max supported sample rate for HQ mode */
@@ -235,14 +243,16 @@ async function init(){
 		}
 	}
 
-	/* FFmpeg NAPI Player - unified streaming with gapless looping */
+	/* FFmpeg NAPI Player - unified streaming with gapless looping (SAB-based) */
 	const { FFmpegDecoder, getMetadata } = require(g.ffmpeg_napi_path);
 	g.getMetadata = getMetadata;
-	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
-	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
+	g.FFmpegDecoder = FFmpegDecoder;  // Expose for testing
+	
+	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
+	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
-	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
+	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	// Reduce AudioWorkletNode churn when switching tracks / reopening files.
 	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
 	try {
@@ -970,7 +980,7 @@ function renderTopInfo(){
 }
 
 function clearAudio(){
-	if(g.ffmpegPlayer) g.ffmpegPlayer.stop();
+	if(g.ffmpegPlayer) g.ffmpegPlayer.stop(true);  // Keep SABs/worklet for reuse
 	if(g.currentAudio){
 		if(g.currentAudio.isMod) player.stop();
 		g.currentAudio = undefined;
@@ -1113,12 +1123,18 @@ async function toggleHQMode(desiredState, skipPersist=false){
 		}
 	}
 	
+	// Fully dispose old ffmpegPlayer before creating new one
+	if (g.ffmpegPlayer) {
+		try { g.ffmpegPlayer.dispose(); } catch(e) { console.warn('ffmpegPlayer dispose error:', e); }
+		g.ffmpegPlayer = null;
+	}
+	
 	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
-	const { FFmpegStreamPlayer } = require(g.ffmpeg_player_path);
-	FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
+	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
+	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 	const bufferSize = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream && g.config.ffmpeg.stream.prebufferChunks !== undefined) ? (g.config.ffmpeg.stream.prebufferChunks | 0) : 10;
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
-	g.ffmpegPlayer = new FFmpegStreamPlayer(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
+	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, bufferSize, threadCount);
 	// Reduce AudioWorkletNode churn when reopening after AudioContext rebuild.
 	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
 	await g.ffmpegPlayer.init();
@@ -1581,7 +1597,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		currentSampleRate: g.audioContext.sampleRate,
 		ffmpeg_napi_path: g.ffmpeg_napi_path,
 		ffmpeg_player_path: g.ffmpeg_player_path,
-		ffmpeg_worklet_path: g.ffmpeg_worklet_path
+		ffmpeg_worklet_path: g.ffmpeg_worklet_path,
+		ffmpeg_player_sab_path: g.ffmpeg_player_sab_path,
+		ffmpeg_worklet_sab_path: g.ffmpeg_worklet_sab_path
 	};
 
 	if(type === 'mixer'){

@@ -83,22 +83,20 @@ What we’ve learned from repeated A/B runs:
 - **Transferable chunk messaging helps, but doesn’t beat real backpressure.** Enabling `transferChunks` (sending `ArrayBuffer` via transfer list instead of posting `Float32Array` chunks by value) reduced growth in the latest run (baseline `multiDeltaMB=115` → `transferChunks=77.6`), suggesting a meaningful portion of the growth is tied to message copying/backlog pressure. However, `disableAggressiveFill` was still better in the same run (`multiDeltaMB=50`).
 
 - **“Dispose too fast” is not the main explanation.** We added a short settle window after stopping tracks and deferred port close/disconnect slightly so the worklet has time to process `dispose`. This did **not** collapse baseline deltas toward ~0MB, so the remaining growth is unlikely to be just a measurement race.
-
+- **`chunkSeconds` below 0.10 causes audible issues.** Testing with `chunkSeconds: 0.02` (20ms chunks) caused crackling in the stage player and severe underruns in the mixer, even with proportionally increased `prebufferChunks`. The 20ms value is too aggressive for real-world use - the decoder/worklet can't keep up with the higher message frequency. **Minimum practical `chunkSeconds` is 0.10 (100ms).** Slower machines may require even larger values.
 Working hypothesis: memory growth is driven by worklet message/backlog/buffering behavior under multi-track stress (and/or slow reclamation in Chromium’s audio/worklet plumbing), and the highest-value mitigation is to keep queue fill bounded and avoid posting large bursts.
 
 ## Suggested next steps (to move the needle)
 
 Based on the latest matrix results (especially `dropChunksWorklet` still growing, and the strong sensitivity to `chunkSeconds`), the most likely “single subsystem” retaining memory is **Chromium-side AudioWorklet/MessagePort allocation/backlog behavior** under sustained chunk messaging. This is largely outside the JS heap, so it won’t look like a classic JS leak.
 
-Two practical next steps:
+Practical next step:
 
-- **Ship a smaller `chunkSeconds` default (e.g. 0.02s)** and scale `prebufferChunks` to keep buffered *seconds* roughly constant.
-  - This changes the message/alloc pattern and in recent runs produced the largest delta reduction.
-  - Goal: reduce the amount of memory churn that seems to stick in the renderer/Tab process.
-
-- **Long-term “hard fix”: replace per-chunk `postMessage` with a bounded ring buffer** (ideally `SharedArrayBuffer` + `Atomics`).
-  - This makes memory usage **bounded and reusable by design** and avoids relying on the browser’s message queue to promptly release large amounts of transferred/copied audio data.
+- **Long-term "hard fix": replace per-chunk `postMessage` with a bounded ring buffer** (ideally `SharedArrayBuffer` + `Atomics`).
+  - This makes memory usage **bounded and reusable by design** and avoids relying on the browser's message queue to promptly release large amounts of transferred/copied audio data.
   - This is a larger refactor, but it directly targets the suspected retention mechanism.
+
+**Note:** Reducing `chunkSeconds` below 0.10 is NOT viable - testing confirmed it causes audio crackling and mixer sync failures due to decoder/worklet throughput limits.
 
 ## Editing the matrix (variants)
 

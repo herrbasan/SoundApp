@@ -52,13 +52,13 @@ class MixerTrack {
 		const initData = this.engine.initData;
 		let ab;
 
-		// Electron + FFmpeg path available: use FFmpegStreamPlayer for high-performance streaming
+		// Electron + FFmpeg path available: use FFmpegStreamPlayerSAB for high-performance streaming
 		const canFF = !!(window.bridge && window.bridge.isElectron && initData.ffmpeg_napi_path && initData.ffmpeg_player_path);
 		if(canFF && typeof src === 'string' && !src.startsWith('blob:')){
 			try {
 				const { FFmpegDecoder } = require(initData.ffmpeg_napi_path);
-				const { FFmpegStreamPlayer } = require(initData.ffmpeg_player_path);
-				FFmpegStreamPlayer.setDecoder(FFmpegDecoder);
+				const { FFmpegStreamPlayerSAB } = require(initData.ffmpeg_player_path);
+				FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 				
 				// Use the user-configured buffer size, but ensure a minimum of 20 chunks for mixer stability.
 				// Force 1 thread per track to avoid CPU over-subscription with many parallel decoders.
@@ -66,9 +66,10 @@ class MixerTrack {
 					? (initData.config.ffmpeg.stream.prebufferChunks | 0)
 					: 10;
 				const bufferSize = Math.max(20, cfgBuf);
-				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayer(ctx, initData.ffmpeg_worklet_path, bufferSize, 1, false);
+				const workletPath = initData.ffmpeg_worklet_path;
+				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayerSAB(ctx, workletPath, bufferSize, 1, false);
 				// Keep player settings in sync with config changes.
-				player.prebufferSize = bufferSize;
+				if(player.prebufferSize !== undefined) player.prebufferSize = bufferSize;
 				let filePath = src;
 				if(filePath.startsWith('file:///')) filePath = decodeURIComponent(filePath.substring(8));
 				else if(filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.substring(7));
@@ -86,7 +87,7 @@ class MixerTrack {
 			} catch(err) {
 				this.lastLoadError = (err && (err.stack || err.message)) ? ('' + (err.stack || err.message)) : ('' + err);
 				this.lastLoadNote = 'ff failed';
-				console.warn('FFmpegStreamPlayer failed, falling back to standard decoding:', err);
+				console.error('[MixerTrack] FFmpegStreamPlayer FAILED:', err, '\nStack:', err.stack);
 				// Ensure the FFmpeg player is not left in a half-initialized state.
 				try { if(this.ffPlayer) this.ffPlayer.pause(); } catch(e) {}
 			}

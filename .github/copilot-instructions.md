@@ -24,8 +24,8 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/mixer/main.js` - Mixer UI + playlist handover + cleanup
 - `js/mixer/mixer_engine.js` - Mixer engine (buffer decode + AudioWorklet mixer)
 - `js/mixer/mixer-worklet-processor.js` - AudioWorkletProcessor (`soundapp-mixer`)
-- `bin/win_bin/player.js` - FFmpegStreamPlayer class (NAPI decoder + AudioWorklet)
-- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorklet for chunk-based streaming
+- `bin/win_bin/player.js` - FFmpegStreamPlayerSAB class (NAPI decoder + SharedArrayBuffer + AudioWorklet)
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorkletProcessor for SAB ring buffer playback
 - `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
 - `libs/` - Third-party audio libraries (NUI framework, electron_helper, chiptune, etc.)
 - `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
@@ -72,6 +72,31 @@ Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via
 2. Preview in browser (live-server) for rapid CSS iteration
 3. Add content to `<main>` element
 4. Wire up in stage.js with keyboard shortcut
+
+## SAB Audio Pipeline (FFmpeg Streaming)
+
+The FFmpeg player uses SharedArrayBuffer for zero-copy audio streaming between the main thread decoder and the AudioWorkletProcessor.
+
+**Architecture:**
+- **Main Thread:** FFmpegDecoder (NAPI) decodes audio → writes to SharedArrayBuffer ring buffer
+- **Audio Thread:** AudioWorkletProcessor reads from ring buffer → outputs to speakers
+- **Synchronization:** Atomic operations (Int32Array) for lock-free read/write coordination
+
+**Key Design Decisions:**
+- **Persistent AudioWorkletNode:** The worklet node and SABs are reused across track switches to avoid memory leaks (Chrome doesn't GC rapidly created AudioWorkletNodes well)
+- **stop(true) pattern:** `stop(true)` keeps SABs/worklet alive for reuse; `stop()` or `dispose()` fully cleans up
+- **Disconnect on pause:** Worklet is disconnected from destination when paused to save CPU
+- **Ring buffer sizing:** ~768KB SAB provides ~4 seconds of stereo float32 audio at 48kHz
+
+**Files:**
+- `bin/win_bin/player.js` - FFmpegStreamPlayerSAB class, manages decoder + worklet lifecycle
+- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorkletProcessor, reads from SAB ring buffer
+- `docs/sab-player-architecture.md` - Detailed architecture documentation
+
+**Memory Management:**
+- SABs and worklet are created once per sample rate
+- Track switches reuse existing resources via `clearAudio()` → `stop(true)`
+- Only `dispose()` or closing the app fully releases resources
 
 
 ## Coding Philosophy & Style
@@ -141,6 +166,16 @@ Options:
 - `.\scripts\create-release.ps1 -Notes "changelog text"` - Custom release notes
 
 ## Release History
+
+### Version 1.3 (December 2025)
+- **SAB Audio Pipeline** - Replaced chunk-based streaming with SharedArrayBuffer architecture
+  - Zero-copy audio data transfer between main thread and AudioWorkletProcessor
+  - Lock-free synchronization using Atomics on Int32Array control buffer
+  - Ring buffer design (~4 seconds at 48kHz) for smooth streaming
+- **Persistent AudioWorkletNode** - Worklet and SABs reused across track switches
+  - Fixes memory leak from Chrome not GC'ing rapidly created AudioWorkletNodes
+  - `stop(true)` pattern preserves resources; `dispose()` fully cleans up
+- **CPU Optimization** - Worklet disconnected from destination when paused
 
 ### Version 1.2 (December 2025)
 - **HQ Mode Restored** - Configurable max output sample rate (44.1kHz to 192kHz) for high-quality playback

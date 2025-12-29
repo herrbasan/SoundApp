@@ -516,6 +516,13 @@ async function init(initData){
 		const code = '' + (e.code || '');
 		const key = ('' + (e.key || '')).toLowerCase();
 
+		// F12: Toggle DevTools (standard shortcut)
+		if(code === 'F12'){
+			e.preventDefault();
+			if(window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+			return;
+		}
+
 		// Handle global shortcuts via shared module
 		if(window.shortcuts && window.shortcuts.handleShortcut){
 			const action = window.shortcuts.handleShortcut(e, 'mixer');
@@ -527,8 +534,14 @@ async function init(initData){
 				e.preventDefault();
 				e.stopPropagation();
 				_setSyncOverlayVisible(!g.sync_overlay_visible);
+				return;
 			}
-			return;
+			// Ctrl+Shift+I: Toggle DevTools
+			if(code === 'KeyI' || key === 'i'){
+				e.preventDefault();
+				if(window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+				return;
+			}
 		}
 
 		// Space: Toggle Playback
