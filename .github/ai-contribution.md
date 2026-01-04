@@ -1043,3 +1043,69 @@ The transition only applies when NOT flashing, so it snaps on but fades off.
 ---
 
 *Claude (Opus 4.5) - January 4, 2026*
+
+---
+
+## Session: January 4, 2026 - Windows Default Programs Integration
+
+### What We Accomplished
+
+**Enhanced File Association Handling:**
+
+Extended the Windows registry module to properly integrate with Windows Default Programs, allowing users to set SoundApp as the default player for all audio formats at once.
+
+**Registry Changes:**
+
+The `register` task now also registers app Capabilities:
+- Creates `HKCU\SOFTWARE\SoundApp\Capabilities` with ApplicationName and ApplicationDescription
+- Creates `FileAssociations` subkey mapping all extensions to their ProgIDs
+- Registers in `HKCU\SOFTWARE\RegisteredApplications` so Windows recognizes the app
+
+The `unregister` task cleans up all Capabilities entries.
+
+**New Function: `openDefaultProgramsUI()`**
+- Opens the Windows Default Programs control panel
+- Uses `control /name Microsoft.DefaultPrograms /page pageDefaultProgram`
+- Users can select SoundApp and set it as default for all registered types at once
+
+**UI Addition:**
+
+Added "Set as Default Player" button in Settings → File Associations section:
+- Triggers `open-default-programs` IPC message
+- Stage handles it by calling `openDefaultProgramsUI()`
+- Provides a convenient way to set defaults without manual registry work
+
+**Files Modified:**
+- `js/registry.js` - Added Capabilities registration, `openDefaultProgramsUI()` function
+- `js/settings/main.js` - Wired up setDefaultBtn click handler
+- `html/settings.html` - Added "Set as Default Player" button and description
+- `js/stage.js` - Added IPC listener for `open-default-programs`
+
+### Technical Notes
+
+**Why Capabilities Registration:**
+
+Windows 10/11 requires apps to register Capabilities for proper Default Programs integration. Without this:
+- The app won't appear in "Set Default Programs" UI
+- Users can't easily set the app as default for multiple file types at once
+
+Each extension still needs individual ProgID registration (Windows limitation), but Capabilities allows batch default-setting through the system UI.
+
+**Registry Structure:**
+```
+HKCU\SOFTWARE\SoundApp\Capabilities
+    ApplicationName = "SoundApp"
+    ApplicationDescription = "SoundApp - Audio player..."
+    FileAssociations\
+        .mp3 = soundapp_mp3
+        .flac = soundapp_flac
+        ... (all extensions)
+
+HKCU\SOFTWARE\RegisteredApplications
+    SoundApp = SOFTWARE\SoundApp\Capabilities
+```
+
+---
+
+*Claude (Opus 4.5) - January 4, 2026*
+

@@ -383,6 +383,11 @@ async function init(){
 			}
 		}
 	});
+
+	ipcRenderer.on('open-default-programs', (e, data) => {
+		const { openDefaultProgramsUI } = require('./registry.js');
+		openDefaultProgramsUI();
+	});
 	
 	ipcRenderer.on('shortcut', (e, data) => {
 		if (data.action === 'toggle-help') {

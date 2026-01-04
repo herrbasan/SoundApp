@@ -299,6 +299,7 @@ function initDefaultDirectory() {
 function initFileAssociations() {
 	const registerBtn = document.getElementById('registerFilesBtn');
 	const unregisterBtn = document.getElementById('unregisterFilesBtn');
+	const setDefaultBtn = document.getElementById('setDefaultBtn');
 	const registryNotice = document.getElementById('registryNotice');
 
 	registerBtn.addEventListener('click', () => {
@@ -307,6 +308,10 @@ function initFileAssociations() {
 
 	unregisterBtn.addEventListener('click', () => {
 		bridge.sendToStage('unregister-file-types', {});
+	});
+
+	setDefaultBtn.addEventListener('click', () => {
+		bridge.sendToStage('open-default-programs', {});
 	});
 
 	bridge.on('registry-action-complete', (data) => {

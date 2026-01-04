@@ -1,6 +1,10 @@
 const path = require('path');
+const { exec } = require('child_process');
 const reg = require('../libs/native-registry/dist/native-registry.js');
 
+const APP_NAME = 'SoundApp';
+const APP_DESCRIPTION = 'SoundApp - Audio player supporting MP3, FLAC, OGG, tracker modules, and many more formats.';
+const CAPABILITIES_PATH = 'SOFTWARE\\SoundApp\\Capabilities';
 
 async function registry(task, exe_path, app_path) {
     return new Promise(async (resolve, reject) => {
@@ -108,6 +112,7 @@ async function registry(task, exe_path, app_path) {
         }
      
         if (task === 'register') {
+            // Register ProgIDs for each file type
             for (let key in registry_data.filetypes) {
                 try {
                     await reg.registerProgID({
@@ -122,8 +127,34 @@ async function registry(task, exe_path, app_path) {
                     console.error(`Failed to register ${key}:`, err);
                 }
             }
+
+            // Register Capabilities for Default Programs integration
+            try {
+                // Create Capabilities key
+                reg.createRegistryKey(reg.HK.CU, CAPABILITIES_PATH);
+                reg.setRegistryValue(reg.HK.CU, CAPABILITIES_PATH, 'ApplicationDescription', reg.REG.SZ, APP_DESCRIPTION);
+                reg.setRegistryValue(reg.HK.CU, CAPABILITIES_PATH, 'ApplicationName', reg.REG.SZ, APP_NAME);
+
+                // Create FileAssociations subkey with all extensions mapped to their ProgIDs
+                let fileAssocPath = CAPABILITIES_PATH + '\\FileAssociations';
+                reg.createRegistryKey(reg.HK.CU, fileAssocPath);
+                for (let key in registry_data.filetypes) {
+                    let exts = registry_data.filetypes[key].extensions;
+                    for (let i = 0; i < exts.length; i++) {
+                        let ext = '.' + exts[i];
+                        reg.setRegistryValue(reg.HK.CU, fileAssocPath, ext, reg.REG.SZ, key);
+                    }
+                }
+
+                // Register in RegisteredApplications
+                reg.createRegistryKey(reg.HK.CU, 'SOFTWARE\\RegisteredApplications');
+                reg.setRegistryValue(reg.HK.CU, 'SOFTWARE\\RegisteredApplications', APP_NAME, reg.REG.SZ, CAPABILITIES_PATH);
+            } catch (err) {
+                console.error('Failed to register Capabilities:', err);
+            }
         }
         else if (task === 'unregister') {
+            // Remove ProgIDs
             for (let key in registry_data.filetypes) {
                 try {
                     await reg.removeProgID({ progID: key, extensions: registry_data.filetypes[key].extensions});
@@ -131,10 +162,29 @@ async function registry(task, exe_path, app_path) {
                     console.error(`Failed to unregister ${key}:`, err);
                 }
             }
+
+            // Remove Capabilities and RegisteredApplications entry
+            try {
+                reg.deleteRegistryValue(reg.HK.CU, 'SOFTWARE\\RegisteredApplications', APP_NAME);
+                reg.deleteRegistryKey(reg.HK.CU, 'SOFTWARE\\SoundApp');
+            } catch (err) {
+                console.error('Failed to remove Capabilities:', err);
+            }
         }
   
         resolve(true);
     });
 }
 
+/**
+ * Opens the Windows Default Programs control panel for SoundApp.
+ * This allows users to set SoundApp as the default for all registered file types.
+ */
+function openDefaultProgramsUI() {
+    // Opens the classic "Set Default Programs" dialog - works on Windows 10/11
+    // Users can select SoundApp and check all file types at once
+    exec('control /name Microsoft.DefaultPrograms /page pageDefaultProgram');
+}
+
 module.exports = registry;
+module.exports.openDefaultProgramsUI = openDefaultProgramsUI;

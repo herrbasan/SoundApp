@@ -18,7 +18,7 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
 - `js/app.js` - Main process (Electron)
 - `js/config-defaults.js` - Default configuration values and window dimension constants
-- `js/registry.js` - Windows file association handling
+- `js/registry.js` - Windows file association handling and Default Programs integration
 - `js/shortcuts.js` - Centralized keyboard shortcut definitions
 - `js/window-loader.js` - Shared window initialization and IPC bridge
 - `html/mixer.html` - Mixer secondary window (NUI chrome + mixer UI)
