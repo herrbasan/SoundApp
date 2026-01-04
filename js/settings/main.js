@@ -94,6 +94,16 @@ function initKeepRunningInTray() {
 	}
 }
 
+function initShowControls() {
+	const showControlsToggle = document.getElementById('showControlsToggle');
+	if (showControlsToggle) {
+		showControlsToggle.checked = getCfg(['ui', 'showControls'], true);
+		showControlsToggle.addEventListener('change', () => {
+			setCfgValue(['ui', 'showControls'], !!showControlsToggle.checked);
+		});
+	}
+}
+
 function initSampleRateListener() {
 	bridge.on('sample-rate-updated', (data) => {
 		if (data.currentSampleRate) {
@@ -324,6 +334,7 @@ async function init(data) {
 	initHQMode();
 	initDarkTheme();
 	initKeepRunningInTray();
+	initShowControls();
 	initSampleRateListener();
 	await initOutputDevice();
 	initBufferSize();

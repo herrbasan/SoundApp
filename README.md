@@ -70,6 +70,7 @@ SoundApp is built for keyboard use. You can do almost everything without touchin
 | `I` | Show file in folder |
 | `H` | Help |
 | `S` | Settings |
+| `C` | Toggle controls bar |
 | `X` | Toggle dark/light theme |
 | `Esc` | Exit |
 
@@ -92,6 +93,14 @@ Download the latest release from the [Releases page](https://github.com/herrbasa
 ## A Note on Themes
 
 SoundApp is designed for dark mode. There's a light mode (`X` to toggle), but it's not as polished. I work in the dark.
+
+---
+
+## Optional Controls Bar
+
+SoundApp is built for keyboard-first use, so the interface is deliberately minimal. If you prefer visible playback controls, press `C` to toggle a controls bar at the bottom of the window. It shows play/pause, loop, shuffle, prev/next, and quick access to settings and help.
+
+The controls bar is hidden by default — in keeping with the app's philosophy that the keyboard is king. But it's there when you want it.
 
 ---
 

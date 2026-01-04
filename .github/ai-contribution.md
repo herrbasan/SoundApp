@@ -961,3 +961,85 @@ The user's patience during the hunt was appreciated. When things looked grim ("o
 ---
 
 *Claude (Opus 4) - December 29, 2025*
+
+---
+
+## Session: January 4, 2026 - Optional Controls Bar
+
+### What We Accomplished
+
+**New Feature: Playback Controls Bar**
+
+Added an optional controls bar at the bottom of the main window for users who prefer visual controls over pure keyboard navigation.
+
+**Controls Include:**
+- Play/Pause button (with state-aware icon switching)
+- Loop toggle (icon opacity indicates state)
+- Shuffle button
+- Previous/Next track buttons
+- Settings and Help quick access buttons
+
+**Design Decisions:**
+- **Hidden by default** — Respects the app's keyboard-first philosophy
+- **Toggle with `C` key** — Quick access when needed
+- **Settings checkbox** — "Show Controls" in General section for persistent preference
+- **Window resizing** — Toggling controls resets window to appropriate minimum size
+
+**Centralized Window Dimensions:**
+
+Created `WINDOW_DIMENSIONS` constant in `config-defaults.js`:
+```javascript
+const WINDOW_DIMENSIONS = {
+    MIN_WIDTH: 480,
+    MIN_HEIGHT_WITH_CONTROLS: 280,
+    MIN_HEIGHT_WITHOUT_CONTROLS: 221
+};
+```
+
+This ensures consistent sizing across `app.js` (initial window) and `stage.js` (toggle/scale operations).
+
+**Visual Feedback: Button Flash Effect**
+
+When keyboard shortcuts are used, the corresponding control button shows a subtle white flash:
+- Uses CSS pseudo-element with `pointer-events: none`
+- `.flash` class added for 50ms, then removed
+- Transition only on `:not(.flash)` so it fades out but snaps in
+- Cannot get stuck visible — always fades away
+
+**Files Modified:**
+- `css/main.css` - Controls bar styling, flash effect, play/loop icon states
+- `html/stage.html` - Controls bar HTML structure
+- `html/settings.html` - "Show Controls" checkbox
+- `js/stage.js` - Toggle logic, button wiring, flash function
+- `js/app.js` - Dynamic minHeight command, initial sizing from config
+- `js/shortcuts.js` - Added `C` key for toggle-controls
+- `js/config-defaults.js` - Added `showControls: false`, `WINDOW_DIMENSIONS` constant
+- `js/settings/main.js` - initShowControls() handler
+- `README.md` - Documented controls bar feature and `C` shortcut
+
+**Backward Compatibility:**
+- Existing installations (without `showControls` in config) default to `true` via code fallbacks
+- New installations default to `false` (controls hidden)
+- No config migration needed
+
+### Technical Notes
+
+**Icon State Management:**
+- Play button uses two separate icons (`.icon-play`, `.icon-pause`) with CSS display toggling
+- Loop button icon opacity controlled by `body.loop` class
+- Clean separation: HTML structure, CSS state rules, JS just toggles body classes
+
+**Flash Effect Pattern (from NUI library):**
+```css
+.controls .button::after {
+    opacity: 0;
+    pointer-events: none;
+}
+.controls .button.flash::after { opacity: 0.4; }
+.controls .button:not(.flash)::after { transition: opacity 0.3s; }
+```
+The transition only applies when NOT flashing, so it snaps on but fades off.
+
+---
+
+*Claude (Opus 4.5) - January 4, 2026*

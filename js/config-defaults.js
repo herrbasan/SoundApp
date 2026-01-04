@@ -1,12 +1,20 @@
 'use strict';
 
+const WINDOW_DIMENSIONS = {
+	MIN_WIDTH: 480,
+	MIN_HEIGHT_WITH_CONTROLS: 278,
+	MIN_HEIGHT_WITHOUT_CONTROLS: 221
+};
+
 module.exports = {
+	WINDOW_DIMENSIONS,
 	config_version: 2,
 
 	ui: {
 		theme: 'dark',
 		defaultDir: '',
-		keepRunningInTray: false
+		keepRunningInTray: false,
+		showControls: false
 	},
 
 	audio: {

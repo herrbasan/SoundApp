@@ -159,13 +159,20 @@ async function appStart(){
 	main_env.configName = configName;
 	
 	user_cfg = await helper.config.initMain(configName, configDefaults, { log: configLog });
+
+	// Determine initial minHeight based on showControls setting
+	const cfg = user_cfg ? user_cfg.get() : {};
+	const showControls = (cfg && cfg.ui && cfg.ui.showControls !== undefined) ? cfg.ui.showControls : true;
+	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = configDefaults.WINDOW_DIMENSIONS;
+	const initialMinHeight = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	const initialHeight = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
     
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 
-		minWidth:480, 
-		minHeight:221, 
+		minWidth:MIN_WIDTH, 
+		minHeight:initialMinHeight, 
 		width:480, 
-		height:221, 
+		height:initialHeight, 
 		show:false,
 		resizable:true, 
 		devTools:false,
@@ -327,6 +334,12 @@ function mainCommand(e, data){
 	else if(data.command === 'set-theme'){
 		// Stage sends initial theme on startup
 		currentTheme = data.theme;
+	}
+	else if(data.command === 'set-min-height'){
+		// Dynamically adjust main window min height for controls toggle
+		if(wins.main && data.minHeight){
+			wins.main.setMinimumSize(480, data.minHeight | 0);
+		}
 	}
 	return true;
 }

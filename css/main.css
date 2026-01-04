@@ -120,6 +120,7 @@ body.dark {
 	height: 100%;
 	color: rgba(var(--color-shadeX), 0.3);
 	transition: color 0.15s, background-color 0.15s;
+	cursor: pointer;
 }
 
 .top .content .topbutton:hover{
@@ -181,6 +182,7 @@ body.shuffle .top .content .shuffle::after{
 	align-items: center;
 	justify-content: center;
 	transition: opacity 0.2s;
+	cursor: pointer;
 }
 
 .top .content .close:hover{
@@ -394,7 +396,9 @@ body.shuffle .top .content .shuffle::after{
 	padding-right: var(--space-frame);
 	margin-bottom: calc(var(--space-frame) * 0.3);
 	font-size: 0.7rem;
+	cursor: pointer;
 }
+
 .time_controls .playhead {
 	position: relative;
 	height: 0.4rem;
@@ -468,11 +472,15 @@ body.shuffle .top .content .shuffle::after{
 	padding-left: var(--space-frame);
 	padding-right: var(--space-frame);
 	border-top: solid 1px rgb(var(--color-shade1));
+	background-color: rgb(220,220,220);
+}
+
+.dark .controls {
 	background-color: rgb(45,45,45);
-	display: none;
 }
 
 .controls .button {
+	position: relative;
 	width: 2rem;
 	height: 2rem;
 	display: flex;
@@ -483,9 +491,58 @@ body.shuffle .top .content .shuffle::after{
 	transition: background-color 0.15s;
 }
 
+.controls .button::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background-color: white;
+	border-radius: inherit;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.controls .button.flash::after {
+	opacity: 0.2;
+}
+
+.controls .button:not(.flash)::after {
+	transition: opacity 0.3s;
+}
+
 .controls .button:hover {
 	background-color: rgb(var(--color-shade2));
 	cursor: pointer;
+}
+
+.controls-hidden .controls {
+	display: none;
+}
+
+.controls .button.loop icon {
+	opacity: 0.3;
+}
+
+body.loop .controls .button.loop icon {
+	opacity: 1;
+}
+
+.controls .button.play .icon-play {
+	display: block;
+}
+
+.controls .button.play .icon-pause {
+	display: none;
+}
+
+body:not(.pause) .controls .button.play .icon-play {
+	display: none;
+}
+
+body:not(.pause) .controls .button.play .icon-pause {
+	display: block;
 }
 
 icon {

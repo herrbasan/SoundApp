@@ -129,6 +129,12 @@ async function init(){
 			}
 		}
 
+		const oldShowControls = (oldConfig && oldConfig.ui) ? oldConfig.ui.showControls : true;
+		const showControls = (g.config && g.config.ui) ? g.config.ui.showControls : true;
+		if(oldShowControls !== showControls){
+			applyShowControls(showControls);
+		}
+
 		// If streaming settings changed, perform a clean reset of the player
 		const newBuffer = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream) ? g.config.ffmpeg.stream.prebufferChunks : undefined;
 		const newThreads = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder) ? g.config.ffmpeg.decoder.threads : undefined;
@@ -174,6 +180,10 @@ async function init(){
 	}
 	// Send initial theme to main process
 	tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
+
+	// Apply showControls at startup
+	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls !== undefined) ? g.config.ui.showControls : true;
+	applyShowControls(showControls0);
 	
 	ut.setCssVar('--space-base', s);
 
@@ -454,6 +464,14 @@ async function appStart(){
 	g.top_btn_shuffle = ut.el('.top .content .shuffle');
 	g.top_btn_playpause = ut.el('.top .content .playpause');
 
+	g.ctrl_btn_prev = ut.el('.controls .button.prev');
+	g.ctrl_btn_next = ut.el('.controls .button.next');
+	g.ctrl_btn_shuffle = ut.el('.controls .button.shuffle');
+	g.ctrl_btn_play = ut.el('.controls .button.play');
+	g.ctrl_btn_loop = ut.el('.controls .button.loop');
+	g.ctrl_btn_settings = ut.el('.controls .button.settings');
+	g.ctrl_btn_help = ut.el('.controls .button.help');
+
 	g.text = ut.el('.info .text');
 	g.text.innerHTML = '';
 	g.blocky = false;
@@ -509,6 +527,14 @@ async function appStart(){
 	g.top_btn_loop.addEventListener('click', toggleLoop);
 	g.top_btn_shuffle.addEventListener('click', shufflePlaylist);
 	g.top_btn_playpause.addEventListener('click', playPause);
+
+	g.ctrl_btn_prev.addEventListener('click', playPrev);
+	g.ctrl_btn_next.addEventListener('click', playNext);
+	g.ctrl_btn_shuffle.addEventListener('click', shufflePlaylist);
+	g.ctrl_btn_play.addEventListener('click', playPause);
+	g.ctrl_btn_loop.addEventListener('click', toggleLoop);
+	g.ctrl_btn_settings.addEventListener('click', () => openWindow('settings'));
+	g.ctrl_btn_help.addEventListener('click', () => openWindow('help'));
 
 	loop();
 	
@@ -1013,6 +1039,12 @@ function checkState(){
 	}
 }
 
+function flashButton(btn){
+	if(!btn) return;
+	btn.classList.add('flash');
+	setTimeout(() => { btn.classList.remove('flash'); }, 50);
+}
+
 function shufflePlaylist(){
 	ut.shuffleArray(g.music);
 	g.idx = 0;
@@ -1058,6 +1090,28 @@ function toggleLoop(){
 		g.currentAudio.player.setLoop(g.isLoop);
 	}
 	checkState();
+}
+
+function toggleControls(){
+	if(!g.config.ui) g.config.ui = {};
+	const next = !g.config.ui.showControls;
+	g.config.ui.showControls = next;
+	g.config_obj.set(g.config);
+	applyShowControls(next, true);
+}
+
+function applyShowControls(show, resetSize = false){
+	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
+	const minH = show ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	if(show){
+		document.body.classList.remove('controls-hidden');
+	} else {
+		document.body.classList.add('controls-hidden');
+	}
+	tools.sendToMain('command', { command: 'set-min-height', minHeight: minH });
+	if(resetSize){
+		g.win.setBounds({ width: MIN_WIDTH, height: minH });
+	}
 }
 
 async function toggleHQMode(desiredState, skipPersist=false){
@@ -1359,9 +1413,11 @@ async function onKey(e) {
 	
 	if (shortcutAction === 'toggle-help') {
 		openWindow('help');
+		flashButton(g.ctrl_btn_help);
 	}
 	else if (shortcutAction === 'toggle-settings') {
 		openWindow('settings');
+		flashButton(g.ctrl_btn_settings);
 	}
 	else if (shortcutAction === 'toggle-theme') {
 		tools.sendToMain('command', { command: 'toggle-theme' });
@@ -1369,6 +1425,9 @@ async function onKey(e) {
 	else if (shortcutAction === 'toggle-mixer') {
 		const fp = g.currentAudio ? g.currentAudio.fp : null;
 		openWindow('mixer', false, fp);
+	}
+	else if (shortcutAction === 'toggle-controls') {
+		toggleControls();
 	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
@@ -1389,6 +1448,7 @@ async function onKey(e) {
 	}
 	else if(e.keyCode == 76){
 		toggleLoop();
+		flashButton(g.ctrl_btn_loop);
 	}
 
 	if (e.keyCode == 27) {
@@ -1408,7 +1468,8 @@ async function onKey(e) {
 			let now = Date.now();
 			if(now - g.lastNavTime >= 100){
 				g.lastNavTime = now;
-				playNext(); 
+				playNext();
+				flashButton(g.ctrl_btn_next);
 			}
 		}
 	}
@@ -1418,7 +1479,8 @@ async function onKey(e) {
 			let now = Date.now();
 			if(now - g.lastNavTime >= 100){
 				g.lastNavTime = now;
-				playPrev(); 
+				playPrev();
+				flashButton(g.ctrl_btn_prev);
 			}
 		}
 	}
@@ -1431,6 +1493,7 @@ async function onKey(e) {
 
 	if (e.keyCode == 82) {
 		shufflePlaylist();
+		flashButton(g.ctrl_btn_shuffle);
 	}
 	if (e.keyCode == 73){
 		helper.shell.showItemInFolder(g.music[g.idx]);
@@ -1438,6 +1501,7 @@ async function onKey(e) {
 	
 	if(e.keyCode == 32){
 		playPause();
+		flashButton(g.ctrl_btn_play);
 	}
 	if(e.keyCode == 109 && e.ctrlKey){
 		let val = ut.getCssVar('--space-base').value;
@@ -1633,21 +1697,22 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 }
 
 async function scaleWindow(val){
-	const MIN_W = 480;
-	const MIN_H = 217;
-	let w_scale = MIN_W / 14;
+	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
+	const showControls = (g.config && g.config.ui && g.config.ui.showControls !== undefined) ? g.config.ui.showControls : true;
+	const MIN_H = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	let w_scale = MIN_WIDTH / 14;
 	let h_scale = MIN_H / 14;
 	if(!g.config.windows) g.config.windows = {};
 	if(!g.config.windows.main) g.config.windows.main = {};
 	let curBounds = await g.win.getBounds();
-	if(!curBounds) curBounds = { x: 0, y: 0, width: MIN_W, height: MIN_H };
+	if(!curBounds) curBounds = { x: 0, y: 0, width: MIN_WIDTH, height: MIN_H };
 	let nb = {
 		x: curBounds.x,
 		y: curBounds.y,
 		width: parseInt(w_scale * val),
 		height: parseInt(h_scale * val)
 	};
-	if(nb.width < MIN_W) { nb.width = MIN_W; val = 14 };
+	if(nb.width < MIN_WIDTH) { nb.width = MIN_WIDTH; val = 14 };
 	if(nb.height < MIN_H) { nb.height = MIN_H; val = 14 };
 	await g.win.setBounds(nb);
 	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
