@@ -66,6 +66,23 @@ Release appears on GitHub
 Users receive auto-update
 ```
 
+### Release tagging + notes
+
+- A release is always tied to a Git tag (this script uses the `package.json` version to determine the tag).
+- Release notes should include all major changes since the last tagged release.
+
+Optional helper commands:
+
+```powershell
+# See the latest tag
+git fetch --tags
+git describe --tags --abbrev=0
+
+# Draft notes from commits since the last tag
+$LAST_TAG = git describe --tags --abbrev=0
+git log "$LAST_TAG..HEAD" --oneline
+```
+
 ### Troubleshooting
 
 **"Release already exists"**  
