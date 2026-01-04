@@ -33,7 +33,7 @@ module.exports = {
 
 	// Window/bounds persistence
 	windows: {
-		main: { x: null, y: null, width: 480, height: 217, scale: 14 },
+		main: { x: null, y: null, width: 480, height: 221, scale: 14 },
 		help: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		settings: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		playlist: { x: null, y: null, width: 1024, height: 768, scale: 14 },

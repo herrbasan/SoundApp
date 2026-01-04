@@ -163,9 +163,9 @@ async function appStart(){
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 
 		minWidth:480, 
-		minHeight:217, 
+		minHeight:221, 
 		width:480, 
-		height:217, 
+		height:221, 
 		show:false,
 		resizable:true, 
 		devTools:false,
