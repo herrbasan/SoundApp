@@ -464,7 +464,7 @@ body.shuffle .top .content .shuffle::after{
 }
 
 .controls {
-	display: flex;
+	display: none;
 	align-items: center;
 	gap: calc(var(--space-frame) / 2);
 	padding-bottom: calc(var(--space-frame));
@@ -517,8 +517,8 @@ body.shuffle .top .content .shuffle::after{
 	cursor: pointer;
 }
 
-.controls-hidden .controls {
-	display: none;
+body.show-controls .controls {
+	display: flex;
 }
 
 .controls .button.loop icon {

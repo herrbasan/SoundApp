@@ -129,10 +129,10 @@ async function init(){
 			}
 		}
 
-		const oldShowControls = (oldConfig && oldConfig.ui) ? oldConfig.ui.showControls : true;
-		const showControls = (g.config && g.config.ui) ? g.config.ui.showControls : true;
+		const oldShowControls = (oldConfig && oldConfig.ui) ? !!oldConfig.ui.showControls : false;
+		const showControls = (g.config && g.config.ui) ? !!g.config.ui.showControls : false;
 		if(oldShowControls !== showControls){
-			applyShowControls(showControls);
+			applyShowControls(showControls, true);
 		}
 
 		// If streaming settings changed, perform a clean reset of the player
@@ -182,7 +182,7 @@ async function init(){
 	tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
 
 	// Apply showControls at startup
-	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls !== undefined) ? g.config.ui.showControls : true;
+	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
 	applyShowControls(showControls0);
 	
 	ut.setCssVar('--space-base', s);
@@ -1099,7 +1099,8 @@ function toggleLoop(){
 
 function toggleControls(){
 	if(!g.config.ui) g.config.ui = {};
-	const next = !g.config.ui.showControls;
+	const current = !!g.config.ui.showControls;
+	const next = !current;
 	g.config.ui.showControls = next;
 	g.config_obj.set(g.config);
 	applyShowControls(next, true);
@@ -1109,9 +1110,9 @@ function applyShowControls(show, resetSize = false){
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
 	const minH = show ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
 	if(show){
-		document.body.classList.remove('controls-hidden');
+		document.body.classList.add('show-controls');
 	} else {
-		document.body.classList.add('controls-hidden');
+		document.body.classList.remove('show-controls');
 	}
 	tools.sendToMain('command', { command: 'set-min-height', minHeight: minH });
 	if(resetSize){
@@ -1703,7 +1704,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 async function scaleWindow(val){
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
-	const showControls = (g.config && g.config.ui && g.config.ui.showControls !== undefined) ? g.config.ui.showControls : true;
+	const showControls = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
 	const MIN_H = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
 	let w_scale = MIN_WIDTH / 14;
 	let h_scale = MIN_H / 14;

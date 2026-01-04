@@ -97,7 +97,7 @@ function initKeepRunningInTray() {
 function initShowControls() {
 	const showControlsToggle = document.getElementById('showControlsToggle');
 	if (showControlsToggle) {
-		showControlsToggle.checked = getCfg(['ui', 'showControls'], true);
+		showControlsToggle.checked = getCfg(['ui', 'showControls'], false);
 		showControlsToggle.addEventListener('change', () => {
 			setCfgValue(['ui', 'showControls'], !!showControlsToggle.checked);
 		});
