@@ -17,7 +17,9 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/stage.js` - Main player logic and audio handling
 - `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
 - `js/app.js` - Main process (Electron)
+- `js/config-defaults.js` - Default configuration values and window dimension constants
 - `js/registry.js` - Windows file association handling
+- `js/shortcuts.js` - Centralized keyboard shortcut definitions
 - `js/window-loader.js` - Shared window initialization and IPC bridge
 - `html/mixer.html` - Mixer secondary window (NUI chrome + mixer UI)
 - `css/mixer.css` - Mixer window styling
@@ -97,6 +99,42 @@ The FFmpeg player uses SharedArrayBuffer for zero-copy audio streaming between t
 - SABs and worklet are created once per sample rate
 - Track switches reuse existing resources via `clearAudio()` → `stop(true)`
 - Only `dispose()` or closing the app fully releases resources
+
+## Controls Bar (Optional UI)
+
+The main window has an optional controls bar at the bottom, hidden by default (keyboard-first philosophy).
+
+**Toggle:** `C` key or Settings → "Show Controls"
+
+**Buttons:** prev, next, shuffle, play/pause, loop, settings, help
+
+**Window Dimensions:**
+
+Centralized in `js/config-defaults.js`:
+```javascript
+const WINDOW_DIMENSIONS = {
+    MIN_WIDTH: 480,
+    MIN_HEIGHT_WITH_CONTROLS: 280,
+    MIN_HEIGHT_WITHOUT_CONTROLS: 221
+};
+```
+
+Used by:
+- `app.js` - Initial window sizing based on `showControls` config
+- `stage.js` - `applyShowControls()` and `scaleWindow()` functions
+
+**Dynamic Sizing:**
+- `applyShowControls(show, resetSize)` - Updates body class, sends `set-min-height` command to main process
+- When `resetSize=true` (keyboard toggle), window resets to minimum size
+- Main process handles `set-min-height` command via `wins.main.setMinimumSize()`
+
+**Button Flash Effect:**
+
+Keyboard shortcuts trigger a subtle flash on corresponding control buttons:
+- CSS pseudo-element with `pointer-events: none`
+- `.flash` class added for 50ms via `flashButton(btn)`
+- Transition only on `:not(.flash)` - snaps on, fades off
+- Cannot get stuck visible
 
 
 ## Coding Philosophy & Style
