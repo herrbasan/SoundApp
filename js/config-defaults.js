@@ -2,7 +2,7 @@
 
 const WINDOW_DIMENSIONS = {
 	MIN_WIDTH: 480,
-	MIN_HEIGHT_WITH_CONTROLS: 278,
+	MIN_HEIGHT_WITH_CONTROLS: 276,
 	MIN_HEIGHT_WITHOUT_CONTROLS: 221
 };
 
@@ -14,7 +14,7 @@ module.exports = {
 		theme: 'dark',
 		defaultDir: '',
 		keepRunningInTray: false,
-		showControls: false
+		showControls: true
 	},
 
 	audio: {
@@ -41,7 +41,7 @@ module.exports = {
 
 	// Window/bounds persistence
 	windows: {
-		main: { x: null, y: null, width: 480, height: 221, scale: 14 },
+		main: { x: null, y: null, width: 480, height: 278, scale: 14 },
 		help: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		settings: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		playlist: { x: null, y: null, width: 1024, height: 768, scale: 14 },

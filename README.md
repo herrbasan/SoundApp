@@ -18,6 +18,10 @@ This is that app. I finally decided to share it.
 
 ---
 
+![Controls](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot_controls.png)
+**For the non-SoundApp purists and mouse-handling cowboys, there is an optional control bar. Press `C` to toggle.**
+
+
 ## What Makes It Different
 
 **Speed, everywhere.** Double-click an audio file and it plays instantly. Drop a folder with thousands of files and the playlist builds in moments. Skip through tracks as fast as you can press the arrow keys — playback starts immediately, every time.
@@ -98,9 +102,9 @@ SoundApp is designed for dark mode. There's a light mode (`X` to toggle), but it
 
 ## Optional Controls Bar
 
-SoundApp is built for keyboard-first use, so the interface is deliberately minimal. If you prefer visible playback controls, press `C` to toggle a controls bar at the bottom of the window. It shows play/pause, loop, shuffle, prev/next, and quick access to settings and help.
+SoundApp is built for keyboard-first use, so the interface is deliberately minimal. Press `C` to toggle the controls bar at the bottom of the window. It shows play/pause, loop, shuffle, prev/next, quick access to settings and help, plus a volume slider.
 
-The controls bar is hidden by default — in keeping with the app's philosophy that the keyboard is king. But it's there when you want it.
+The controls bar is shown by default, but can be hidden with `C`. You can also adjust volume with the mouse wheel.
 
 ---
 

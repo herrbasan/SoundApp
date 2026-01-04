@@ -190,9 +190,16 @@ async function init(){
 	// Window bounds restoration
 	let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
 	if(b){
+		const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
+		const baseMinH = showControls0 ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+		const scale0 = _getMainScale();
+		const minW = _scaledDim(MIN_WIDTH, scale0);
+		const minH = _scaledDim(baseMinH, scale0);
 		const nb = { width: b.width|0, height: b.height|0 };
 		if(b.x !== undefined && b.x !== null) nb.x = b.x|0;
 		if(b.y !== undefined && b.y !== null) nb.y = b.y|0;
+		if(nb.width < minW) nb.width = minW;
+		if(nb.height < minH) nb.height = minH;
 		await g.win.setBounds(nb);
 		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s|0 };
 	}
@@ -450,6 +457,7 @@ async function init(){
 
 async function appStart(){
 	window.addEventListener("keydown", onKey);
+	window.addEventListener('wheel', onWheelVolume, {passive:false});
 	g.scale = window.devicePixelRatio || 1;
 	g.body = document.body;
 	g.frame = ut.el('.frame');
@@ -476,6 +484,9 @@ async function appStart(){
 	g.ctrl_btn_loop = ut.el('.controls .button.loop');
 	g.ctrl_btn_settings = ut.el('.controls .button.settings');
 	g.ctrl_btn_help = ut.el('.controls .button.help');
+	g.ctrl_volume = ut.el('.controls .volume');
+	g.ctrl_volume_bar = g.ctrl_volume ? g.ctrl_volume.el('.volume-bar') : null;
+	g.ctrl_volume_bar_inner = g.ctrl_volume ? g.ctrl_volume.el('.volume-bar-inner') : null;
 
 	g.text = ut.el('.info .text');
 	g.text.innerHTML = '';
@@ -540,9 +551,69 @@ async function appStart(){
 	g.ctrl_btn_loop.addEventListener('click', toggleLoop);
 	g.ctrl_btn_settings.addEventListener('click', () => openWindow('settings'));
 	g.ctrl_btn_help.addEventListener('click', () => openWindow('help'));
+	if(ut.dragSlider && g.ctrl_volume && g.ctrl_volume_bar){
+		g.ctrl_volume_slider = ut.dragSlider(g.ctrl_volume, volumeSlider, -1, g.ctrl_volume_bar);
+	}
 
 	loop();
 	
+}
+
+function onWheelVolume(e){
+	// Allow browser zoom / Electron zoom gestures to work
+	if(e.ctrlKey || e.metaKey) return;
+	if(!e) return;
+	const dy = +e.deltaY;
+	if(!isFinite(dy) || dy === 0) return;
+	if(!g.wheel_vol) g.wheel_vol = {acc:0, t:0};
+	const now = performance.now();
+	if(now - g.wheel_vol.t > 250) { g.wheel_vol.acc = 0; }
+	g.wheel_vol.t = now;
+	g.wheel_vol.acc += dy;
+
+	const step = 80;
+	while(g.wheel_vol.acc <= -step){
+		g.wheel_vol.acc += step;
+		volumeUp();
+	}
+	while(g.wheel_vol.acc >= step){
+		g.wheel_vol.acc -= step;
+		volumeDown();
+	}
+
+	// Prevent page scroll / inertial scroll side effects
+	e.preventDefault();
+}
+
+function _clamp01(v){
+	v = +v;
+	if(!(v >= 0)) return 0;
+	if(v > 1) return 1;
+	return v;
+}
+
+function setVolume(v, persist=false){
+	v = _clamp01(v);
+	if(!g.config.audio) g.config.audio = {};
+	g.config.audio.volume = v;
+	if(player) {
+		try { player.gain.gain.value = v; } catch(e) {}
+	}
+	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
+		g.currentAudio.player.volume = v;
+	}
+	if(g.playvolume) g.playvolume.innerText = (Math.round(v*100)) + '%';
+	if(g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (v*100) + '%';
+	if(persist && g.config_obj) g.config_obj.set(g.config);
+}
+
+function volumeSlider(e){
+	if(e.type == 'start' || e.type == 'move'){
+		setVolume(e.prozX, false);
+	}
+	else if(e.type == 'end'){
+		setVolume(e.prozX, true);
+	}
 }
 
 function setupDragDrop(){
@@ -652,7 +723,10 @@ function setupWindow(){
 	g.win.hook_event('blur', handler);
 	g.win.hook_event('focus', handler);
 	g.win.hook_event('move', handler);
+	// electron_helper historically used both event names; support both.
 	g.win.hook_event('resized', handler);
+	g.win.hook_event('resize', handler);
+
 	function handler(e, data){
 		//clearDrop();
 		if(data.type == 'blur'){
@@ -661,7 +735,7 @@ function setupWindow(){
 		if(data.type == 'focus'){
 			g.frame.classList.add('focus');
 		}
-		if(data.type == 'move' || data.type == 'resized'){
+		if(data.type == 'move' || data.type == 'resized' || data.type == 'resize'){
 			clearTimeout(g.window_move_timeout);
 			g.window_move_timeout = setTimeout(async () => {
 				let bounds = await g.win.getBounds();
@@ -1106,17 +1180,34 @@ function toggleControls(){
 	applyShowControls(next, true);
 }
 
+function _getMainScale(){
+	let s = 14;
+	if(g.config && g.config.windows && g.config.windows.main && g.config.windows.main.scale !== undefined){
+		s = g.config.windows.main.scale | 0;
+	}
+	if(s < 14) s = 14;
+	return s;
+}
+
+function _scaledDim(base, scale){
+	const v = Math.round((base / 14) * scale);
+	return (v > base) ? v : base;
+}
+
 function applyShowControls(show, resetSize = false){
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
 	const minH = show ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	const scale = _getMainScale();
+	const scaledMinW = _scaledDim(MIN_WIDTH, scale);
+	const scaledMinH = _scaledDim(minH, scale);
 	if(show){
 		document.body.classList.add('show-controls');
 	} else {
 		document.body.classList.remove('show-controls');
 	}
-	tools.sendToMain('command', { command: 'set-min-height', minHeight: minH });
+	tools.sendToMain('command', { command: 'set-min-height', minHeight: scaledMinH, minWidth: scaledMinW });
 	if(resetSize){
-		g.win.setBounds({ width: MIN_WIDTH, height: minH });
+		g.win.setBounds({ width: scaledMinW, height: scaledMinH });
 	}
 }
 
@@ -1251,25 +1342,13 @@ async function toggleHQMode(desiredState, skipPersist=false){
 }
 
 function volumeUp(){
-	if(!g.config.audio) g.config.audio = {};
-	g.config.audio.volume = (g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 0.55;
-	if(g.config.audio.volume > 1) { g.config.audio.volume = 1 }
-	if(player) { player.gain.gain.value = g.config.audio.volume; }
-	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
-		g.currentAudio.player.volume = g.config.audio.volume;
-	}
-	g.config_obj.set(g.config);
+	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 0.55;
+	setVolume(v, true);
 }
 
 function volumeDown(){
-	if(!g.config.audio) g.config.audio = {};
-	g.config.audio.volume = (g.config.audio.volume !== undefined) ? (+g.config.audio.volume - 0.05) : 0.45;
-	if(g.config.audio.volume < 0) { g.config.audio.volume = 0 }
-	if(player) { player.gain.gain.value = g.config.audio.volume; }
-	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
-		g.currentAudio.player.volume = g.config.audio.volume;
-	}
-	g.config_obj.set(g.config);
+	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume - 0.05) : 0.45;
+	setVolume(v, true);
 }
 
 
@@ -1396,6 +1475,7 @@ function renderBar(){
 	const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 	if(g.last_vol != vol){
 		g.playvolume.innerText = (Math.round(vol*100)) + '%';
+		if(g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (vol*100) + '%';
 		g.last_vol = vol;
 	}
 	
@@ -1724,6 +1804,10 @@ async function scaleWindow(val){
 	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
 	ut.setCssVar('--space-base', val);
 	g.config_obj.set(g.config);
+	// Keep Electron min size in sync with the current UI scale
+	const scaledMinW = _scaledDim(MIN_WIDTH, val|0);
+	const scaledMinH = _scaledDim(MIN_H, val|0);
+	tools.sendToMain('command', { command: 'set-min-height', minHeight: scaledMinH, minWidth: scaledMinW });
 }
 
 

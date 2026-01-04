@@ -9,7 +9,7 @@
 	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
 </head>
 
-<body id="bod" class="w_main no-select">
+<body id="bod" class="w_main no-select dark">
 	<div id="frame" class="frame focus">
 		<!--<div class="alert">
 				<div class="inner">This is an Alert</div>
@@ -82,22 +82,27 @@
 			<div class="button help">
 				<icon>help</icon>
 			</div>
-			
-			<div class="button play" style="margin-left: auto; width: 7rem;">
-				<icon class="icon-play" style="font-size: 1.3rem;">play_arrow</icon>
-				<icon class="icon-pause" style="font-size: 1.3rem;">pause</icon>
+			<div class="volume" style="margin-left: auto;">
+				<div class="volume-icon">volume_up</div>
+				<div class="volume-bar">
+					<div class="volume-bar-inner"></div>
+				</div>
 			</div>
-			<div class="button loop">
+			<div class="button loop" style="margin-left: auto;">
 				<icon>autorenew</icon>
 			</div>
-			<div class="button shuffle" style="margin-left: auto;">
+			<div class="button shuffle">
 				<icon>shuffle</icon>
 			</div>
 			<div class="button prev">
-				<icon style="transform: rotate(180deg);">forward</icon>
+				<icon style="transform: rotate(180deg);">skip_next</icon>
+			</div>
+			<div class="button play">
+				<icon class="icon-play" style="font-size: 1.3rem;">play_arrow</icon>
+				<icon class="icon-pause" style="font-size: 1.3rem;">pause</icon>
 			</div>
 			<div class="button next">
-				<icon>forward</icon>
+				<icon>skip_next</icon>
 			</div>
 		</div>
 	</div>
@@ -105,9 +110,11 @@
 <script language="JavaScript" type="module">
 	import ut from '../libs/nui/nui_ut.js';
 	import nui_app from '../libs/nui/nui_app.js';
+	import dragSlider from '../libs/nui/nui_drag_slider.js';
 	import { ChiptuneJsPlayer } from '../js/chiptune/chiptune3.js';
 	window.chiptune = ChiptuneJsPlayer;
 	window.ut = ut;
+	ut.dragSlider = dragSlider;
 	window.nui_app = nui_app
 
 	// Import centralized shortcuts

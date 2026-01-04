@@ -729,6 +729,7 @@ async function init(initData){
 	g.btn_play = ut.el('#btn_play');
 	g.btn_reset = ut.el('#btn_reset');
 	g.btn_loop = ut.el('#btn_loop');
+	g.master_vol = ut.el('.master-vol');
 	g.master_slider = ut.el('#master_slider');
 	g.master_bar = g.master_slider.el('.inner');
 
@@ -833,11 +834,11 @@ async function init(initData){
 	}
 
 	ut.dragSlider(g.transport, (e) => { seekProz(e.prozX) }, 120);
-	ut.dragSlider(g.master_slider, (e) => {
+	ut.dragSlider(g.master_vol || g.master_slider, (e) => {
 		engine.setMasterGain(e.prozX);
 		g.master_bar.style.width = (e.prozX * 100) + '%';
 		g.master_gain_val = e.prozX;
-	});
+	}, -1, g.master_slider);
 
 	g.btn_play.addEventListener("click", async () =>  {
 		if(g.currentChannels){

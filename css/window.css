@@ -8,6 +8,7 @@
 	--title-bar-height: 2.5rem;
 	--window-padding: 2rem;
 	--space-base: 14;
+	--cursor-type: pointer;
 }
 
 body.dark {

@@ -1046,6 +1046,42 @@ The transition only applies when NOT flashing, so it snaps on but fades off.
 
 ---
 
+## Session: January 4, 2026 - Mouse Volume Controls + Controls Bar Defaults
+
+### What We Changed
+
+**Main Window: Controls Bar + Volume UX**
+- Added a mouse/touch **volume slider** to the main controls bar.
+  - Large hit area on `.controls .volume`
+  - Visual fill via `.volume-bar-inner`
+  - Uses `libs/nui/nui_drag_slider.js` (subtarget math on `.volume-bar`)
+- Added **global mouse wheel volume control**: scroll up/down anywhere in the main window to adjust volume.
+- Set controls bar to be **enabled by default** (`ui.showControls: true`).
+- Hid the controls container with `display:none` when disabled to remove a faint bottom border line.
+
+**Scale / Min Size Behavior**
+- Fixed controls toggle min-size logic to be **scale-aware** (min width/height now respects `windows.main.scale`).
+- Main process accepts scaled min width via the existing `set-min-height` command payload.
+
+**Main Window Resizing**
+- Disabled manual resizing/maximizing of the main window (`resizable:false`, `maximizable:false`) to avoid mismatch between native resize and the app's scale system.
+
+**Mixer Window: Slider Hit Area**
+- Updated the mixer master volume slider to use the **parent container** as the drag target (larger hit area), while computing percentage based on the actual slider bar.
+
+### Files Touched
+- `html/stage.html`
+- `js/stage.js`
+- `css/main.css`
+- `js/config-defaults.js`
+- `js/app.js`
+- `js/mixer/main.js`
+- `mixer/js/main.js`
+
+*GitHub Copilot (GPT-5.2) - January 4, 2026*
+
+---
+
 ## Session: January 4, 2026 - Windows Default Programs Integration
 
 ### What We Accomplished

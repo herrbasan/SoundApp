@@ -164,17 +164,26 @@ async function appStart(){
 	const cfg = user_cfg ? user_cfg.get() : {};
 	const showControls = (cfg && cfg.ui && cfg.ui.showControls !== undefined) ? cfg.ui.showControls : true;
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = configDefaults.WINDOW_DIMENSIONS;
-	const initialMinHeight = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
-	const initialHeight = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	let scale = 14;
+	try {
+		if(cfg && cfg.windows && cfg.windows.main && cfg.windows.main.scale !== undefined) scale = cfg.windows.main.scale | 0;
+	} catch(e) {}
+	if(scale < 14) scale = 14;
+	const baseMinH = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
+	const scaledMinW = Math.max(MIN_WIDTH, Math.round((MIN_WIDTH / 14) * scale));
+	const scaledMinH = Math.max(baseMinH, Math.round((baseMinH / 14) * scale));
+	const initialMinHeight = scaledMinH;
+	const initialHeight = scaledMinH;
     
     wins.main = await helper.tools.browserWindow('default', { 
 		frame:false, 
-		minWidth:MIN_WIDTH, 
+		minWidth:scaledMinW, 
 		minHeight:initialMinHeight, 
-		width:480, 
+		width:scaledMinW, 
 		height:initialHeight, 
 		show:false,
-		resizable:true, 
+		resizable:false, 
+		maximizable:false,
 		devTools:false,
 		transparent:false,
 		backgroundColor:'#323232',
@@ -338,7 +347,8 @@ function mainCommand(e, data){
 	else if(data.command === 'set-min-height'){
 		// Dynamically adjust main window min height for controls toggle
 		if(wins.main && data.minHeight){
-			wins.main.setMinimumSize(480, data.minHeight | 0);
+			const minW = (data.minWidth !== undefined && data.minWidth !== null) ? (data.minWidth | 0) : 480;
+			wins.main.setMinimumSize(minW, data.minHeight | 0);
 		}
 	}
 	return true;
