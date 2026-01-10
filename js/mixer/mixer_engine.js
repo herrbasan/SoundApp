@@ -1,3 +1,7 @@
+// Fade durations for smooth transitions
+const FADE_OUT_DURATION = 0.012;  // 12ms fade out
+const FADE_IN_DURATION = 0.015;   // 15ms fade in
+
 function createAudioContext(sampleRate){
 	const Ctx = window.AudioContext || window.webkitAudioContext;
 	return new Ctx(sampleRate ? { sampleRate } : {});
@@ -242,8 +246,27 @@ class MixerTransport {
 		const sec = v >= 0 ? v : 0;
 		this._offset = sec;
 		if(this.state === 'started'){
+			// Quick fade out/in to mask seek discontinuity
+			if(this.engine.masterGain){
+				const now = this.engine.ctx.currentTime;
+				const gain = this.engine.masterGain.gain;
+				gain.cancelScheduledValues(now);
+				gain.setValueAtTime(gain.value, now);
+				gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION * 0.5);
+			}
+			
 			const startTime = this.engine._seekAll(this._offset);
 			this._t0 = startTime - this._offset;
+			
+			// Fade back in to target volume
+			if(this.engine.masterGain){
+				const now = this.engine.ctx.currentTime;
+				const gain = this.engine.masterGain.gain;
+				const target = this.engine._targetMasterGain || 1;
+				gain.cancelScheduledValues(now);
+				gain.setValueAtTime(0, now + FADE_OUT_DURATION * 0.5);
+				gain.linearRampToValueAtTime(target, now + FADE_OUT_DURATION * 0.5 + FADE_IN_DURATION * 0.7);
+			}
 		}
 	}
 
@@ -252,13 +275,40 @@ class MixerTransport {
 		this.state = 'started';
 		const startTime = this.engine._startAll(this._offset);
 		this._t0 = startTime - this._offset;
+		
+		// Smooth fade in from silence to avoid click
+		if(this.engine.masterGain){
+			const now = this.engine.ctx.currentTime;
+			const gain = this.engine.masterGain.gain;
+			const target = this.engine._targetMasterGain || 1;
+			gain.cancelScheduledValues(now);
+			gain.setValueAtTime(0, now);
+			gain.linearRampToValueAtTime(target, now + FADE_IN_DURATION);
+		}
 	}
 
 	pause(){
 		if(this.state !== 'started') return;
 		this._offset = this.seconds;
 		this.state = 'paused';
-		this.engine._stopAll();
+		
+		// Smooth fade out before stopping to avoid click
+		if(this.engine.masterGain){
+			const now = this.engine.ctx.currentTime;
+			const gain = this.engine.masterGain.gain;
+			gain.cancelScheduledValues(now);
+			gain.setValueAtTime(gain.value, now);
+			gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION);
+			
+			// Stop after fade completes
+			setTimeout(() => {
+				if(this.state === 'paused'){
+					this.engine._stopAll();
+				}
+			}, FADE_OUT_DURATION * 1000 + 5);
+		} else {
+			this.engine._stopAll();
+		}
 	}
 
 	stop(){
@@ -274,6 +324,7 @@ class MixerEngine {
 		this.ctx = createAudioContext(this.initData.currentSampleRate);
 		this.masterGain = this.ctx.createGain();
 		this.masterGain.gain.value = 1;
+		this._targetMasterGain = 1;
 		this.masterGain.connect(this.ctx.destination);
 		this.maxTracks = 128;
 		this.mixNode = null;
@@ -335,6 +386,7 @@ class MixerEngine {
 	}
 
 	setMasterGain(v){
+		this._targetMasterGain = v;
 		if(this.masterGain){
 			this.masterGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
 		}
@@ -381,25 +433,19 @@ class MixerEngine {
 
 	_startAll(offset){
 		const ar = this.tracks;
-		// First, ensure all FFmpeg players have their first chunk ready to minimize staggered start.
-		for(let i=0; i<ar.length; i++){
-			const tr = ar[i];
-			if(tr && tr.ffPlayer){
-				tr.ffPlayer.seek(offset);
-			}
-		}
 		
-		// Schedule start slightly in the future to allow all tracks to fill buffers
-		// and start synchronously. 200ms should be enough for ~20 tracks.
+		// Schedule start in the future to allow all tracks to seek and fill buffers in parallel.
+		// Increased from 50ms to 80ms to accommodate parallel seeking.
 		const preBufferMs = (this.initData && this.initData.config && this.initData.config.mixer && this.initData.config.mixer.preBuffer !== undefined)
 			? (this.initData.config.mixer.preBuffer | 0)
-			: 50;
+			: 80;
 		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
-		// Then start them all as close together as possible.
+		// Start all tracks in parallel - each will seek independently during pre-buffer time.
+		// This is MUCH faster than sequential seeking.
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) tr._startAt(offset, true, startTime);
+			if(tr) tr._startAt(offset, false, startTime);  // skipSeek=false to allow seeking
 		}
 		return startTime;
 	}

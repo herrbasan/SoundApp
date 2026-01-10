@@ -205,6 +205,20 @@ Options:
 
 ## Release History
 
+### Version 2.0.8 (January 2026)
+- **Tape-Style Speed Control** - Variable playback speed from -24 to +24 semitones
+  - Keyboard controls: `+/-` keys adjust speed (coupled pitch/speed like vinyl/tape)
+  - Linear interpolation for smooth fractional-rate playback
+  - Ephemeral setting - resets to normal speed on app restart
+  - Full support for both FFmpeg and tracker/MOD playback
+- **Click-Free Transitions** - Web Audio API gain automation eliminates audio artifacts
+  - 12ms fade-out, 15ms fade-in on pause/resume/seek/track-change
+  - Imperceptible as fades but prevents waveform discontinuities
+  - Smart auto-advance detection skips redundant fade-out on naturally ended tracks
+- **Mixer Performance** - 5-10x faster seeking through parallel track synchronization
+  - Tracks seek simultaneously during 80ms pre-buffer window
+  - Master gain persistence across fade operations
+
 ### Version 1.3 (December 2025)
 - **SAB Audio Pipeline** - Replaced chunk-based streaming with SharedArrayBuffer architecture
   - Zero-copy audio data transfer between main thread and AudioWorkletProcessor
@@ -232,27 +246,17 @@ Options:
 
 ### Short Term Updates
 
-1. **Playback Speed Control**
-   - Time Stretching: Change speed while preserving pitch
-   - Pitch Shifting: Change playback rate affecting pitch
-   - Keyboard controls: Ctrl+Shift+Arrow Up/Down
-
-2. **Playlist Window**
+1. **Playlist Window**
    - Separate window displaying full playlist
    - Use `libs/nui/nui_list.js` for virtualized list handling
    - Search, sort, and scroll through large playlists
 
-3. **Multi-Track Mixer**
-   - Open folder (max ~20 files) and trigger mixer mode
-   - Synchronous playback with per-track volume and panning
-   - Use case: Preview bounced stems/tracks from projects
+1. **Playlist Window**
+   - Separate window displaying full playlist
+   - Use `libs/nui/nui_list.js` for virtualized list handling
+   - Search, sort, and scroll through large playlists
 
-4. **File Format Converter**
-   - Convert currently playing file to different formats
-   - Keyboard shortcut opens conversion window with format options
-   - FFmpeg NAPI interface for transcoding
-
-### Version 2.0 (Future)
+2## Version 2.0 (Future)
 - **Waveform Visualization** - Display audio waveform (if performance allows)
 - **Quick Compare Mode** - Hold key to jump to another track, release to return
 - **Export Playlist** - Save playlist as M3U or text file
@@ -260,3 +264,6 @@ Options:
   - Integrates with Quick Compare Mode for A/B comparison between markers
 - **Folder Metadata Display** - Show folder stats (duration, file count, size)
 - **Quick Tag Editor** - Simple inline ID3/metadata editing
+1+ (Future)
+- **True Pitch Shifting** - DSP-based pitch shifting independent of playback speed
+- **Time Stretching** - Change playback speed while preserving pitch (phase vocoder

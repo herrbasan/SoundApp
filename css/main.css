@@ -415,7 +415,7 @@ body.shuffle .top .content .shuffle::after{
 
 .time_controls .playtime {
 	display: grid;
-	grid-template-columns: 100px auto 100px;
+	grid-template-columns: 100px auto auto 100px;
 	height: 1.8rem; /* 2.5rem * 10/14 = 1.8rem */
 	
 }
@@ -425,12 +425,14 @@ body.shuffle .top .content .shuffle::after{
 	align-items: center;
 }
 
-.time_controls .playtime .volume{
+.time_controls .playtime .volume,
+.time_controls .playtime .speed {
 	justify-content: center;
 	opacity: 0.5;
 }
 
-.time_controls .playtime .volume label{
+.time_controls .playtime .volume label,
+.time_controls .playtime .speed label {
 	padding-right: 0.1rem; /* 0.2rem * 10/14 = 0.1rem */
 }
 

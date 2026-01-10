@@ -70,6 +70,7 @@ SoundApp is built for keyboard use. You can do almost everything without touchin
 | `←` / `→` | Previous / Next track |
 | `Ctrl+←` / `Ctrl+→` | Skip 10 seconds |
 | `↑` / `↓` | Volume up / down |
+| `+` / `-` | Speed up / down (±24 semitones) |
 | `M` | Open mixer with current folder |
 | `I` | Show file in folder |
 | `H` | Help |
@@ -118,7 +119,8 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 A few things I'd like to add eventually:
 
-- **Playback speed control** — time stretching and pitch shifting
+- **True pitch shifting** — DSP-based pitch control independent of speed
+- **Time stretching** — change speed while preserving pitch
 - **Playlist window** — for when you actually want to see what's queued
 - **Waveform display** — if performance allows
 - **Markers** — save positions within a file for A/B comparison

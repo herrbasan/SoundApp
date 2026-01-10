@@ -31,7 +31,8 @@ const CONTROL = {
   UNDERRUN_COUNT: 9,
   START_TIME_HI: 10,
   START_TIME_LO: 11,
-  SIZE: 12
+  PLAYBACK_RATE: 12,
+  SIZE: 13
 };
 
 const STATE = {
@@ -39,6 +40,10 @@ const STATE = {
   PLAYING: 1,
   PAUSED: 2
 };
+
+// Fade durations for smooth transitions (in seconds)
+const FADE_OUT_DURATION = 0.012;  // 12ms fade out
+const FADE_IN_DURATION = 0.015;   // 15ms fade in
 
 /**
  * Get the path to the SAB worklet processor file.
@@ -94,6 +99,8 @@ class FFmpegStreamPlayerSAB {
     this._sampleRate = 44100;
     this._channels = 2;
     this.totalFrames = 0;
+    this._playbackRate = 1.0;
+    this._targetVolume = 1.0;
 
     // End-of-track tracking (important for reliable playlist advance)
     // Worklet compares framesPlayed (relative to current position) against CONTROL.TOTAL_FRAMES.
@@ -179,7 +186,21 @@ class FFmpegStreamPlayerSAB {
   }
 
   set volume(val) {
+    this._targetVolume = val;
     if (this.gainNode) this.gainNode.gain.value = val;
+  }
+
+  setPlaybackRate(semitones) {
+    semitones = Math.max(-24, Math.min(24, semitones | 0));
+    this._playbackRate = Math.pow(2, semitones / 12.0);
+    if (this.controlBuffer) {
+      const rateInt = Math.round(this._playbackRate * 1000) | 0;
+      Atomics.store(this.controlBuffer, CONTROL.PLAYBACK_RATE, rateInt);
+    }
+  }
+
+  getPlaybackRate() {
+    return this._playbackRate;
   }
 
   connect(node, outputIndex = 0, inputIndex = 0) {
@@ -517,6 +538,15 @@ class FFmpegStreamPlayerSAB {
       try { this.workletNode.connect(this.gainNode); } catch(e) {}
     }
     
+    // Smooth fade in from silence to avoid click
+    if (this.gainNode) {
+      const now = this.audioContext.currentTime;
+      const gain = this.gainNode.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(0, now);
+      gain.linearRampToValueAtTime(this._targetVolume, now + FADE_IN_DURATION);
+    }
+    
     // Set scheduled start time
     this._setScheduledStart(when);
     
@@ -542,9 +572,20 @@ class FFmpegStreamPlayerSAB {
       Atomics.store(this.controlBuffer, CONTROL.STATE, STATE.PAUSED);
     }
     
-    // Disconnect worklet to stop CPU usage while paused
-    if (this.workletNode) {
-      try { this.workletNode.disconnect(); } catch(e) {}
+    // Smooth fade out before disconnecting to avoid click
+    if (this.gainNode && this.workletNode) {
+      const now = this.audioContext.currentTime;
+      const gain = this.gainNode.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION);
+      
+      // Disconnect after fade completes to stop CPU usage
+      setTimeout(() => {
+        if (!this.isPlaying && this.workletNode) {
+          try { this.workletNode.disconnect(); } catch(e) {}
+        }
+      }, FADE_OUT_DURATION * 1000 + 5);
     }
   }
 
@@ -554,6 +595,16 @@ class FFmpegStreamPlayerSAB {
 
   seek(seconds) {
     if (!this.decoder || !this.controlBuffer) return false;
+    
+    // Quick fade out/in to mask seek discontinuity
+    const wasPlaying = this.isPlaying;
+    if (this.gainNode && wasPlaying) {
+      const now = this.audioContext.currentTime;
+      const gain = this.gainNode.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION * 0.5);  // Half-speed fade for seeks
+    }
     
     const success = this.decoder.seek(seconds);
     if (success) {
@@ -581,6 +632,15 @@ class FFmpegStreamPlayerSAB {
       for (let i = 0; i < 16; i++) {
         const read = this._fillRingBuffer();
         if (read <= 0) break;
+      }
+      
+      // Fade back in if was playing
+      if (this.gainNode && wasPlaying) {
+        const now = this.audioContext.currentTime;
+        const gain = this.gainNode.gain;
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(0, now + FADE_OUT_DURATION * 0.5);
+        gain.linearRampToValueAtTime(this._targetVolume, now + FADE_OUT_DURATION * 0.5 + FADE_IN_DURATION * 0.7);
       }
     }
     return success;
@@ -625,6 +685,18 @@ class FFmpegStreamPlayerSAB {
 
   onEnded(callback) {
     this.onEndedCallback = callback;
+  }
+  
+  fadeOut() {
+    if (!this.gainNode) return Promise.resolve();
+    return new Promise(resolve => {
+      const now = this.audioContext.currentTime;
+      const gain = this.gainNode.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION);
+      setTimeout(resolve, FADE_OUT_DURATION * 1000);
+    });
   }
 
   stop(keepDecoder = false) {

@@ -472,6 +472,7 @@ async function appStart(){
 	g.type_band = g.cover.el('.filetype .type');
 	g.playtime = ut.el('.playtime .time');
 	g.playvolume = ut.el('.playtime .volume span');
+	g.playspeed = ut.el('.playtime .speed span');
 	g.playremain = ut.el('.playtime .remain');
 	g.top_btn_loop = ut.el('.top .content .loop');
 	g.top_btn_shuffle = ut.el('.top .content .shuffle');
@@ -507,6 +508,11 @@ async function appStart(){
 	g.music = [];
 	g.idx = 0;
 	g.isLoop = false;
+	
+	// Initialize ephemeral playback rate to 0 (always reset on app start)
+	if(!g.config.audio) g.config.audio = {};
+	g.config.audio.playbackRate = 0;
+	
 	setupWindow();
 	setupDragDrop();
 
@@ -847,7 +853,7 @@ function playListFromMulti(ar, add=false, rec=false){
 
 
 
-async function playAudio(fp, n, startPaused = false){
+async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 	console.log('playAudio', fp, n, startPaused);
 	if(!g.blocky){
 		if(fp && g.music && g.music.length > 0){
@@ -862,6 +868,14 @@ async function playAudio(fp, n, startPaused = false){
 		}
 		let parse = path.parse(fp);
 		let bench = performance.now();
+		
+		// Skip fade out during auto-advance (track already ended naturally)
+		if(!autoAdvance && g.currentAudio && !g.currentAudio.paused){
+			if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function'){
+				await g.currentAudio.player.fadeOut();
+			}
+		}
+		
 		g.blocky = true;
 		clearAudio();
 
@@ -888,6 +902,18 @@ async function playAudio(fp, n, startPaused = false){
 			};
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
+			
+			// Apply current ephemeral playback rate to tracker
+			const playbackRate = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
+			if(playbackRate !== 0){
+				const tempoFactor = Math.pow(2, playbackRate / 12.0);
+				player.setTempo(tempoFactor);
+			}
+			if(g.playspeed){
+				if(playbackRate > 0) g.playspeed.innerText = '+' + playbackRate;
+				else g.playspeed.innerText = playbackRate.toString();
+			}
+			
 			if(n > 0){
 				const seekTime = n;
 				const seekFp = fp;
@@ -957,8 +983,13 @@ async function playAudio(fp, n, startPaused = false){
 				
 				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 				
-				if (n > 0) { ffPlayer.seek(n); }
-				
+			const playbackRate = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
+			ffPlayer.setPlaybackRate(playbackRate);
+			if(g.playspeed){
+				if(playbackRate > 0) g.playspeed.innerText = '+' + playbackRate;
+				else g.playspeed.innerText = playbackRate.toString();
+			}
+			
 				if (!startPaused) {
 					await ffPlayer.play();
 				}
@@ -1094,10 +1125,10 @@ function clearAudio(){
 
 function audioEnded(e){
 	if(g.currentAudio?.isMod && g.isLoop){
-		playAudio(g.music[g.idx]);
+		playAudio(g.music[g.idx], 0, false, true);
 	}
 	else {
-		playNext();
+		playNext(null, true);
 	}
 }
 
@@ -1130,11 +1161,11 @@ function shufflePlaylist(){
 	playAudio(g.music[g.idx]);
 }
 
-function playNext(e){
+function playNext(e, autoAdvance = false){
 	if(!g.blocky){
 		if(g.idx == g.max){ g.idx = -1; }
 		g.idx++;
-		playAudio(g.music[g.idx])
+		playAudio(g.music[g.idx], 0, false, autoAdvance)
 	}
 }
 
@@ -1349,6 +1380,40 @@ function volumeUp(){
 function volumeDown(){
 	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume - 0.05) : 0.45;
 	setVolume(v, true);
+}
+
+function setPlaybackRate(semitones){
+	semitones = Math.max(-24, Math.min(24, semitones | 0));
+	if(!g.config.audio) g.config.audio = {};
+	g.config.audio.playbackRate = semitones;
+	
+	// Apply to FFmpeg player
+	if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
+		g.currentAudio.player.setPlaybackRate(semitones);
+	}
+	
+	// Apply to tracker/mod player using tempo
+	if(g.currentAudio?.isMod && player){
+		const tempoFactor = Math.pow(2, semitones / 12.0);
+		player.setTempo(tempoFactor);
+	}
+	
+	// Update UI
+	if(g.playspeed){
+		if(semitones > 0) g.playspeed.innerText = '+' + semitones;
+		else g.playspeed.innerText = semitones.toString();
+	}
+	// Note: NOT persisting to config - speed is ephemeral
+}
+
+function speedUp(){
+	const current = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
+	setPlaybackRate(current + 1);
+}
+
+function speedDown(){
+	const current = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
+	setPlaybackRate(current - 1);
 }
 
 
@@ -1576,6 +1641,12 @@ async function onKey(e) {
 	if (e.keyCode == 40) {
 		volumeDown();
 	}
+	if (e.keyCode == 187 || e.keyCode == 107) {
+		speedUp();
+	}
+	if (e.keyCode == 189 || e.keyCode == 109) {
+		speedDown();
+	}
 
 	if (e.keyCode == 82) {
 		shufflePlaylist();
@@ -1589,11 +1660,11 @@ async function onKey(e) {
 		playPause();
 		flashButton(g.ctrl_btn_play);
 	}
-	if(e.keyCode == 109 && e.ctrlKey){
+	if(e.keyCode == 109 && e.ctrlKey && e.shiftKey){
 		let val = ut.getCssVar('--space-base').value;
 		scaleWindow(val-1)
 	}
-	if(e.keyCode == 107 && e.ctrlKey){
+	if(e.keyCode == 107 && e.ctrlKey && e.shiftKey){
 		let val = ut.getCssVar('--space-base').value;
 		scaleWindow(val+1)
 	}
