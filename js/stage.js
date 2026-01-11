@@ -505,6 +505,27 @@ async function appStart(){
 
 	g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedMpt]
 
+	function canFFmpegPlayFile(filePath){
+		console.log('FFmpeg probe:', filePath);
+		const decoder = new g.FFmpegDecoder();
+		try {
+			if(decoder.open(filePath)){
+				const duration = decoder.getDuration();
+				decoder.close();
+				console.log('  ✓ FFmpeg can play (duration:', duration, 's)');
+				return duration > 0;
+			}
+			decoder.close();
+			console.log('  ✗ FFmpeg open failed');
+			return false;
+		} catch(e){
+			try { decoder.close(); } catch(e2){}
+			console.log('  ✗ FFmpeg error:', e.message);
+			return false;
+		}
+	}
+	g.canFFmpegPlayFile = canFFmpegPlayFile;
+
 	g.music = [];
 	g.idx = 0;
 	g.isLoop = false;
@@ -680,7 +701,7 @@ function setupDragDrop(){
 					pl = pl.concat(folder_files);
 				}
 				else {
-					if(tools.checkFileType(fp, g.supportedFilter)){
+					if(tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)){
 						pl.push(fp);
 					}
 				}
@@ -828,11 +849,11 @@ function playListFromMulti(ar, add=false, rec=false){
 				pl = pl.concat(folder_files);
 			}
 			else {
-				if(tools.checkFileType(fp, g.supportedFilter)){
+				if(tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)){
 					pl.push(fp);
 				}
 				else {
-					console.log('Unsupported File Type')
+					console.log('Unsupported File Type:', fp)
 				}
 			}
 		}
