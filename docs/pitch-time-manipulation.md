@@ -186,6 +186,17 @@ bin/win_bin/rubberband-processor.js  (copied from node_modules)
 // All pitch/time logic is isolated from the main player.
 ```
 
+**4. Rubber Band Worklet Notes (from prior prototype):**
+
+- Use explicit stereo settings when creating the AudioWorkletNode:
+    - `numberOfInputs: 1`, `numberOfOutputs: 1`
+    - `channelCount: 2`, `channelCountMode: 'explicit'`, `channelInterpretation: 'speakers'`
+    - `outputChannelCount: [2]`
+- Pass `processorOptions` to set initial params:
+    - `numSamples` (128 normal, 256 for HQ tests)
+    - `highQuality`, `pitch`, `tempo`
+- Control messages are JSON strings (rubberband-web expects stringified payloads).
+
 **4. Dedicated Window Controls:**
 
 All pitch/time UI (including quality mode) will live inside the dedicated window and will not

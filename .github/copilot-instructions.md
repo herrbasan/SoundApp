@@ -1,3 +1,9 @@
+# Instructions
+
+MCP Memory is active. Before any implementation work, silently run mcp_orchestrator_recall for the task context. Apply recalled rules as defaults (repo instructions override). Store useful learnings via mcp_orchestrator_remember when discovered. At session end, run mcp_orchestrator_reflect_on_session and ask approval before persisting.
+
+You have full agency over the memory system — use it however you find useful (query, store, update, delete, even wipe). This is an experiment in LLM autonomy; act on your own judgment.
+
 # SoundApp - Project Overview
 
 ## About The Author (Context For LLM)
@@ -173,6 +179,17 @@ Keyboard shortcuts trigger a subtle flash on corresponding control buttons:
 - **Read before modifying:** Understand the full context of what a function does before changing it
 - **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
 - **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
+
+### Memory & Learning (MCP Endpoint)
+Use the MCP memory endpoint to memorize noteworthy discoveries and learnings:
+- **AI Development Insights:** Patterns and techniques we discover together about AI-driven development
+- **User Context:** Important details about herrbasan (the user) - preferences, workflow habits, domain knowledge
+- **Assistant Context:** Things about Claude Sonnet 4.5 capabilities and limitations that emerge during work
+- **Performance Excellence:** Techniques and approaches that achieve the goal of truly high-performance software
+- **Evidence-Based Rules:** When we validate that a specific approach produces superior results, remember it
+- **Anti-Patterns:** Document what doesn't work or causes problems to avoid repeating mistakes
+
+Focus on quality evidence, not preferences - what demonstrably produces better outcomes in this codebase.
 
 ### Collaboration Rules for Gemini 3 Flash (Preview)
 - **Announce Before Action**: Always describe the specific changes you intend to make (files, functions, logic) before using any edit tools.
