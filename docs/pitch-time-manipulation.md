@@ -1,22 +1,20 @@
 # Pitch and Time Manipulation in SoundApp
 
-This document now focuses on a **dedicated Pitch/Time window** (similar to Mixer) that hosts an isolated pipeline.
-Pitch/time processing is **removed from the main player** to keep core playback stable and predictable. The main
-window retains the **tape-style speed control** only. The Pitch/Time window will use a **fixed 48 kHz AudioContext**
+The Pitch/Time window is a dedicated UI pane that runs an isolated audio pipeline. It will use a **fixed 48 kHz AudioContext**
 so its pipeline is self-contained and independent of the main player sample-rate setting.
 
-Two pitch/time backends are still relevant, but they will live **only in the dedicated window**:
+Both pitch/time backends will live **only in the dedicated window**:
 1. **FFmpeg Native Implementation** (baseline)
 2. **Web Audio WASM Implementation** (higher quality, preferred for testing)
 
 ---
 
-## FFmpeg Native Implementation (Dedicated Window Only)
+## FFmpeg Native Implementation
 
 ### Architecture
 
 ```
-Audio File → FFmpeg Decoder (C++) → Rubberband Filter (R2) → Resampler → SAB Ring Buffer → AudioWorklet → Output
+Audio File → FFmpeg Decoder (C++) → Rubberband Filter (R2) → Resampler (48 kHz) → SAB Ring Buffer → AudioWorklet → Output
                                            ↑
                                     Limited to tempo + pitch params
 ```
@@ -96,44 +94,13 @@ while (av_buffersink_get_frame(bufferSinkCtx, drainFrame) >= 0) {
 }
 ```
 
-**Keyboard Shortcuts:**
+**Controls:**
 
-Pitch/time shortcuts are removed from the main window. The dedicated window will define its own
-shortcuts and UI controls.
-
-### Limitations
-
-**Quality:**
-- Restricted to Rubberband R2 (Faster) engine
-- No access to R3 (Finer) engine
-- Cannot configure quality options:
-  - No formant preservation control
-  - No transients handling (crisp/mixed/smooth)
-  - No window size control (standard/short/long)
-  - No detector options (compound/percussive/soft)
-  - No pitch quality modes (high-speed/high-quality/high-consistency)
-
-**FFmpeg Filter Exposure:**
-
-FFmpeg's rubberband filter only exposes `tempo` and `pitch` parameters. The underlying Rubber Band Library has extensive options that are compiled into the filter but not exposed through FFmpeg's option interface.
-
-### Performance
-
-- Real-time capable for moderate pitch shifts (±6 semitones)
-- CPU usage similar to native FFmpeg filtering
-- Latency: ~15-30ms (FFmpeg decoding + filter + ring buffer)
-- Memory: Minimal overhead (filter graph + ring buffer)
-
-### Quality Assessment
-
-- **Moderate shifts (±3 st):** Acceptable for preview/reference
-- **Large shifts (±6+ st):** Noticeable graininess, artifacts
-- **Vocal material:** Formant shifting creates "chipmunk" effect
-- **Percussive material:** Generally good, transient preservation works
+All pitch and time controls are exposed exclusively through the dedicated window UI.
 
 ---
 
-## Web Audio WASM Implementation (Dedicated Window Only)
+## Web Audio WASM Implementation
 
 ### Architecture
 
@@ -142,21 +109,6 @@ Audio File → FFmpeg Decoder (C++) → SAB Ring Buffer → AudioWorklet (Rubber
                                                               ↑
                                                   Full R3 quality control
 ```
-
-### Why WASM?
-
-**Quality advantages:**
-- Access to Rubberband R3 (Finer) engine - significantly better quality
-- Full control over quality parameters
-- Formant preservation for natural vocal pitch shifts
-- Better transient handling
-- Configurable window sizes for quality/latency trade-off
-
-**Integration advantages:**
-- Keeps FFmpeg for decoding (fast, all formats supported)
-- Moves filtering to Web Audio (better browser integration)
-- Simpler buffer management (AudioWorklet native)
-- Lower overall latency (no native↔JS bridge for filtering)
 
 ### Implementation Plan
 
@@ -168,25 +120,7 @@ Use `rubberband-web` (AudioWorklet wrapper) instead of raw `rubberband-wasm`:
 npm install rubberband-web
 ```
 
-**2. File Structure (Dedicated Window):**
-
-```
-html/pitchtime.html
-css/pitchtime.css
-js/pitchtime/main.js
-js/pitchtime/pitchtime_engine.js
-bin/win_bin/rubberband-processor.js  (copied from node_modules)
-```
-
-**3. Dedicated Window Pipeline:**
-
-```javascript
-// pitchtime_engine.js - dedicated architecture
-// FFmpeg decode -> SAB -> (optional) WASM Rubber Band -> output
-// All pitch/time logic is isolated from the main player.
-```
-
-**4. Rubber Band Worklet Notes (from prior prototype):**
+**2. Rubber Band Worklet Notes:**
 
 - Use explicit stereo settings when creating the AudioWorkletNode:
     - `numberOfInputs: 1`, `numberOfOutputs: 1`
@@ -197,138 +131,19 @@ bin/win_bin/rubberband-processor.js  (copied from node_modules)
     - `highQuality`, `pitch`, `tempo`
 - Control messages are JSON strings (rubberband-web expects stringified payloads).
 
-**4. Dedicated Window Controls:**
+**3. Dedicated Window Controls:**
 
 All pitch/time UI (including quality mode) will live inside the dedicated window and will not
 share settings with the main player.
 
-### Expected Quality Improvements
-
-**Formant Preservation:**
-- Natural vocal pitch shifts (no "chipmunk" effect)
-- Maintains vocal character across pitch range
-- Critical for music with vocals
-
-**Better Transient Handling:**
-- Preserves percussive attacks
-- Less smearing on drums/percussion
-- Configurable detector modes (compound/percussive/soft)
-
-**Reduced Artifacts:**
-- Less graininess at extreme pitch shifts (±12 st)
-- Smoother time stretching
-- Better phase coherence
-
-**Configurable Quality:**
-- R3 Finer engine for complex material
-- Window size control (standard/short/long)
-- CPU vs quality trade-off
-
-### Performance Considerations
-
-**Bundle Size:**
-- WASM binary: ~5-10MB (gzipped: ~2-3MB)
-- One-time download, cached by browser
-- Acceptable for desktop app
-
-**CPU Usage:**
-- R3 engine: 2-3x more CPU than R2
-- High quality mode: Additional 20-30% overhead
-- Still real-time capable on modern hardware
-- Settings toggle lets users choose quality vs performance
-
-**Latency:**
-- AudioWorklet runs on audio thread (deterministic)
-- Lower than FFmpeg approach (~5-10ms vs ~15-30ms)
-- Configurable via window size (short = lower latency)
-
-**Memory:**
-- WASM heap allocation (~10-30MB)
-- Browser handles GC
-- No manual memory management needed
-
-### New Development Plan (Dedicated Window)
-
-**Phase 1: Add Pitch/Time Window**
-- Create `html/pitchtime.html` with NUI chrome
-- Add `js/pitchtime/main.js` and `js/pitchtime/pitchtime_engine.js`
-- Wire window open/close in `stage.js` (shortcut TBD)
-- Keep all pitch/time UI and engine logic isolated here
-
-**Phase 2: Implement WASM Pipeline in the Window**
-- Use `rubberband-web` worklet inside the dedicated window
-- Use a specialized buffer strategy (optional resample path)
-- Allow toggling FFmpeg vs WASM inside the window only
-
-**Phase 3: Main Player Cleanup**
-- Remove main-window pitch/time settings and shortcuts (done)
-- Keep tape-style speed control intact
-
-### Licensing Considerations
-
-**Current Status:**
-- FFmpeg: GPL (compatible with SoundApp)
-- Rubber Band Library: GPL / Commercial
-
-**WASM Addition:**
-- `rubberband-web`: GPL
-- No change to licensing status
-- Already GPL-compliant via FFmpeg
-
-**If going commercial:**
-- Need Rubber Band commercial license
-- Applies to both FFmpeg and WASM implementations
-- One license covers both
-
-### Testing Strategy
-
-**Quality Tests:**
-1. Vocal material: ±6 st pitch shift, check formant preservation
-2. Percussive: ±6 st, check transient clarity
-3. Time stretch: 0.5x, 2.0x on complex mixes
-4. Extreme shifts: ±12 st on various material
-
-**Performance Tests:**
-1. CPU usage: Monitor at various quality settings
-2. Latency: Measure end-to-end with system audio tools
-3. Memory: Check WASM heap size over time
-4. Real-time stability: Long playback sessions
-
-**Compatibility Tests:**
-1. Fixed 48 kHz playback at multiple file input rates
-2. Different audio formats (MP3, FLAC, WAV, etc.)
-3. Different buffer sizes in the dedicated window
-4. Seek during pitch/time manipulation
-
 ---
-
-## Comparison Matrix
-
-| Feature | FFmpeg Native | WASM Rubberband |
-|---------|---------------|-----------------|
-| **Quality (±3 st)** | Good | Excellent |
-| **Quality (±6+ st)** | Fair | Good |
-| **Formant preservation** | No | Yes (R3) |
-| **Transient handling** | Basic | Configurable |
-| **Window control** | No | Yes |
-| **CPU usage** | Low | Medium (configurable) |
-| **Latency** | 15-30ms | 5-10ms |
-| **Bundle size** | Native (0KB JS) | ~5-10MB WASM |
-| **Maintainability** | C++ build required | npm package |
-| **Quality options** | None | Extensive |
-| **Real-time** | Yes | Yes |
-| **License** | GPL | GPL |
-
----
-
 ## Recommendation
 
 **For SoundApp:**
 
 1. **Keep pitch/time in a dedicated window** to preserve main playback stability.
-2. **Prefer WASM Rubber Band** in that window for quality testing.
-3. **Optional resample path** for 192kHz contexts (downsample → process → upsample).
-4. **Keep tape-style speed** in main window only.
+2. **Prefer WASM Rubber Band** in that window.
+3. **No explicit upsampling** in the dedicated window. Keep the entire pitch/time pipeline at fixed 48 kHz and let the OS handle any device resampling.
 
 **No fallback policy:**
 

@@ -5,3 +5,5 @@ _Material/
 _Archive/
 env.json
 _harness_last.log
+.DS_Store
+libs/rubberband-wasm/emsdk/

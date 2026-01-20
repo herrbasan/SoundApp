@@ -17,9 +17,9 @@ let g = {};
 g.test = {};
 g.audioContext = null;
 g.ffmpegPlayer = null;
-g.windows = { help: null, settings: null, playlist: null, mixer: null };
-g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false };
-g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false };
+g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null };
+g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false };
+g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 g.music = [];
@@ -414,6 +414,9 @@ async function init(){
 				checkState();
 			}
 			openWindow('mixer', false, fp);
+		}
+		else if (data.action === 'toggle-pitchtime') {
+			openWindow('pitchtime');
 		}
 		else if (data.action === 'toggle-theme') {
 			if(!g.config.ui) g.config.ui = {};
@@ -1601,6 +1604,9 @@ async function onKey(e) {
 		const fp = g.currentAudio ? g.currentAudio.fp : null;
 		openWindow('mixer', false, fp);
 	}
+	else if (shortcutAction === 'toggle-pitchtime') {
+		openWindow('pitchtime');
+	}
 	else if (shortcutAction === 'toggle-controls') {
 		toggleControls();
 	}
@@ -1777,6 +1783,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				} else {
 					tools.sendToId(g.windows[type], 'show-window');
 				}
+				if(type === 'pitchtime'){
+					const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+					const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
+					if(currentFile){
+						if(g.currentAudio && !g.currentAudio.paused){
+							g.currentAudio.pause();
+							checkState();
+						}
+						tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+					}
+				}
 				return;
 			}
 		}
@@ -1801,6 +1818,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 					paths: playlist.paths.slice(0, 20),
 					idx: playlist.idx
 				});
+			}
+			if(type === 'pitchtime'){
+				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+				const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
+				if(currentFile){
+					if(g.currentAudio && !g.currentAudio.paused){
+						g.currentAudio.pause();
+						checkState();
+					}
+					tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+				}
 			}
 		}
 		return;
@@ -1855,6 +1883,19 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			paths: playlist.paths.slice(0, 20),
 			idx: playlist.idx
 		};
+	}
+
+	if(type === 'pitchtime'){
+		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+		const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
+		if(currentFile){
+			if(g.currentAudio && !g.currentAudio.paused){
+				g.currentAudio.pause();
+				checkState();
+			}
+			init_data.currentFile = currentFile;
+			init_data.currentTime = currentTime;
+		}
 	}
 
 	g.windows[type] = await tools.browserWindow('frameless', {

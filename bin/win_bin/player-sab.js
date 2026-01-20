@@ -192,7 +192,18 @@ class FFmpegStreamPlayerSAB {
 
   setPlaybackRate(semitones) {
     semitones = Math.max(-24, Math.min(24, semitones | 0));
-    this._playbackRate = Math.pow(2, semitones / 12.0);
+    this.setPlaybackRateRatio(Math.pow(2, semitones / 12.0));
+  }
+
+  // Set absolute playback-rate multiplier (1.0 = normal).
+  // Used by Pitch&Time to implement time-stretch without RubberBand tempo.
+  setPlaybackRateRatio(rate) {
+    rate = +rate;
+    if (!isFinite(rate) || rate <= 0) return;
+    // Clamp to a sane range (worklet supports fractional interpolation).
+    if (rate < 0.25) rate = 0.25;
+    if (rate > 4.0) rate = 4.0;
+    this._playbackRate = rate;
     if (this.controlBuffer) {
       const rateInt = Math.round(this._playbackRate * 1000) | 0;
       Atomics.store(this.controlBuffer, CONTROL.PLAYBACK_RATE, rateInt);

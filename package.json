@@ -8,7 +8,8 @@
     "harness": "electron harness/main.js",
     "package": "electron-forge package",
     "dist": "electron-builder",
-    "make": "electron-forge make"
+    "make": "electron-forge make",
+    "postinstall": "node scripts/copy-rubberband.js"
   },
   "author": "David Renelt",
   "license": "MIT",
