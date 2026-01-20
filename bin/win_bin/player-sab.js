@@ -203,6 +203,7 @@ class FFmpegStreamPlayerSAB {
     return this._playbackRate;
   }
 
+
   connect(node, outputIndex = 0, inputIndex = 0) {
     this.gainNode.connect(node, outputIndex, inputIndex);
   }
@@ -249,6 +250,7 @@ class FFmpegStreamPlayerSAB {
     if (!this.decoder.open(filePath, ctxRate, this.threadCount)) {
       throw new Error(`Failed to open: ${filePath}`);
     }
+
 
     this.filePath = filePath;
     this._sampleRate = this.decoder.getSampleRate() || ctxRate;
@@ -310,6 +312,9 @@ class FFmpegStreamPlayerSAB {
     Atomics.store(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_HI, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_LO, 0);
+    const rateInt = Math.round(this._playbackRate * 1000) | 0;
+    Atomics.store(this.controlBuffer, CONTROL.PLAYBACK_RATE, rateInt);
+
     
     // Create or reuse worklet node
     // Reuse worklet node if we're reusing SABs (same buffers, just reset state)

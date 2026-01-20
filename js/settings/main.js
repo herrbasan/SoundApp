@@ -64,6 +64,7 @@ function initHQMode() {
 	});
 }
 
+
 function initDarkTheme() {
 	const darkThemeToggle = document.getElementById('darkThemeToggle');
 	if (getCfg(['ui', 'theme'], 'dark') === 'dark') {

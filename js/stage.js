@@ -118,6 +118,7 @@ async function init(){
 			}
 		}
 
+
 		if(oldStereoSep !== stereoSep){
 			if(player && g.currentAudio?.isMod){
 				player.setStereoSeparation(stereoSep);
@@ -221,6 +222,7 @@ async function init(){
 		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-pm.js');
 		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
 		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
+		g.rubberband_worklet_path = path.resolve(fp + '/node_modules/rubberband-web/public/rubberband-processor.js');
 	}
 	else {
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
@@ -230,6 +232,7 @@ async function init(){
 		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-pm.js');
 		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/win_bin/player-sab.js');
 		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-sab.js');
+		g.rubberband_worklet_path = path.resolve(fp + '/node_modules/rubberband-web/public/rubberband-processor.js');
 	}
 
 	/* Detect max supported sample rate for HQ mode */

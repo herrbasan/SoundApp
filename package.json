@@ -36,7 +36,8 @@
         ],
         "extraResource": [
           "./bin",
-          "./build/icons/"
+          "./build/icons/",
+          "./node_modules/rubberband-web/public/"
         ],
         "executableName": "soundApp",
         "icon": "build/icons/app.ico"
@@ -55,5 +56,8 @@
         }
       ]
     }
+  },
+  "dependencies": {
+    "rubberband-web": "^0.2.1"
   }
 }
