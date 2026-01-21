@@ -1,8 +1,10 @@
 import { PitchtimeEngine } from './pitchtime_engine.js';
 
 import ut from '../../libs/nui/nui_ut.js';
+import nui_app from '../../libs/nui/nui_app.js';
 import dragSlider from '../../libs/nui/nui_drag_slider.js';
 ut.dragSlider = dragSlider;
+window.nui_app = nui_app;
 
 let g = {};
 let engine;
@@ -85,9 +87,9 @@ function setupTransportControls(){
 	}
 
 	if(stopBtn){
-		stopBtn.addEventListener('click', async () => {
+		stopBtn.addEventListener('click', () => {
 			if(!engine) return;
-			await engine.stop();
+			engine.seek(0);
 			updateUI();
 		});
 	}
@@ -95,7 +97,11 @@ function setupTransportControls(){
 	if(loopBtn){
 		loopBtn.addEventListener('click', () => {
 			if(!engine) return;
-			engine.loop = !engine.loop;
+			if(engine.setLoop){
+				engine.setLoop(!engine.loop);
+			} else {
+				engine.loop = !engine.loop;
+			}
 			updateUI();
 		});
 	}
@@ -259,21 +265,20 @@ async function ensureEngine(){
 }
 
 function setupDragAndDrop(){
-	const body = document.body;
-	body.addEventListener('dragover', (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-	});
-	body.addEventListener('drop', async (e) => {
-		e.preventDefault();
-		e.stopPropagation();
-		if(!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
-		const file = e.dataTransfer.files[0];
-		await loadFile(file);
-	});
+	if(!window.nui_app) return;
+	const dropZone = window.nui_app.dropZone(
+		[{ name:'drop_file', label:'Drop Files...' }],
+		async (e) => {
+			e.preventDefault();
+			if(!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+			const file = e.dataTransfer.files[0];
+			await loadFile(file, true);
+		},
+		document.querySelector('.nui-app')
+	);
 }
 
-async function loadFile(file){
+async function loadFile(file, autoPlay = false){
 	if(!engine || !file) return;
 	hideError();
 	try {
@@ -287,6 +292,7 @@ async function loadFile(file){
 		if(infoFilename) infoFilename.textContent = filename;
 
 		await engine.loadFile(filePath || file);
+		if(autoPlay) await engine.play();
 		updateUI();
 	} catch(err) {
 		console.error('Failed to load file:', err);
@@ -304,6 +310,13 @@ async function init(initData){
 	const theme = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
 	if(theme === 'dark') document.body.classList.add('dark');
 	else document.body.classList.remove('dark');
+
+	// Initialize volume from stage if provided
+	if(typeof g.initData.currentVolume === 'number' && isFinite(g.initData.currentVolume)){
+		g.master_gain_val = g.initData.currentVolume;
+	} else if(typeof g.master_gain_val !== 'number' || !isFinite(g.master_gain_val)){
+		g.master_gain_val = 1.0;
+	}
 
 	await ensureEngine();
 	setupVolumeControls();

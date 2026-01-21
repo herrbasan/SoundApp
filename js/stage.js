@@ -1888,6 +1888,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	if(type === 'pitchtime'){
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
+		const currentVolume = (g.config && g.config.audio && typeof g.config.audio.volume === 'number') ? g.config.audio.volume : 1.0;
 		if(currentFile){
 			if(g.currentAudio && !g.currentAudio.paused){
 				g.currentAudio.pause();
@@ -1896,6 +1897,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			init_data.currentFile = currentFile;
 			init_data.currentTime = currentTime;
 		}
+		init_data.currentVolume = currentVolume;
 	}
 
 	g.windows[type] = await tools.browserWindow('frameless', {

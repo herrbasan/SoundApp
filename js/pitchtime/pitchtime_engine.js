@@ -79,6 +79,11 @@ export class PitchtimeEngine {
 		console.timeEnd('playerOpen');
 		
 		this.duration = info.duration;
+		
+		if(this.player.setLoop){
+			this.player.setLoop(this.loop);
+		}
+		
 		console.timeEnd('loadFile');
 	}
 
@@ -158,6 +163,13 @@ export class PitchtimeEngine {
 			// HQ toggle recreates the kernel in the worklet; re-send current params.
 			this.setTempo(this.currentTempo || 1.0);
 			this.setPitch(this.currentPitch || 0);
+		}
+	}
+
+	setLoop(enabled){
+		this.loop = enabled;
+		if(this.player && this.player.setLoop){
+			this.player.setLoop(enabled);
 		}
 	}
 
