@@ -172,14 +172,24 @@ function setupParameterControls(){
 	const pitchControl = createSlider(pitchSlider, -12, 12, 0, (v) => {
 		const rounded = Math.round(v);
 		if(pitchValue) pitchValue.textContent = (rounded >= 0 ? '+' : '') + rounded;
-		if(engine) engine.setPitch(rounded);
+		if(engine){
+			const currentPitch = engine.currentPitch || 0;
+			if(rounded !== currentPitch){
+				engine.setPitch(rounded);
+			}
+		}
 	});
 
 	const tempoControl = createSlider(tempoSlider, 0.5, 1.5, 1.0, (v) => {
 		const speed = v;
 		const percent = Math.round(speed * 100);
 		if(tempoValue) tempoValue.textContent = percent;
-		if(engine) engine.setTempo(1.0 / (speed || 1.0));
+		if(engine){
+			const currentPercent = Math.round((1.0 / (engine.currentTempo || 1.0)) * 100);
+			if(percent !== currentPercent){
+				engine.setTempo(1.0 / (speed || 1.0));
+			}
+		}
 	});
 
 	const hqCheckbox = document.getElementById('hq_mode');

@@ -92,6 +92,12 @@ export class PitchtimeEngine {
 		if(this.ctx.state === 'suspended'){
 			await this.ctx.resume();
 		}
+		
+		// Ensure buffer is well-filled before starting to reduce crackling
+		if(this.player._fillQueue){
+			this.player._fillQueue(this.player.ringSize * 0.5, 8);
+		}
+		
 		this.player.play();
 		this.isPlaying = true;
 	}
