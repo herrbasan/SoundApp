@@ -1,8 +1,8 @@
 .pitchtime-root {
 	display: flex;
 	flex-direction: column;
-	gap: 2rem;
-	max-width: 800px;
+	gap: 1rem;
+	max-width: 700px;
 	margin: 0 auto;
 }
 
@@ -16,9 +16,43 @@
 }
 
 .transport-controls {
-	display: flex;
+	display: grid;
+	grid-template-columns: auto auto auto 1fr 16rem;
+	align-items: center;
 	gap: 0.5rem;
-	justify-content: center;
+	margin-top: 1rem;
+}
+
+.master-vol {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	align-items: center;
+	height: 3rem;
+	gap: 1rem;
+	background: rgb(var(--color-shade3));
+	padding: 0rem 1rem;
+	border-radius: 0.3rem;
+	cursor: pointer;
+}
+
+.master-vol svg {
+	width: 1.4rem;
+	height: 1.4rem;
+	fill: rgba(255,255,255,0.6);
+}
+
+.master-vol .slider-container {
+	position: relative;
+	height: 0.4rem;
+	background: rgb(var(--color-shade4));
+	overflow: hidden;
+}
+
+.master-vol .slider-container .inner {
+	position: absolute;
+	height: 100%;
+	width: 100%;
+	background: rgb(var(--color-shade9));
 }
 
 .icon-btn {
@@ -79,7 +113,7 @@
 .transport .bar .inner {
 	width: 50%;
 	height: 100%;
-	background-color: rgb(var(--color-shade8));
+	background-color: rgb(var(--color-shade9));
 }
 
 .transport .time {
@@ -182,6 +216,10 @@
 	z-index: 1;
 }
 
+#tempo_slider .center-mark {
+	left: 50%;
+}
+
 .range-labels {
 	display: flex;
 	justify-content: space-between;
@@ -190,9 +228,16 @@
 	margin-top: 0.25rem;
 }
 
-.quality-controls {
+.bottom {
 	padding-top: 1rem;
+	display: flex;
+	gap: 1rem;
 	border-top: 1px solid rgb(var(--color-shade3));
+	align-items: center;
+}
+
+.quality-controls {
+	margin-right: auto;
 }
 
 .checkbox-label {
@@ -216,9 +261,6 @@
 
 .action-buttons {
 	display: flex;
-	gap: 1rem;
-	justify-content: center;
-	margin-top: 1rem;
 }
 
 .action-btn {
@@ -255,17 +297,15 @@
 .info-line {
 	display: flex;
 	gap: 1rem;
+	grid-template-columns: auto auto;
 }
 
 .info-line .label {
-	flex: 0 0 auto;
 	font-weight: 600;
 	color: rgb(var(--color-shade6));
-	min-width: 7rem;
 }
 
 .info-line .value {
-	flex: 1;
 	color: rgb(var(--color-shade7));
 	word-break: break-word;
 }

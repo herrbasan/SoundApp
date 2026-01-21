@@ -1,5 +1,9 @@
 import { PitchtimeEngine } from './pitchtime_engine.js';
 
+import ut from '../../libs/nui/nui_ut.js';
+import dragSlider from '../../libs/nui/nui_drag_slider.js';
+ut.dragSlider = dragSlider;
+
 let g = {};
 let engine;
 let g_params = null;
@@ -97,28 +101,35 @@ function setupTransportControls(){
 	}
 
 	const transportEl = document.querySelector('.transport');
-	if(transportEl){
-		let seeking = false;
-		function doSeek(e){
+	const transportBar = transportEl ? transportEl.querySelector('.bar') : null;
+	if(transportEl && transportBar && ut.dragSlider){
+		ut.dragSlider(transportEl, (e) => {
 			if(!engine || engine.duration <= 0) return;
-			const rect = transportEl.getBoundingClientRect();
-			const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-			const progress = x / rect.width;
-			const time = progress * engine.duration;
-			engine.seek(time);
+			engine.seek(e.prozX * engine.duration);
 			updateUI();
-		}
-		transportEl.addEventListener('mousedown', (e) => {
-			seeking = true;
-			doSeek(e);
-		});
-		window.addEventListener('mousemove', (e) => {
-			if(!seeking) return;
-			doSeek(e);
-		});
-		window.addEventListener('mouseup', () => {
-			seeking = false;
-		});
+		}, 120, transportBar);
+	}
+}
+
+function setupVolumeControls(){
+	const masterVol = document.querySelector('.master-vol');
+	const slider = document.getElementById('master_slider');
+	const bar = slider ? slider.querySelector('.inner') : null;
+	if(!slider || !bar) return;
+	if(typeof g.master_gain_val !== 'number' || !isFinite(g.master_gain_val)) g.master_gain_val = 1.0;
+
+	function apply(v){
+		v = Math.max(0, Math.min(1, +v || 0));
+		g.master_gain_val = v;
+		bar.style.width = (v * 100) + '%';
+		if(engine && engine.setVolume) engine.setVolume(v);
+	}
+	apply(g.master_gain_val);
+
+	if(ut.dragSlider){
+		ut.dragSlider(masterVol || slider, (e) => {
+			apply(e.prozX);
+		}, -1, slider);
 	}
 }
 
@@ -133,8 +144,6 @@ function setupParameterControls(){
 		const handle = container.querySelector('.handle');
 		const track = container.querySelector('.track');
 		if(!handle || !track) return;
-
-		let dragging = false;
 		let value = initial;
 
 		function update(v, skipCallback = false){
@@ -144,33 +153,13 @@ function setupParameterControls(){
 			if(!skipCallback && onChange) onChange(value);
 		}
 
-		function getValue(e){
-			const rect = track.getBoundingClientRect();
-			const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-			const percent = x / rect.width;
-			return min + percent * (max - min);
-		}
-
-		track.addEventListener('mousedown', (e) => {
-			dragging = true;
-			update(getValue(e));
-		});
-
-		handle.addEventListener('mousedown', (e) => {
-			dragging = true;
-			e.stopPropagation();
-		});
-
-		window.addEventListener('mousemove', (e) => {
-			if(!dragging) return;
-			update(getValue(e));
-		});
-
-		window.addEventListener('mouseup', () => {
-			dragging = false;
-		});
-
 		update(initial, true);
+		if(ut.dragSlider){
+			const target = container.closest('.param-group') || container;
+			ut.dragSlider(target, (e) => {
+				update(min + e.prozX * (max - min));
+			}, -1, track);
+		}
 		return { update, getValue: () => value };
 	}
 
@@ -180,10 +169,11 @@ function setupParameterControls(){
 		if(engine) engine.setPitch(rounded);
 	});
 
-	const tempoControl = createSlider(tempoSlider, 0.5, 2.0, 1.0, (v) => {
-		const percent = Math.round(v * 100);
+	const tempoControl = createSlider(tempoSlider, 0.5, 1.5, 1.0, (v) => {
+		const speed = v;
+		const percent = Math.round(speed * 100);
 		if(tempoValue) tempoValue.textContent = percent;
-		if(engine) engine.setTempo(v);
+		if(engine) engine.setTempo(1.0 / (speed || 1.0));
 	});
 
 	const hqCheckbox = document.getElementById('hq_mode');
@@ -198,13 +188,13 @@ function setupParameterControls(){
 		resetBtn.addEventListener('click', () => {
 			if(pitchControl) pitchControl.update(0);
 			if(tempoControl) tempoControl.update(1.0);
-			if(hqCheckbox) hqCheckbox.checked = false;
+			if(hqCheckbox) hqCheckbox.checked = true;
 			if(pitchValue) pitchValue.textContent = '0';
 			if(tempoValue) tempoValue.textContent = '100';
 			if(engine){
 				engine.setPitch(0);
 				engine.setTempo(1.0);
-				engine.setHighQuality(false);
+				engine.setHighQuality(true);
 			}
 		});
 	}
@@ -225,10 +215,13 @@ async function ensureEngine(){
 		if(g_params){
 			const pitchTxt = g_params.pitchValue ? parseInt(g_params.pitchValue.textContent || '0', 10) : 0;
 			const tempoTxt = g_params.tempoValue ? parseInt(g_params.tempoValue.textContent || '100', 10) : 100;
-			const tempoRatio = Math.max(0.5, Math.min(2.0, (tempoTxt || 100) / 100));
+			const speed = Math.max(0.5, Math.min(1.5, (tempoTxt || 100) / 100));
 			engine.setPitch(isFinite(pitchTxt) ? pitchTxt : 0);
-			engine.setTempo(isFinite(tempoRatio) ? tempoRatio : 1.0);
+			engine.setTempo(isFinite(speed) ? (1.0 / speed) : 1.0);
 			if(g_params.hqCheckbox) engine.setHighQuality(!!g_params.hqCheckbox.checked);
+		}
+		if(typeof g.master_gain_val === 'number' && isFinite(g.master_gain_val) && engine.setVolume){
+			engine.setVolume(g.master_gain_val);
 		}
 		return true;
 	}
@@ -237,13 +230,16 @@ async function ensureEngine(){
 		try {
 			engine = new PitchtimeEngine(g.initData);
 			await engine.init();
+			if(typeof g.master_gain_val === 'number' && isFinite(g.master_gain_val) && engine.setVolume){
+				engine.setVolume(g.master_gain_val);
+			}
 			// Re-apply current UI params to the fresh engine (window may be re-shown after hide).
 			if(g_params){
 				const pitchTxt = g_params.pitchValue ? parseInt(g_params.pitchValue.textContent || '0', 10) : 0;
 				const tempoTxt = g_params.tempoValue ? parseInt(g_params.tempoValue.textContent || '100', 10) : 100;
-				const tempoRatio = Math.max(0.5, Math.min(2.0, (tempoTxt || 100) / 100));
+				const speed = Math.max(0.5, Math.min(1.5, (tempoTxt || 100) / 100));
 				engine.setPitch(isFinite(pitchTxt) ? pitchTxt : 0);
-				engine.setTempo(isFinite(tempoRatio) ? tempoRatio : 1.0);
+				engine.setTempo(isFinite(speed) ? (1.0 / speed) : 1.0);
 				if(g_params.hqCheckbox) engine.setHighQuality(!!g_params.hqCheckbox.checked);
 			}
 			return true;
@@ -310,6 +306,7 @@ async function init(initData){
 	else document.body.classList.remove('dark');
 
 	await ensureEngine();
+	setupVolumeControls();
 
 	setupTransportControls();
 	setupParameterControls();

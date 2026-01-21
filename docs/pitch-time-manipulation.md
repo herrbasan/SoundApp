@@ -1,161 +1,127 @@
-# Pitch and Time Manipulation in SoundApp
+# Pitch & Time Manipulation (Dedicated Window)
 
-The Pitch/Time window is a dedicated UI pane that runs an isolated audio pipeline. It will use a **fixed 48 kHz AudioContext**
-so its pipeline is self-contained and independent of the main player sample-rate setting.
+SoundApp’s Pitch&Time feature runs in a dedicated secondary window with its own audio pipeline.
+This keeps the main player stable and makes rapid iteration easier.
 
-Both pitch/time backends will live **only in the dedicated window**:
-1. **FFmpeg Native Implementation** (baseline)
-2. **Web Audio WASM Implementation** (higher quality, preferred for testing)
+The window uses a fixed `AudioContext({ sampleRate: 48000 })` so the whole chain is predictable.
 
----
+## Current Implementation
 
-## FFmpeg Native Implementation
+### Window + Integration
 
-### Architecture
+- UI: [html/pitchtime.html](../html/pitchtime.html) + [css/pitchtime.css](../css/pitchtime.css)
+- Renderer logic: [js/pitchtime/main.js](../js/pitchtime/main.js)
+- Audio engine: [js/pitchtime/pitchtime_engine.js](../js/pitchtime/pitchtime_engine.js)
+- Stage integration: [js/stage.js](../js/stage.js) (`P` shortcut toggles Pitch&Time)
 
-```
-Audio File → FFmpeg Decoder (C++) → Rubberband Filter (R2) → Resampler (48 kHz) → SAB Ring Buffer → AudioWorklet → Output
-                                           ↑
-                                    Limited to tempo + pitch params
-```
+Stage behavior:
 
-### Implementation Details
+- When Pitch&Time opens, stage pauses current playback and sends the current file + position.
+- When Pitch&Time is re-shown (Electron hides windows by default), stage sends a refresh message `pitchtime-file` so the window can reload and start again.
 
-**Location:** `libs/ffmpeg-napi-interface/`
-
-**Key Files (future placement for dedicated window):**
-- `html/pitchtime.html` - New window shell (NUI layout)
-- `css/pitchtime.css` - Window styling
-- `js/pitchtime/main.js` - Window UI + pipeline control
-- `js/pitchtime/pitchtime_engine.js` - Dedicated pitch/time pipeline
-- `libs/ffmpeg-napi-interface/src/*` - FFmpeg filter graph infrastructure
-
-**Filter Graph Setup:**
-
-The decoder creates an FFmpeg filter graph with the rubberband filter:
-
-```cpp
-// initFilters() in decoder.cpp
-filterGraph = avfilter_graph_alloc();
-
-// Create buffer source (abuffer)
-snprintf(args, sizeof(args),
-    "time_base=%d/%d:sample_rate=%d:sample_fmt=%s:channel_layout=stereo",
-    1, codecCtx->sample_rate,
-    codecCtx->sample_rate,
-    av_get_sample_fmt_name(codecCtx->sample_fmt));
-
-avfilter_graph_create_filter(&bufferSrcCtx, bufferSrc, "in", args, nullptr, filterGraph);
-
-// Create rubberband filter
-double pitchRatio = pow(2.0, pitchShift / 12.0);
-snprintf(rubberbandArgs, sizeof(rubberbandArgs), 
-    "tempo=%f:pitch=%f", timeStretch, pitchRatio);
-
-avfilter_graph_create_filter(&currentFilter, rubberband, "rubberband",
-                              rubberbandArgs, nullptr, filterGraph);
-
-// Link: abuffer → rubberband → abuffersink
-avfilter_link(bufferSrcCtx, 0, currentFilter, 0);
-avfilter_link(currentFilter, 0, bufferSinkCtx, 0);
-avfilter_graph_config(filterGraph, nullptr);
-```
-
-**PTS Synchronization Fix:**
-
-Critical discovery: Rubberband requires monotonic sample-based PTS for temporal continuity.
-
-```cpp
-// Before pushing frames to filter
-frame->pts = filterPts;
-filterPts += frame->nb_samples;
-
-// Reset on seek or parameter changes
-filterPts = 0;
-```
-
-Without proper PTS, rubberband treats each frame as a discontinuity, causing "blurp" artifacts (original-pitch transients) when pitching up.
-
-**Buffer Management:**
-
-When pitch/time changes, three levels of buffers must be flushed:
-
-1. **Codec buffers** - `avcodec_flush_buffers(codecCtx)`
-2. **Frame data** - `av_frame_unref(frame)` and `av_frame_unref(filteredFrame)`
-3. **Resampler** - `swr_close()` + `swr_init()`
-4. **SAB ring buffer** - Set read_ptr = write_ptr to discard buffered audio
-5. **Filter graph** - Drain via NULL frame before rebuilding
-
-```cpp
-// closeFilters() drains filter before teardown
-av_buffersrc_add_frame_flags(bufferSrcCtx, nullptr, 0);  // Signal EOF
-while (av_buffersink_get_frame(bufferSinkCtx, drainFrame) >= 0) {
-    av_frame_unref(drainFrame);  // Discard stale frames
-}
-```
-
-**Controls:**
-
-All pitch and time controls are exposed exclusively through the dedicated window UI.
-
----
-
-## Web Audio WASM Implementation
-
-### Architecture
+### Audio Pipeline (What Actually Runs)
 
 ```
-Audio File → FFmpeg Decoder (C++) → SAB Ring Buffer → AudioWorklet (Rubberband WASM) → Output
-                                                              ↑
-                                                  Full R3 quality control
+Audio File
+    → FFmpeg NAPI decoder (native)
+    → SAB ring buffer (decoded PCM @ AudioContext rate)
+    → FFmpeg SAB AudioWorklet (stream reader)
+    → RubberBand WASM AudioWorklet (forked realtime wrapper; pitch + optional DSP)
+    → Output
 ```
 
-### Implementation Plan
+Worklet selection:
 
-**1. Package Selection:**
+- Preferred: forked realtime RubberBand processor [libs/realtime-pitch-shift-processor.js](../libs/realtime-pitch-shift-processor.js)
+- Fallback: original rubberband-web processor [libs/rubberband-processor.js](../libs/rubberband-processor.js)
 
-Use `rubberband-web` (AudioWorklet wrapper) instead of raw `rubberband-wasm`:
+### High/Low Watermark (Backlog) Management
 
-```bash
-npm install rubberband-web
-```
+Problem we hit:
 
-**2. Rubber Band Worklet Notes:**
+- Using RubberBand realtime *tempo* (`timeRatio`) for time-stretch can create an **output backlog**.
+- Speaker demand is fixed (128 frames per render quantum). But with time-stretch ratios, RubberBand can generate output in a way that grows internal/output buffering.
+- Once buffers saturate, the system can degrade into silence or distortion.
 
-- Use explicit stereo settings when creating the AudioWorkletNode:
-    - `numberOfInputs: 1`, `numberOfOutputs: 1`
-    - `channelCount: 2`, `channelCountMode: 'explicit'`, `channelInterpretation: 'speakers'`
-    - `outputChannelCount: [2]`
-- Pass `processorOptions` to set initial params:
-    - `numSamples` (128 normal, 256 for HQ tests)
-    - `highQuality`, `pitch`, `tempo`
-- Control messages are JSON strings (rubberband-web expects stringified payloads).
+Solution we implemented (current state):
 
-**3. Dedicated Window Controls:**
+- We do **not** time-stretch via RubberBand in the realtime worklet.
+- Instead, Pitch&Time implements time-stretch by changing the SAB player playback speed.
 
-All pitch/time UI (including quality mode) will live inside the dedicated window and will not
-share settings with the main player.
+Concretely:
 
----
-## Recommendation
+- Tempo slider expresses **speed** $s$ (e.g. `1.25` = 125% faster playback).
+- Internally, the engine converts to a “stretch factor” $r = 1/s$ (e.g. `1.25x speed` = `0.8x duration`).
+- We set SAB playback rate to $s$.
+- Because SAB rate changes pitch too, we compensate pitch in RubberBand:
+    - `rubberbandPitch = basePitch / s` where `basePitch = 2^(semitones/12)`.
 
-**For SoundApp:**
+This behaves like a “watermark controller” because it removes the source of backlog entirely:
 
-1. **Keep pitch/time in a dedicated window** to preserve main playback stability.
-2. **Prefer WASM Rubber Band** in that window.
-3. **No explicit upsampling** in the dedicated window. Keep the entire pitch/time pipeline at fixed 48 kHz and let the OS handle any device resampling.
+- output demand stays fixed
+- the upstream source (SAB playback) produces exactly what is consumed
+- RubberBand only needs to do pitch, not rate conversion that can backlog
 
-**No fallback policy:**
+Notes:
 
-The dedicated window should fail explicitly if the selected engine cannot run. Do not add fallback or degraded modes
-until a production-ready decision is made.
+- This relies on fractional playback in the SAB worklet (linear interpolation), controlled via `CONTROL.PLAYBACK_RATE`.
+- We added `setPlaybackRateRatio(rate)` to the SAB player on Windows so Pitch&Time can drive it directly.
 
----
+### High Quality Mode
 
-## References
+HQ toggle behavior:
 
-- [Rubber Band Library](https://breakfastquay.com/rubberband/)
-- [rubberband-wasm on GitHub](https://github.com/Daninet/rubberband-wasm)
-- [rubberband-web on GitHub](https://github.com/delude88/rubberband-web)
-- [Phase Vocoder Theory](https://sethares.engr.wisc.edu/vocoders/phasevocoder.html)
+- HQ is ON by default.
+- Switching HQ recreates the RubberBand kernel inside the worklet.
+- To prevent parameter resets, we reapply pitch/tempo after toggling.
+
+### Stability Fixes (What We Changed)
+
+Detached ArrayBuffer crash:
+
+- Emscripten builds with `ALLOW_MEMORY_GROWTH=1`. When memory grows, existing `HEAPF32` views become detached.
+- We fixed [libs/rubberband-wasm/src/wasm/HeapArray.ts](../libs/rubberband-wasm/src/wasm/HeapArray.ts) to rebuild `HEAPF32.subarray(...)` views on demand when the underlying heap buffer changes.
+
+Window lifecycle cleanup (Electron hide vs unload):
+
+- Closing secondary windows typically hides them; `beforeunload` does not run.
+- Pitch&Time listens to `hide-window` and disposes the entire pipeline:
+    - stop playback
+    - dispose SAB player
+    - disconnect RubberBand node
+    - close the `AudioContext`
+- On `show-window`, Pitch&Time recreates the engine and reapplies current UI params.
+
+Race on reopen:
+
+- Stage can send `show-window` and `pitchtime-file` back-to-back.
+- We added an `engineInitPromise` gate so file loads cannot run until `engine.init()` has fully constructed the FFmpeg/SAB player.
+
+## Build / Deploy (Forked RubberBand Worklet)
+
+### Rebuild worklet bundle (TS → JS)
+
+From repository root:
+
+1. `cd libs/rubberband-wasm`
+2. `npm run build:worklet`
+3. Copy the bundle into SoundApp:
+     - copy `libs/rubberband-wasm/public/realtime-pitch-shift-processor.js` → `libs/realtime-pitch-shift-processor.js`
+
+### Rebuild WASM (only when C++ changes)
+
+The fork is built with Emscripten and emits a single-file JS+WASM bundle used by the AudioWorklet.
+
+Key build traits:
+
+- `-s MODULARIZE=1 -s SINGLE_FILE=1`
+- `-s ALLOW_MEMORY_GROWTH=1`
+- exports `_malloc/_free`
+- uses a post-JS hook [libs/rubberband-wasm/wasm/src/post-js/heap-exports.js](../libs/rubberband-wasm/wasm/src/post-js/heap-exports.js) to attach heap views to the returned module object
+
+After rebuilding WASM, run the worklet rebuild again so webpack picks up the new `wasm/build/rubberband.js`.
+
+## Reference Links
+
 - [Web Audio API AudioWorklet](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet)
+- [Rubber Band Library](https://breakfastquay.com/rubberband/)

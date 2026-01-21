@@ -33,6 +33,18 @@
 			<main>
 				<div id="content" class="pitchtime-root">
 					<div class="controls-section">
+						<div class="info-line">
+								<span class="label">File:</span>
+								<span id="info_filename" class="value">No file loaded</span>
+							</div>
+						<div class="transport">
+							<div id="seek_bar" class="bar"><div class="inner"></div></div>
+							<div class="time">
+								<div class="current" id="current_time">0:00</div>
+								<div class="mid"></div>
+								<div class="duration" id="total_time">0:00</div>
+							</div>
+						</div>
 						<div class="transport-controls">
 							<div id="btn_play" class="icon-btn">
 								<svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -44,14 +56,14 @@
 							<div id="btn_loop" class="icon-btn">
 								<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
 							</div>
-						</div>
 
-						<div class="transport">
-							<div id="seek_bar" class="bar"><div class="inner"></div></div>
-							<div class="time">
-								<div class="current" id="current_time">0:00</div>
-								<div class="mid"></div>
-								<div class="duration" id="total_time">0:00</div>
+							<div></div>
+
+							<div class="master-vol">
+								<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+								<div id="master_slider" class="slider-container">
+									<div class="inner"></div>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -76,7 +88,7 @@
 						</div>
 
 						<div class="param-group tempo-group">
-							<label>Time Stretch <span class="experimental-badge">(experimental)</span></label>
+							<label>Time Stretch</label>
 							<div class="value-display">
 								<span id="tempo_value">100</span>
 								<span class="unit">%</span>
@@ -89,39 +101,25 @@
 							<div class="range-labels">
 								<span>50%</span>
 								<span>100%</span>
-								<span>200%</span>
+								<span>150%</span>
 							</div>
-							<div class="tempo-warning">WASM buffer limitation - may cause audio artifacts</div>
 						</div>
 
-						<div class="quality-controls">
-							<label class="checkbox-label">
-								<input type="checkbox" id="hq_mode" checked>
-								<span>High Quality Mode (256 samples, slower)</span>
-							</label>
-						</div>
+						<div class="bottom">
+							<div class="quality-controls">
+								<label class="checkbox-label">
+									<input type="checkbox" id="hq_mode" checked>
+									<span>High Quality Mode (256 samples, slower)</span>
+								</label>
+							</div>
 
-						<div class="action-buttons">
-							<button id="btn_reset_params" class="action-btn">Reset Parameters</button>
+							<div class="action-buttons">
+								<button id="btn_reset_params" class="action-btn">Reset Parameters</button>
+							</div>
 						</div>
 					</div>
 
-					<div class="info-section">
-						<div id="file_info" class="file-info">
-							<div class="info-line">
-								<span class="label">File:</span>
-								<span id="info_filename" class="value">No file loaded</span>
-							</div>
-							<div class="info-line">
-								<span class="label">Sample Rate:</span>
-								<span id="info_samplerate" class="value">48000 Hz</span>
-							</div>
-							<div class="info-line">
-								<span class="label">Engine:</span>
-								<span id="info_engine" class="value">WASM Rubberband</span>
-							</div>
-						</div>
-					</div>
+					
 
 					<div id="error_display" class="error-display" style="display: none;">
 						<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>

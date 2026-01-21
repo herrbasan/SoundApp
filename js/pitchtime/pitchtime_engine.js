@@ -4,6 +4,8 @@ export class PitchtimeEngine {
 		this.ctx = null;
 		this.workletNode = null;
 		this.player = null;
+		this.gainNode = null;
+		this.currentVolume = 1.0;
 		this.isPlaying = false;
 		this.loop = false;
 		this.duration = 0;
@@ -44,7 +46,10 @@ export class PitchtimeEngine {
 			console.info('Pitchtime: using original RubberBand worklet', rubberbandUrl.href);
 		}
 		
-		this.rubberbandNode.connect(this.ctx.destination);
+		this.gainNode = this.ctx.createGain();
+		this.gainNode.gain.value = this.currentVolume || 1.0;
+		this.rubberbandNode.connect(this.gainNode);
+		this.gainNode.connect(this.ctx.destination);
 		
 		const ffmpegNapiPath = this.initData.ffmpeg_napi_path;
 		const ffmpegPlayerPath = this.initData.ffmpeg_player_sab_path;
@@ -59,6 +64,12 @@ export class PitchtimeEngine {
 			// Route through Rubberband instead of direct to destination
 			this.player.connect(this.rubberbandNode);
 		}
+	}
+
+	setVolume(v){
+		v = Math.max(0, Math.min(1, +v || 0));
+		this.currentVolume = v;
+		if(this.gainNode) this.gainNode.gain.value = v;
 	}
 
 	async loadFile(pathOrFile){
@@ -185,6 +196,11 @@ export class PitchtimeEngine {
 			try { this.rubberbandNode.port.postMessage(JSON.stringify(['close'])); } catch(e) {}
 			try { this.rubberbandNode.disconnect(); } catch(e) {}
 			this.rubberbandNode = null;
+		}
+
+		if(this.gainNode){
+			try { this.gainNode.disconnect(); } catch(e) {}
+			this.gainNode = null;
 		}
 
 		if(this.ctx){
