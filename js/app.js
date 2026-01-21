@@ -149,14 +149,27 @@ async function appStart(){
 	
 	// Development: start with defaults without touching argv parsing
 	// Enable via env.json: { "startWithDefaults": true }
+	// OR via command line: --defaults or --no-config
 	// - false: normal behavior (uses user.json)
 	// - true: uses user_temp.json (fresh defaults for testing)
-	const startWithDefaults = !!(main_env && (main_env.startWithDefaults || main_env.start_with_defaults));
+	const hasDefaultsFlag = process.argv.includes('--defaults') || process.argv.includes('--no-config');
+	const startWithDefaults = hasDefaultsFlag || !!(main_env && (main_env.startWithDefaults || main_env.start_with_defaults));
 	const configName = startWithDefaults ? 'user_temp' : 'user';
 	if(startWithDefaults){
 		fb('startWithDefaults enabled: using temporary config user_temp.json');
 	}
 	main_env.configName = configName;
+	
+	// If defaults mode is active, reset user_temp.json to config-defaults.js
+	if(startWithDefaults){
+		const configPath = path.join(user_data, 'user_temp.json');
+		try {
+			await fs.writeFile(configPath, JSON.stringify(configDefaults, null, 2), 'utf8');
+			fb('Defaults mode: Reset user_temp.json from config-defaults.js');
+		} catch(err) {
+			fb('Warning: Could not write user_temp.json:', err.message);
+		}
+	}
 	
 	user_cfg = await helper.config.initMain(configName, configDefaults, { log: configLog });
 

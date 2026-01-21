@@ -379,6 +379,31 @@ async function init(initData){
 			return;
 		}
 
+		// Arrow keys for pitch/tempo adjustment
+		if(code === 'ArrowUp' || code === 'ArrowDown'){
+			e.preventDefault();
+			if(!g_params || !g_params.pitchControl || !g_params.pitchValue) return;
+			const current = parseInt(g_params.pitchValue.textContent || '0', 10);
+			const delta = (code === 'ArrowUp') ? 1 : -1;
+			const newVal = Math.max(-24, Math.min(24, current + delta));
+			g_params.pitchControl.update(newVal);
+			g_params.pitchValue.textContent = newVal;
+			if(engine) engine.setPitch(newVal);
+			return;
+		}
+
+		if(code === 'ArrowLeft' || code === 'ArrowRight'){
+			e.preventDefault();
+			if(!g_params || !g_params.tempoControl || !g_params.tempoValue) return;
+			const current = parseInt(g_params.tempoValue.textContent || '100', 10);
+			const delta = (code === 'ArrowRight') ? 5 : -5;
+			const newVal = Math.max(50, Math.min(150, current + delta));
+			g_params.tempoControl.update(newVal / 100);
+			g_params.tempoValue.textContent = newVal;
+			if(engine) engine.setTempo(1.0 / (newVal / 100));
+			return;
+		}
+
 		// Handle global shortcuts via shared module
 		if(window.shortcuts && window.shortcuts.handleShortcut){
 			const action = window.shortcuts.handleShortcut(e, 'pitchtime');

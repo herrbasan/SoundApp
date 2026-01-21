@@ -45,6 +45,7 @@ module.exports = {
 		help: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		settings: { x: null, y: null, width: 1024, height: 768, scale: 14 },
 		playlist: { x: null, y: null, width: 1024, height: 768, scale: 14 },
-		mixer: { x: null, y: null, width: 1024, height: 768, scale: 14 }
+		mixer: { x: null, y: null, width: 1024, height: 768, scale: 14 },
+		pitchtime: { x: null, y: null, width: 480, height: 700, scale: 14 }
 	}
 };

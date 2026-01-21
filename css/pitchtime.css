@@ -94,8 +94,16 @@
 	display: block;
 }
 
+#btn_loop svg {
+	fill: rgba(255,255,255,0.5);
+}
+
 #btn_loop.active {
-	background: rgb(var(--color-accent1));
+	background: rgb(var(--color-shade4));
+}
+
+#btn_loop.active svg {
+	fill: rgba(255,255,255,1);
 }
 
 .transport {
