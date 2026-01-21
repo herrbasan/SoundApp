@@ -135,6 +135,16 @@
 		<div class="nui-dropzone"></div>
 	</div>
 
+	<script type="module">
+		import ut from '../libs/nui/nui_ut.js';
+		import nui from '../libs/nui/nui.js';
+		window.ut = ut;
+		window.nui = nui;
+
+		// Import centralized shortcuts
+		const shortcuts = require('../js/shortcuts.js');
+		window.shortcuts = shortcuts;
+	</script>
 	<script type="module" src="../js/window-loader.js"></script>
 	<script type="module" src="../js/pitchtime/main.js"></script>
 </body>

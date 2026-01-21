@@ -367,11 +367,32 @@ async function init(initData){
 		main.classList.add('ready');
 	}
 
+	// Keyboard shortcuts
+	window.addEventListener('keydown', (e) => {
+		if(!e) return;
+		const code = '' + (e.code || '');
+
+		// F12: Toggle DevTools
+		if(code === 'F12'){
+			e.preventDefault();
+			if(window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+			return;
+		}
+
+		// Handle global shortcuts via shared module
+		if(window.shortcuts && window.shortcuts.handleShortcut){
+			const action = window.shortcuts.handleShortcut(e, 'pitchtime');
+			if(action) return;
+		}
+	});
+
 	if(window.bridge && window.bridge.isElectron){
 		window.bridge.on('theme-changed', (data) => {
-			const theme = data ? data.theme : 'dark';
-			if(theme === 'dark') document.body.classList.add('dark');
-			else document.body.classList.remove('dark');
+			if(data.dark){
+				document.body.classList.add('dark');
+			} else {
+				document.body.classList.remove('dark');
+			}
 		});
 		window.bridge.on('pitchtime-file', async (data) => {
 			if(!data || !data.currentFile) return;

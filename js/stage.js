@@ -419,9 +419,7 @@ async function init(){
 			openWindow('pitchtime');
 		}
 		else if (data.action === 'toggle-theme') {
-			if(!g.config.ui) g.config.ui = {};
-			g.config.ui.theme = (g.config.ui.theme === 'dark') ? 'light' : 'dark';
-			g.config_obj.set(g.config);
+			tools.sendToMain('command', { command: 'toggle-theme' });
 		}
 	});
 
@@ -448,6 +446,9 @@ async function init(){
 		}
 		if (g.windows.mixer) {
 			tools.sendToId(g.windows.mixer, 'theme-changed', data);
+		}
+		if (g.windows.pitchtime) {
+			tools.sendToId(g.windows.pitchtime, 'theme-changed', data);
 		}
 	});
 	
