@@ -19,32 +19,14 @@ export class PitchtimeEngine {
 	async init(){
 		this.ctx = new AudioContext({ sampleRate: 48000 });
 		
-		let rubberbandUrl = null;
-		let rubberbandName = null;
-		
-		try {
-			rubberbandUrl = new URL('../../libs/realtime-pitch-shift-processor.js', import.meta.url);
-			await this.ctx.audioWorklet.addModule(rubberbandUrl);
-			rubberbandName = 'realtime-pitch-shift-processor';
-			this.rubberbandNode = new AudioWorkletNode(this.ctx, rubberbandName, {
-				numberOfInputs: 1,
-				numberOfOutputs: 1,
-				outputChannelCount: [2],
-				processorOptions: { blockSize: 512 }
-			});
-			console.info('Pitchtime: using forked realtime RubberBand worklet', rubberbandUrl.href);
-		} catch(err) {
-			console.warn('Pitchtime: forked realtime worklet failed, falling back to rubberband-processor.js', err);
-			rubberbandUrl = new URL('../../libs/rubberband-processor.js', import.meta.url);
-			await this.ctx.audioWorklet.addModule(rubberbandUrl);
-			rubberbandName = 'rubberband-processor';
-			this.rubberbandNode = new AudioWorkletNode(this.ctx, rubberbandName, {
-				numberOfInputs: 1,
-				numberOfOutputs: 1,
-				outputChannelCount: [2]
-			});
-			console.info('Pitchtime: using original RubberBand worklet', rubberbandUrl.href);
-		}
+		const workletUrl = new URL('../../libs/rubberband/realtime-pitch-shift-processor.js', import.meta.url);
+		await this.ctx.audioWorklet.addModule(workletUrl);
+		this.rubberbandNode = new AudioWorkletNode(this.ctx, 'realtime-pitch-shift-processor', {
+			numberOfInputs: 1,
+			numberOfOutputs: 1,
+			outputChannelCount: [2],
+			processorOptions: { blockSize: 512 }
+		});
 		
 		this.gainNode = this.ctx.createGain();
 		this.gainNode.gain.value = this.currentVolume || 1.0;

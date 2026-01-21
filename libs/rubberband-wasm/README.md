@@ -1,43 +1,153 @@
-# rubberband-web
+# RubberBand WASM Build
 
-A wasm-powered audio worklet using the [Rubber Band library](https://breakfastquay.com/rubberband/) to provide pitch shifting for the Web Audio API.
+Emscripten build system for compiling the [Rubber Band library](https://breakfastquay.com/rubberband/) to WebAssembly for use in SoundApp's pitch/time manipulation feature.
 
-# Example
+Based on [rubberband-web](https://github.com/delude88/rubberband-web) by delude88.
 
-Checkout the [example page here](https://delude88.github.io/rubberband-web/).
+---
 
-## Usage
+## Prerequisites
 
-Add this package to your project using your favorite package manager:
-````shell
-npm install rubberband-web
-# or
-yarn add rubberband-web
-# or
-pnpm add rubberband-web
-````
+### Required Software
+- **Emscripten SDK** - C++ to WASM compiler
+- **CMake** (3.21+) - Build system
+- **Ninja** - Fast build tool
 
-If you are using a framework using assets management (next.js, Angular, etc.), start by copying or linking this package's _public/rubberband-processor.js_ into your public asset folder.
-In many cases you can also reference directly to the _node_modules/rubberband-web/public/rubberband-processor.js_.
+### Installation (Windows)
 
-Then use the helper function _createRubberBandNode_ to create a worklet instance:
-```javascript
-import { createRubberBandRealtimeNode } from 'rubberband-web';
-
-const audioCtx = new AudioContext();
-const sourceNode = new AudioBufferSourceNode(audioCtx); // or any source
-
-const rubberBandNode = await createRubberBandRealtimeNode(
-          audioCtx,
-          '<public path to your rubberband-processor.js copy>'
-        );
-
-// Now you can do something like:
-sourceNode.connect(rubberBandNode);
-rubberBandNode.connect(audioCtx.destination);
-
-// You can change the following parameters live at any time:
-rubberBandNode.setPitch(1.2);
-rubberBandNode.setTempo(0.6);
-rubberBandNode.setHighQuality(true);
+1. **Install Emscripten:**
+```powershell
+git clone https://github.com/emscripten-core/emsdk.git C:\emsdk
+cd C:\emsdk
+.\emsdk.bat install latest
+.\emsdk.bat activate latest
 ```
+
+2. **Install CMake:**
+```powershell
+# Run as Administrator:
+choco install cmake -y
+```
+Or download from: https://cmake.org/download/
+
+3. **Install Ninja:**
+```powershell
+# Download and extract to C:\emsdk\ninja.exe
+Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip" -OutFile C:\emsdk\ninja.zip
+Expand-Archive -Path C:\emsdk\ninja.zip -DestinationPath C:\emsdk -Force
+Remove-Item C:\emsdk\ninja.zip
+```
+
+---
+
+## Build Process
+
+### Full Rebuild
+
+```powershell
+# Set up environment
+$env:Path = "C:\emsdk;C:\emsdk\upstream\emscripten;C:\Program Files\CMake\bin;" + $env:Path
+
+# Clean and rebuild
+cd libs\rubberband-wasm\wasm
+Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue
+C:\emsdk\upstream\emscripten\emcmake.bat cmake -G Ninja -B build -S .
+cmake --build build --target rubberband
+
+# Generate the final worklet processor
+cd ..\..\..
+node scripts\build-rubberband-processor.js
+```
+
+### Incremental Rebuild
+
+After C++ changes in `wasm/src/rubberband/`:
+```powershell
+$env:Path = "C:\emsdk;C:\emsdk\upstream\emscripten;C:\Program Files\CMake\bin;" + $env:Path
+cd libs\rubberband-wasm\wasm
+cmake --build build --target rubberband
+cd ..\..\..
+node scripts\build-rubberband-processor.js
+```
+
+### JavaScript-Only Changes
+
+Edit `scripts/build-rubberband-processor.js` (the `processorCode` template), then:
+```powershell
+node scripts\build-rubberband-processor.js
+```
+
+---
+
+## Project Structure
+
+```
+libs/rubberband-wasm/
+├── wasm/                          # WASM build system
+│   ├── lib/third-party/           # RubberBand C++ library (v3.0.0)
+│   ├── src/
+│   │   ├── rubberband/            # C++ wrapper classes
+│   │   │   ├── RealtimeRubberBand.cpp
+│   │   │   └── ...
+│   │   └── post-js/
+│   │       └── heap-exports.js    # HEAPF32 export for worklet
+│   ├── CMakeLists.txt             # Build configuration
+│   └── build/
+│       └── rubberband.js          # Build output (~448KB, WASM embedded)
+└── README.md                      # This file
+```
+
+### Output Files
+
+**WASM Module:**
+- `wasm/build/rubberband.js` (~448KB) - Emscripten module with embedded WASM
+
+**Final Worklet:**
+- `libs/rubberband/realtime-pitch-shift-processor.js` (~426KB)
+  - **Section 1:** Emscripten WASM module (auto-generated, do not edit)
+  - **Section 2:** Vanilla JS worklet implementation (fully editable)
+
+---
+
+## Build Configuration
+
+Key Emscripten flags in `wasm/CMakeLists.txt`:
+- `-s WASM=1` - Enable WASM output
+- `-s SINGLE_FILE=1` - **Embed WASM as base64** (required for AudioWorklet context)
+- `-s ALLOW_MEMORY_GROWTH=1` - Dynamic memory allocation
+- `-s MODULARIZE=1` - Export as factory function
+- `--post-js heap-exports.js` - Attach HEAPF32 views to module
+
+**⚠️ Do not remove `-s SINGLE_FILE=1`** - AudioWorklet cannot use `fetch()` to load external files.
+
+---
+
+## Troubleshooting
+
+### "emcc not recognized"
+Emscripten isn't in PATH:
+```powershell
+$env:Path = "C:\emsdk;C:\emsdk\upstream\emscripten;C:\Program Files\CMake\bin;" + $env:Path
+```
+
+### "cmake not recognized"
+CMake isn't installed or not in PATH. Install via chocolatey or add `C:\Program Files\CMake\bin` to PATH.
+
+### "no compatible cmake generator found"
+Ninja is missing. See installation instructions above.
+
+### Build fails with WASM errors
+Clean rebuild:
+```powershell
+Remove-Item libs\rubberband-wasm\wasm\build -Recurse -Force
+# Then run full rebuild
+```
+
+---
+
+## Performance Notes
+
+- Uncompressed WASM: ~365KB
+- Base64 embedded: ~448KB (+33% overhead)
+- Build time: ~10-30s (full), ~2-5s (incremental)
+- The size increase from embedding is acceptable for AudioWorklet compatibility

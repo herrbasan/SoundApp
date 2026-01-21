@@ -1,1 +1,0 @@
-{"version":3,"file":"RubberbandNode.d.ts","sourceRoot":"","sources":["../../src/web/RubberbandNode.ts"],"names":[],"mappings":"AAAA,UAAU,cAAe,SAAQ,gBAAgB;IAC7C,QAAQ,CAAC,KAAK,EAAE,MAAM,GAAG,IAAI,CAAC;IAC9B,QAAQ,CAAC,KAAK,EAAE,MAAM,GAAG,IAAI,CAAC;IAC9B,cAAc,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAAC;IACvC,KAAK,IAAI,IAAI,CAAC;CACjB;AACD,OAAO,EAAC,cAAc,EAAC,CAAA"}

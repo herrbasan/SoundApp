@@ -73,8 +73,8 @@ set_target_properties(rubberband
         -s ASSERTIONS=0 \
         -s EXPORTED_FUNCTIONS=['_malloc','_free'] \
         --post-js ${CMAKE_CURRENT_SOURCE_DIR}/src/post-js/heap-exports.js \
-        -s MODULARIZE=1 \
-        -s SINGLE_FILE=1"
+        -s SINGLE_FILE=1 \
+        -s MODULARIZE=1"
         )
 
 # Just some demo testing
