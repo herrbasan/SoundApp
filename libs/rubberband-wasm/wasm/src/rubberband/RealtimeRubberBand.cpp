@@ -11,11 +11,12 @@ const RubberBand::RubberBandStretcher::Options kDefaultOption = RubberBand::Rubb
   RubberBand::RubberBandStretcher::OptionEngineFiner |
   RubberBand::RubberBandStretcher::OptionWindowLong;
 const RubberBand::RubberBandStretcher::Options kHighQuality = RubberBand::RubberBandStretcher::OptionProcessRealTime |
-  RubberBand::RubberBandStretcher::OptionPitchHighConsistency |
+  RubberBand::RubberBandStretcher::OptionPitchHighQuality |
   RubberBand::RubberBandStretcher::OptionEngineFiner |
-  RubberBand::RubberBandStretcher::OptionWindowLong;
+  RubberBand::RubberBandStretcher::OptionWindowLong |
+  RubberBand::RubberBandStretcher::OptionSmoothingOn;
 
-RealtimeRubberBand::RealtimeRubberBand(size_t sampleRate, size_t channel_count, bool high_quality, size_t block_size) :
+RealtimeRubberBand::RealtimeRubberBand(size_t sampleRate, size_t channel_count, bool high_quality, bool formant_preserved, int transients, int detector, size_t block_size) :
     start_pad_samples_(0),
     start_delay_samples_(0),
   channel_count_(channel_count),
@@ -26,9 +27,34 @@ RealtimeRubberBand::RealtimeRubberBand(size_t sampleRate, size_t channel_count, 
   if (channel_count <= 0) {
     throw std::range_error("Channel count has to be greater than 0");
   }
-  stretcher_ = new RubberBand::RubberBandStretcher(sampleRate, channel_count,
-                                                   high_quality ? kHighQuality : kDefaultOption
-  );
+  
+  // Build options from parameters
+  RubberBand::RubberBandStretcher::Options opts = high_quality ? kHighQuality : kDefaultOption;
+  
+  // Add formant preservation
+  if (formant_preserved) {
+    opts |= RubberBand::RubberBandStretcher::OptionFormantPreserved;
+  }
+  
+  // Add transients mode: 0=mixed, 1=crisp, 2=smooth
+  if (transients == 1) {
+    opts |= RubberBand::RubberBandStretcher::OptionTransientsCrisp;
+  } else if (transients == 2) {
+    opts |= RubberBand::RubberBandStretcher::OptionTransientsSmooth;
+  } else {
+    opts |= RubberBand::RubberBandStretcher::OptionTransientsMixed;
+  }
+  
+  // Add detector mode: 0=compound, 1=percussive, 2=soft
+  if (detector == 1) {
+    opts |= RubberBand::RubberBandStretcher::OptionDetectorPercussive;
+  } else if (detector == 2) {
+    opts |= RubberBand::RubberBandStretcher::OptionDetectorSoft;
+  } else {
+    opts |= RubberBand::RubberBandStretcher::OptionDetectorCompound;
+  }
+  
+  stretcher_ = new RubberBand::RubberBandStretcher(sampleRate, channel_count, opts);
   stretcher_->setMaxProcessSize(block_size_);
   output_buffer_ = new RubberBand::RingBuffer<float> *[channel_count_];
   scratch_ = new float *[channel_count_];

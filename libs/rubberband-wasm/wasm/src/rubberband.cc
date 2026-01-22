@@ -11,7 +11,7 @@ using namespace emscripten;
 EMSCRIPTEN_BINDINGS(CLASS_RealtimeRubberBand) {
     class_<RealtimeRubberBand>("RealtimeRubberBand")
 
-        .constructor<size_t, size_t, bool, size_t>()
+        .constructor<size_t, size_t, bool, bool, int, int, size_t>()
 
         .function("getVersion",
                   &RealtimeRubberBand::getVersion)

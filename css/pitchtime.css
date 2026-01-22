@@ -238,37 +238,44 @@
 
 .bottom {
 	padding-top: 1rem;
-	display: flex;
-	gap: 1rem;
 	border-top: 1px solid rgb(var(--color-shade3));
-	align-items: center;
 }
 
 .quality-controls {
-	margin-right: auto;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 1rem;
 }
 
-.checkbox-label {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	cursor: pointer;
-	user-select: none;
+.quality-controls .nui-checkbox {
+	height: 3rem;
 }
 
-.checkbox-label input[type="checkbox"] {
-	width: 1.2rem;
-	height: 1.2rem;
-	cursor: pointer;
-}
 
-.checkbox-label span {
+
+.option-group {
+	display: grid;
+	grid-template-columns: 5rem 1fr;
+	gap: 1rem;
 	font-size: 0.95rem;
 	color: rgb(var(--color-shade7));
+	align-items: center;
+	height: 3rem;
+}
+
+.quality-controls-selects .superSelect {
+	width: 100%;
+}
+
+.option-group label {
+	min-width: 4rem;
 }
 
 .action-buttons {
 	display: flex;
+	border-top: 1px solid rgb(var(--color-shade3));
+	padding-top: 1rem;
+	margin-top: 1rem;
 }
 
 .action-btn {

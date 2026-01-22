@@ -3,6 +3,7 @@ import { PitchtimeEngine } from './pitchtime_engine.js';
 import ut from '../../libs/nui/nui_ut.js';
 import nui_app from '../../libs/nui/nui_app.js';
 import dragSlider from '../../libs/nui/nui_drag_slider.js';
+import superSelect from '../../libs/nui/nui_select.js';
 ut.dragSlider = dragSlider;
 window.nui_app = nui_app;
 
@@ -145,6 +146,9 @@ function setupParameterControls(){
 	const pitchValue = document.getElementById('pitch_value');
 	const tempoValue = document.getElementById('tempo_value');
 
+	let pitchTimeout = null;
+	let tempoTimeout = null;
+
 	function createSlider(container, min, max, initial, onChange){
 		if(!container) return;
 		const handle = container.querySelector('.handle');
@@ -172,30 +176,84 @@ function setupParameterControls(){
 	const pitchControl = createSlider(pitchSlider, -12, 12, 0, (v) => {
 		const rounded = Math.round(v);
 		if(pitchValue) pitchValue.textContent = (rounded >= 0 ? '+' : '') + rounded;
-		if(engine){
-			const currentPitch = engine.currentPitch || 0;
-			if(rounded !== currentPitch){
-				engine.setPitch(rounded);
+		if(pitchTimeout) clearTimeout(pitchTimeout);
+		pitchTimeout = setTimeout(() => {
+			if(engine){
+				const currentPitch = engine.currentPitch || 0;
+				if(rounded !== currentPitch){
+					engine.setPitch(rounded);
+				}
 			}
-		}
+		}, 30);
 	});
 
 	const tempoControl = createSlider(tempoSlider, 0.5, 1.5, 1.0, (v) => {
 		const speed = v;
 		const percent = Math.round(speed * 100);
 		if(tempoValue) tempoValue.textContent = percent;
-		if(engine){
-			const currentPercent = Math.round((1.0 / (engine.currentTempo || 1.0)) * 100);
-			if(percent !== currentPercent){
-				engine.setTempo(1.0 / (speed || 1.0));
+		if(tempoTimeout) clearTimeout(tempoTimeout);
+		tempoTimeout = setTimeout(() => {
+			if(engine){
+				const targetTempo = 1.0 / (speed || 1.0);
+				const currentTempo = engine.currentTempo || 1.0;
+				if(Math.abs(targetTempo - currentTempo) > 0.01){
+					engine.setTempo(targetTempo);
+				}
 			}
-		}
+		}, 30);
 	});
 
 	const hqCheckbox = document.getElementById('hq_mode');
 	if(hqCheckbox){
 		hqCheckbox.addEventListener('change', () => {
-			if(engine) engine.setHighQuality(hqCheckbox.checked);
+			if(engine) engine.setOptions({ highQuality: hqCheckbox.checked });
+		});
+	}
+
+	const formantCheckbox = document.getElementById('formant_mode');
+	if(formantCheckbox){
+		formantCheckbox.addEventListener('change', () => {
+			if(engine) engine.setOptions({ formantPreserved: formantCheckbox.checked });
+		});
+	}
+
+	let transientsSelect = null;
+	const transientsContainer = document.getElementById('transients_mode_container');
+	if(transientsContainer){
+		transientsSelect = superSelect(null, {
+			target: transientsContainer,
+			searchable: false,
+			options: [
+				{ name: 'Mixed', value: 'mixed', selected: true },
+				{ name: 'Crisp', value: 'crisp' },
+				{ name: 'Smooth', value: 'smooth' }
+			]
+		});
+		transientsSelect.addEventListener('change', (e) => {
+			const selected = transientsSelect.getSelected();
+			if(engine && selected.length > 0) {
+				engine.setOptions({ transients: selected[0].value });
+			}
+		});
+	}
+
+	let detectorSelect = null;
+	const detectorContainer = document.getElementById('detector_mode_container');
+	if(detectorContainer){
+		detectorSelect = superSelect(null, {
+			target: detectorContainer,
+			searchable: false,
+			options: [
+				{ name: 'Compound', value: 'compound', selected: true },
+				{ name: 'Percussive', value: 'percussive' },
+				{ name: 'Soft', value: 'soft' }
+			]
+		});
+		detectorSelect.addEventListener('change', (e) => {
+			const selected = detectorSelect.getSelected();
+			if(engine && selected.length > 0) {
+				engine.setOptions({ detector: selected[0].value });
+			}
 		});
 	}
 
@@ -205,17 +263,55 @@ function setupParameterControls(){
 			if(pitchControl) pitchControl.update(0);
 			if(tempoControl) tempoControl.update(1.0);
 			if(hqCheckbox) hqCheckbox.checked = true;
+			if(formantCheckbox) formantCheckbox.checked = false;
+			if(transientsSelect) {
+				// Reset the underlying select element
+				transientsSelect.value = 'mixed';
+				// Deselect all options
+				for(let i = 0; i < transientsSelect.options.length; i++){
+					transientsSelect.options[i].selected = false;
+				}
+				// Select the mixed option
+				for(let i = 0; i < transientsSelect.options.length; i++){
+					if(transientsSelect.options[i].value === 'mixed'){
+						transientsSelect.options[i].selected = true;
+						break;
+					}
+				}
+				transientsSelect.reRender();
+			}
+			if(detectorSelect) {
+				// Reset the underlying select element
+				detectorSelect.value = 'compound';
+				// Deselect all options
+				for(let i = 0; i < detectorSelect.options.length; i++){
+					detectorSelect.options[i].selected = false;
+				}
+				// Select the compound option
+				for(let i = 0; i < detectorSelect.options.length; i++){
+					if(detectorSelect.options[i].value === 'compound'){
+						detectorSelect.options[i].selected = true;
+						break;
+					}
+				}
+				detectorSelect.reRender();
+			}
 			if(pitchValue) pitchValue.textContent = '0';
 			if(tempoValue) tempoValue.textContent = '100';
 			if(engine){
 				engine.setPitch(0);
 				engine.setTempo(1.0);
-				engine.setHighQuality(true);
+				engine.setOptions({ 
+					highQuality: true,
+					formantPreserved: false,
+					transients: 'mixed',
+					detector: 'compound'
+				});
 			}
 		});
 	}
 
-	g_params = { pitchControl, tempoControl, hqCheckbox, pitchValue, tempoValue };
+	g_params = { pitchControl, tempoControl, hqCheckbox, formantCheckbox, transientsSelect, detectorSelect, pitchValue, tempoValue };
 	return g_params;
 }
 

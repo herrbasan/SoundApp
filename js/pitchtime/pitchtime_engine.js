@@ -51,7 +51,49 @@ export class PitchtimeEngine {
 	setVolume(v){
 		v = Math.max(0, Math.min(1, +v || 0));
 		this.currentVolume = v;
-		if(this.gainNode) this.gainNode.gain.value = v;
+		if(this.gainNode) this.gainNode.gain.setValueAtTime(v, this.ctx.currentTime);
+	}
+
+	async _fadeOut(){
+		if(!this.gainNode) return;
+		const now = this.ctx.currentTime;
+		this.gainNode.gain.cancelScheduledValues(now);
+		this.gainNode.gain.setValueAtTime(this.currentVolume, now);
+		this.gainNode.gain.linearRampToValueAtTime(0, now + 0.012);
+		await new Promise(r => setTimeout(r, 13));
+	}
+
+	async _fadeIn(){
+		if(!this.gainNode) return;
+		const now = this.ctx.currentTime;
+		this.gainNode.gain.cancelScheduledValues(now);
+		this.gainNode.gain.setValueAtTime(0, now);
+		this.gainNode.gain.linearRampToValueAtTime(this.currentVolume, now + 0.015);
+		await new Promise(r => setTimeout(r, 16));
+	}
+
+	async _fadeTransition(action, stabilize = false){
+		if(!this.gainNode) return;
+		await this._fadeOut();
+		if(action) await action();
+		if(stabilize){
+			await new Promise(r => setTimeout(r, 300));
+		}
+		await this._fadeIn();
+	}
+
+	async _microFade(action){
+		if(!this.gainNode) return;
+		const now = this.ctx.currentTime;
+		this.gainNode.gain.cancelScheduledValues(now);
+		this.gainNode.gain.setValueAtTime(this.currentVolume, now);
+		this.gainNode.gain.linearRampToValueAtTime(this.currentVolume * 0.3, now + 0.008);
+		await new Promise(r => setTimeout(r, 8));
+		if(action) action();
+		const now2 = this.ctx.currentTime;
+		this.gainNode.gain.cancelScheduledValues(now2);
+		this.gainNode.gain.linearRampToValueAtTime(this.currentVolume, now2 + 0.010);
+		await new Promise(r => setTimeout(r, 10));
 	}
 
 	async loadFile(pathOrFile){
@@ -93,17 +135,18 @@ export class PitchtimeEngine {
 			await this.ctx.resume();
 		}
 		
-		// Ensure buffer is well-filled before starting to reduce crackling
 		if(this.player._fillQueue){
 			this.player._fillQueue(this.player.ringSize * 0.5, 8);
 		}
 		
 		this.player.play();
 		this.isPlaying = true;
+		await this._fadeIn();
 	}
 
 	async pause(){
 		if(!this.isPlaying) return;
+		await this._fadeOut();
 		if(this.player) this.player.pause();
 		this.isPlaying = false;
 	}
@@ -111,13 +154,14 @@ export class PitchtimeEngine {
 	async stop(){
 		if(this.player) this.player.pause();
 		this.isPlaying = false;
-		this.seek(0);
+		await this.seek(0);
 	}
 
-	seek(time){
-		if(this.player){
+	async seek(time){
+		if(!this.player) return;
+		await this._fadeTransition(()=>{
 			this.player.seek(time);
-		}
+		});
 	}
 
 	getCurrentTime(){
@@ -126,8 +170,6 @@ export class PitchtimeEngine {
 
 	setPitch(semitones){
 		this.currentPitch = semitones;
-		// If we slow down the SAB player for time-stretch, pitch drops too.
-		// Compensate by scaling RubberBand pitch by the stretch factor.
 		const basePitch = Math.pow(2, semitones / 12);
 		const ratio = basePitch * (this.useSABRateForTempo ? (this.currentTempo || 1.0) : 1.0);
 		if(this.rubberbandNode){
@@ -138,38 +180,44 @@ export class PitchtimeEngine {
 	setTempo(ratio){
 		this.currentTempo = ratio;
 
-		// Prefer implementing time stretch via the SAB player's playback-rate (speed)
-		// and keep RubberBand time ratio at 1.0 to avoid RubberBand output backlog.
 		if(this.player && this.player.setPlaybackRateRatio){
 			this.useSABRateForTempo = true;
 			const pr = 1.0 / (ratio || 1.0);
 			this.player.setPlaybackRateRatio(pr);
 			if(this.rubberbandNode){
 				this.rubberbandNode.port.postMessage(JSON.stringify(['tempo', 1.0]));
-				// Tempo affects the pitch compensation, so re-send pitch too.
 				this.setPitch(this.currentPitch || 0);
 			}
 			return;
 		}
 
-		// Fallback: no playback-rate control available (e.g. other platforms).
-		// Use RubberBand tempo directly.
 		this.useSABRateForTempo = false;
 		if(this.rubberbandNode){
 			this.rubberbandNode.port.postMessage(JSON.stringify(['tempo', ratio]));
-			// Pitch compensation is not needed in this mode.
 			this.setPitch(this.currentPitch || 0);
 		}
 	}
 
-	setHighQuality(enabled){
+	async setHighQuality(enabled){
 		this.currentHQ = enabled;
-		if(this.rubberbandNode){
+		if(!this.gainNode || !this.rubberbandNode) return;
+		
+		await this._fadeTransition(async ()=>{
 			this.rubberbandNode.port.postMessage(JSON.stringify(['quality', enabled]));
-			// HQ toggle recreates the kernel in the worklet; re-send current params.
 			this.setTempo(this.currentTempo || 1.0);
 			this.setPitch(this.currentPitch || 0);
-		}
+		}, true);
+	}
+
+	async setOptions(opts){
+		if(!opts || !this.gainNode || !this.rubberbandNode) return;
+		if(opts.highQuality !== undefined) this.currentHQ = opts.highQuality;
+		
+		await this._fadeTransition(async ()=>{
+			this.rubberbandNode.port.postMessage(JSON.stringify(['options', opts]));
+			this.setTempo(this.currentTempo || 1.0);
+			this.setPitch(this.currentPitch || 0);
+		}, true);
 	}
 
 	setLoop(enabled){

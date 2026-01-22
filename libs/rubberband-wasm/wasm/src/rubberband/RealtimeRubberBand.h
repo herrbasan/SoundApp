@@ -10,7 +10,7 @@
 
 class RealtimeRubberBand {
  public:
-  RealtimeRubberBand(size_t sampleRate, size_t channel_count, bool high_quality = false, size_t block_size = 512);
+  RealtimeRubberBand(size_t sampleRate, size_t channel_count, bool high_quality = false, bool formant_preserved = false, int transients = 0, int detector = 0, size_t block_size = 512);
   ~RealtimeRubberBand();
 
   int getVersion();

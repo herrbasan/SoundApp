@@ -101,12 +101,20 @@ class RealtimeRubberBandWrapper {
 	constructor(module, sampleRate, channelCount, options) {
 		this._channelCount = channelCount;
 		this._highQuality = options?.highQuality || false;
+		this._formantPreserved = options?.formantPreserved || false;
+		this._transients = options?.transients || 'mixed';
+		this._detector = options?.detector || 'compound';
 		this._blockSize = Math.max(RENDER_QUANTUM, (options?.blockSize || RENDER_QUANTUM) | 0);
 		this._tempo = options?.tempo || 1;
 		this._pitch = options?.pitch || 1;
 		
+		const transientsMap = { mixed: 0, crisp: 1, smooth: 2 };
+		const detectorMap = { compound: 0, percussive: 1, soft: 2 };
+		const transientsInt = transientsMap[this._transients] || 0;
+		const detectorInt = detectorMap[this._detector] || 0;
+		
 		const Kernel = module.RealtimeRubberBand;
-		this._kernel = new Kernel(sampleRate, channelCount, this._highQuality, this._blockSize);
+		this._kernel = new Kernel(sampleRate, channelCount, this._highQuality, this._formantPreserved, transientsInt, detectorInt, this._blockSize);
 		this._inputArray = new HeapArray(module, this._blockSize, channelCount);
 		this._outputArray = new HeapArray(module, RENDER_QUANTUM, channelCount);
 		
@@ -116,6 +124,9 @@ class RealtimeRubberBandWrapper {
 	
 	get channelCount() { return this._channelCount; }
 	get highQuality() { return this._highQuality; }
+	get formantPreserved() { return this._formantPreserved; }
+	get transients() { return this._transients; }
+	get detector() { return this._detector; }
 	get samplesAvailable() { return this._kernel?.getSamplesAvailable() || 0; }
 	
 	get timeRatio() { return this._tempo; }
@@ -163,6 +174,9 @@ class RealtimePitchShiftProcessor extends AudioWorkletProcessor {
 		this.pitch = 1;
 		this.tempo = 1;
 		this.highQuality = false;
+		this.formantPreserved = false;
+		this.transients = 'mixed';
+		this.detector = 'compound';
 		this.blockSize = 512;
 		this._inputBuffers = null;
 		this._inputWriteIndex = 0;
@@ -185,6 +199,12 @@ class RealtimePitchShiftProcessor extends AudioWorkletProcessor {
 					break;
 				case 'quality':
 					this.highQuality = payload;
+					break;
+				case 'options':
+					if (payload.highQuality !== undefined) this.highQuality = payload.highQuality;
+					if (payload.formantPreserved !== undefined) this.formantPreserved = payload.formantPreserved;
+					if (payload.transients !== undefined) this.transients = payload.transients;
+					if (payload.detector !== undefined) this.detector = payload.detector;
 					break;
 				case 'tempo':
 					this.tempo = payload;
@@ -215,9 +235,16 @@ class RealtimePitchShiftProcessor extends AudioWorkletProcessor {
 		const m = this._module;
 		if (!m || typeof m._malloc !== 'function' || !m.HEAPF32) return null;
 		
-		if (!this._api || this._api.channelCount !== channelCount || this._api.highQuality !== this.highQuality) {
+		if (!this._api || this._api.channelCount !== channelCount || 
+		    this._api.highQuality !== this.highQuality ||
+		    this._api.formantPreserved !== this.formantPreserved ||
+		    this._api.transients !== this.transients ||
+		    this._api.detector !== this.detector) {
 			this._api = new RealtimeRubberBandWrapper(m, sampleRate, channelCount, {
 				highQuality: this.highQuality,
+				formantPreserved: this.formantPreserved,
+				transients: this.transients,
+				detector: this.detector,
 				pitch: this.pitch,
 				tempo: this.tempo,
 				blockSize: this.blockSize

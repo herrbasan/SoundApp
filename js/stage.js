@@ -882,7 +882,6 @@ function playListFromMulti(ar, add=false, rec=false){
 
 
 async function playAudio(fp, n, startPaused = false, autoAdvance = false){
-	console.log('playAudio', fp, n, startPaused);
 	if(!g.blocky){
 		if(fp && g.music && g.music.length > 0){
 			const idx = g.music.indexOf(fp);

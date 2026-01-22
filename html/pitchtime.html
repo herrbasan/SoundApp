@@ -107,10 +107,26 @@
 
 						<div class="bottom">
 							<div class="quality-controls">
-								<label class="checkbox-label">
-									<input type="checkbox" id="hq_mode" checked>
-									<span>High Quality Mode (256 samples, slower)</span>
-								</label>
+								<div class="quality-controls-checkboxes">
+									<div class="nui-checkbox">
+										<input type="checkbox" id="hq_mode" checked>
+										<label for="hq_mode">High Quality Mode</label>
+									</div>
+									<div class="nui-checkbox">
+										<input type="checkbox" id="formant_mode">
+										<label for="formant_mode">Preserve Formants (vocals)</label>
+									</div>
+								</div>
+								<div class="quality-controls-selects">
+									<div class="option-group">
+										<label>Transients:</label>
+										<div id="transients_mode_container"></div>
+									</div>
+									<div class="option-group">
+										<label>Detector:</label>
+										<div id="detector_mode_container"></div>
+									</div>
+								</div>
 							</div>
 
 							<div class="action-buttons">
