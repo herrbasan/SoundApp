@@ -7,3 +7,7 @@ env.json
 _harness_last.log
 .DS_Store
 libs/rubberband-wasm/emsdk/
+# Large SoundFonts
+bin/soundfonts/Timbres of Heaven (XGM) 4.00(G).sf2
+bin/soundfonts/FluidR3_GM.sf2
+bin/soundfonts/SGM-V2.01.sf2

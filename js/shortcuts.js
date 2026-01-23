@@ -5,7 +5,7 @@ const shortcuts = {
 	H: { key: 72, action: 'toggle-help', description: 'Toggle Help Window' },
 	S: { key: 83, action: 'toggle-settings', description: 'Toggle Settings Window' },
 	M: { key: 77, action: 'toggle-mixer', description: 'Toggle Mixer Window' },
-	P: { key: 80, action: 'toggle-pitchtime', description: 'Toggle Pitch & Time Window' },
+	P: { key: 80, action: 'toggle-pitchtime', description: 'Toggle Pitch/Time or MIDI Settings' },
 	X: { key: 88, action: 'toggle-theme', description: 'Toggle Theme' },
 	C: { key: 67, action: 'toggle-controls', description: 'Toggle Controls Bar' }
 };

@@ -87,6 +87,8 @@ SoundApp is built for keyboard use. You can do almost everything without touchin
 
 **Tracker modules too.** MOD, XM, IT, S3M, and 70+ tracker formats via libopenmpt — with proper playback, not just "technically works."
 
+**MIDI support.** Full General MIDI playback using FluidSynth and high-quality SoundFonts.
+
 ---
 
 ## Installation

@@ -21,43 +21,6 @@
     "@electron-forge/maker-zip": "^7.6.1",
     "electron": "^34.0.2"
   },
-  "config": {
-    "forge": {
-      "packagerConfig": {
-        "asar": true,
-        "ignore": [
-          "_Material",
-          "_gsdata_",
-          ".vscode",
-          "harness",
-          "build",
-          "bin",
-          "node_modules",
-          "env.json"
-        ],
-        "extraResource": [
-          "./bin",
-          "./build/icons/",
-          "./node_modules/rubberband-web/public/"
-        ],
-        "executableName": "soundApp",
-        "icon": "build/icons/app.ico"
-      },
-      "rebuildConfig": {},
-      "makers": [
-        {
-          "name": "@electron-forge/maker-squirrel",
-          "config": {
-            "name": "soundApp",
-            "setupExe": "soundApp_Setup.exe",
-            "setupIcon": "build/icons/installer.ico",
-            "loadingGif": "build/loader.gif",
-            "iconUrl": "https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/icons/app.ico"
-          }
-        }
-      ]
-    }
-  },
   "dependencies": {
     "rubberband-web": "^0.2.1"
   }

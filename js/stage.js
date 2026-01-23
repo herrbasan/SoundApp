@@ -13,18 +13,21 @@ const registry = require('../js/registry.js');
 const shortcuts = require('../js/shortcuts.js');
 
 let player;
+let midi;
 let g = {};
 g.test = {};
 g.audioContext = null;
 g.ffmpegPlayer = null;
-g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null };
-g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false };
-g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false };
+g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null };
+g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false };
+g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 g.music = [];
 g.idx = 0;
 g.max = -1;
+
+g.midiSettings = { pitch: 0, speed: null }; // Ephemeral MIDI settings (not saved to config)
 
 // Init
 // ###########################################################################
@@ -312,6 +315,8 @@ async function init(){
 		appStart();
 	});
 
+	await initMidiPlayer();
+
 	ipcRenderer.on('main', async (e, data) => {
 		if(data.length == 1){
 			await playListFromSingle(data[0], false);
@@ -331,6 +336,16 @@ async function init(){
 		if (g.windows[data.type] === data.windowId) {
 			g.windows[data.type] = null;
 			g.windowsVisible[data.type] = false;
+			
+			// Reset MIDI settings if MIDI window closes
+			if(data.type === 'midi'){
+				g.midiSettings = { pitch: 0, speed: null };
+				if(midi){
+					if(midi.setPitchOffset) midi.setPitchOffset(0);
+					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+					if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
+				}
+			}
 		}
 		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
 		// Return focus to stage window after small delay to ensure window is gone
@@ -340,6 +355,17 @@ async function init(){
 	ipcRenderer.on('window-hidden', (e, data) => {
 		g.windowsVisible[data.type] = false;
 		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+		
+		// Reset MIDI settings if MIDI window is hidden
+		if(data.type === 'midi'){
+			g.midiSettings = { pitch: 0, speed: null };
+			if(midi){
+				if(midi.setPitchOffset) midi.setPitchOffset(0);
+				if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+				if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
+			}
+		}
+
 		g.win.focus();
 	});
 	
@@ -416,7 +442,18 @@ async function init(){
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-pitchtime') {
-			openWindow('pitchtime');
+			// Open MIDI settings for MIDI files, pitch/time for others
+			const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+			if (currentFile) {
+				const ext = path.extname(currentFile).toLowerCase();
+				if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
+					openWindow('midi');
+				} else {
+					openWindow('pitchtime');
+				}
+			} else {
+				openWindow('pitchtime');
+			}
 		}
 		else if (data.action === 'toggle-theme') {
 			tools.sendToMain('command', { command: 'toggle-theme' });
@@ -435,6 +472,112 @@ async function init(){
 		g.config_obj.set(g.config);
 		
 		// Broadcast to all open windows
+	});
+
+	ipcRenderer.on('open-soundfonts-folder', () => {
+		const fp = g.app_path;
+		const baseDir = g.isPackaged ? path.dirname(fp) : fp;
+		const soundfontPath = path.resolve(baseDir + '/bin/soundfonts/');
+		helper.shell.showItemInFolder(soundfontPath + '/README.md'); 
+	});
+
+	ipcRenderer.on('midi-soundfont-changed', async (e, soundfontFile) => {
+		// Reload MIDI player with new soundfont and restore playback state
+		const wasPlaying = g.currentAudio && !g.currentAudio.paused;
+		const currentFile = g.currentAudio ? g.currentAudio.fp : null;
+		const currentTime = g.currentAudio ? g.currentAudio.getCurrentTime() : 0;
+		const currentLoop = g.isLoop;
+		const isMIDI = currentFile && g.supportedMIDI && g.supportedMIDI.includes(path.extname(currentFile).toLowerCase());
+		
+		// Dispose old MIDI player
+		if (midi) {
+			midi.dispose();
+			midi = null;
+		}
+		
+		// Reinitialize MIDI player with new soundfont
+		await initMidiPlayer();
+		
+		// Reload current MIDI file if one was loaded
+		if (isMIDI && currentFile) {
+			try {
+				// Load the file with startPaused flag to prevent auto-play
+				await playAudio(currentFile, currentTime, !wasPlaying);
+				
+				// Wait for player to be fully initialized
+				await new Promise(resolve => setTimeout(resolve, 100));
+				
+				if (g.currentAudio && wasPlaying) {
+					// Start playing if it was playing before
+					g.currentAudio.play();
+				}
+				
+				checkState();
+			} catch(err) {
+				console.error('Failed to reload MIDI file after soundfont change:', err);
+			}
+		}
+	});
+
+	ipcRenderer.on('midi-metronome-toggle', (e, enabled) => {
+		if (!g.midiSettings) g.midiSettings = {};
+		g.midiSettings.metronome = enabled;
+		if (midi && midi.setMetronome) {
+			midi.setMetronome(enabled);
+		}
+	});
+
+	ipcRenderer.on('midi-pitch-changed', (e, val) => {
+		// Update ephemeral settings only
+		if(g.midiSettings) g.midiSettings.pitch = val;
+		if (midi && midi.setPitchOffset) {
+			midi.setPitchOffset(val);
+		}
+	});
+
+	ipcRenderer.on('midi-speed-changed', (e, val) => {
+		// Update ephemeral settings only
+		if(g.midiSettings) g.midiSettings.speed = val;
+		if (midi && midi.setPlaybackSpeed) {
+			midi.setPlaybackSpeed(val);
+		}
+	});
+
+	ipcRenderer.on('get-available-soundfonts', async (e, data) => {
+		// Scan bin/soundfonts directory for .sf2 and .sf3 files
+		let fp = g.app_path;
+		if(g.isPackaged){fp = path.dirname(fp);}
+		const soundfontsDir = path.resolve(fp + '/bin/soundfonts/');
+		
+		try {
+			const files = await fs.readdir(soundfontsDir);
+			const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
+			
+			const availableFonts = soundfontFiles.map(filename => {
+				// Create display label from filename
+				let label = filename.replace(/\.(sf2|sf3)$/i, ''); // Remove extension
+				label = label.replace(/_/g, ' '); // Replace underscores with spaces
+				return { filename, label };
+			});
+			
+			// Sort: Default first, then alphabetically
+			availableFonts.sort((a, b) => {
+				if (a.filename.startsWith('TimGM')) return -1;
+				if (b.filename.startsWith('TimGM')) return 1;
+				return a.label.localeCompare(b.label);
+			});
+			
+			tools.sendToId(data.windowId || g.windows['midi'], 'available-soundfonts', { fonts: availableFonts });
+		} catch(err) {
+			console.error('[MIDI] Failed to read soundfonts directory:', err);
+			// Fallback to just default
+			tools.sendToId(data.windowId || g.windows['midi'], 'available-soundfonts', { 
+				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }] 
+			});
+		}
+	});
+
+	ipcRenderer.on('theme-changed', (e, data) => {
 		if (g.windows.settings) {
 			tools.sendToId(g.windows.settings, 'theme-changed', data);
 		}
@@ -449,6 +592,9 @@ async function init(){
 		}
 		if (g.windows.pitchtime) {
 			tools.sendToId(g.windows.pitchtime, 'theme-changed', data);
+		}
+		if (g.windows['midi']) {
+			tools.sendToId(g.windows['midi'], 'theme-changed', data);
 		}
 	});
 	
@@ -505,12 +651,12 @@ async function appStart(){
 	'.dsm', '.dsym', '.dtm', '.far', '.fmt', '.imf', '.ice', '.j2b', '.m15', '.mdl', '.med', '.mms', '.mt2', '.mtm', '.mus', 
 	'.nst', '.okt', '.plm', '.psm', '.pt36', '.ptm', '.sfx', '.sfx2', '.st26', '.stk', '.stm', '.stx', '.stp', '.symmod', 
 	'.ult', '.wow', '.gdm', '.mo3', '.oxm', '.umx', '.xpk', '.ppm', '.mmcmp'];
+	g.supportedMIDI = ['.mid', '.midi', '.kar', '.rmi'];
 	g.supportedChrome = ['.mp3','.wav','.flac','.ogg', '.m4a', '.m4b', '.aac','.webm'];
 	g.supportedFFmpeg = ['.mpg','.mp2', '.aif', '.aiff','.aa', '.wma', '.asf', '.ape', '.wv', '.wvc', '.tta', '.mka', 
 	'.amr', '.3ga', '.ac3', '.eac3', '.dts', '.dtshd', '.caf', '.au', '.snd', '.voc', '.tak', '.mpc', '.mp+'];
 
-
-	g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedMpt]
+	g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedMpt, ...g.supportedMIDI]
 
 	function canFFmpegPlayFile(filePath){
 		console.log('FFmpeg probe:', filePath);
@@ -562,7 +708,6 @@ async function appStart(){
 		playAudio(g.music[g.idx])
 	}
 
-	g.time_controls.addEventListener('mousedown', timeline)
 	g.top_close.addEventListener('click', () => {
 		const cfg = g.config_obj ? g.config_obj.get() : g.config;
 		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
@@ -587,6 +732,9 @@ async function appStart(){
 	g.ctrl_btn_help.addEventListener('click', () => openWindow('help'));
 	if(ut.dragSlider && g.ctrl_volume && g.ctrl_volume_bar){
 		g.ctrl_volume_slider = ut.dragSlider(g.ctrl_volume, volumeSlider, -1, g.ctrl_volume_bar);
+	}
+	if(ut.dragSlider && g.time_controls && g.playhead){
+		g.timeline_slider = ut.dragSlider(g.time_controls, timelineSlider, -1, g.playhead);
 	}
 
 	loop();
@@ -632,6 +780,9 @@ function setVolume(v, persist=false){
 	g.config.audio.volume = v;
 	if(player) {
 		try { player.gain.gain.value = v; } catch(e) {}
+	}
+	if(midi) {
+		try { midi.setVol(v); } catch(e) {}
 	}
 	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 		g.currentAudio.player.volume = v;
@@ -790,20 +941,19 @@ function setupWindow(){
 	}
 }
 
-function timeline(e){
-	if(e.type == 'mousedown'){
-		window.addEventListener('mouseup', timeline);
-		window.addEventListener('mousemove', timeline);
-		seek(e.clientX);
+function timelineSlider(e){
+	if(!g.currentAudio) return;
+	let dur = g.currentAudio.duration;
+	if(!(dur > 0)){
+		// Fallbacks in case duration isn't populated yet (paused edge cases)
+		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
+		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
+		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
 	}
-	if(e.type == 'mousemove'){
-		seek(e.clientX);
-	}
-	if(e.type == 'mouseup'){
-		window.removeEventListener('mouseup', timeline);
-		window.removeEventListener('mousemove', timeline);
-	}
+	if(!(dur > 0)) return;
 	
+	const s = dur * e.prozX;
+	seekTo(s);
 }
 
 function playListFromSingle(fp, rec=true){
@@ -907,10 +1057,68 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 		clearAudio();
 
 		if(player) { player.stop(); }
+		if(midi) { midi.stop(); }
 
-		const isTracker = g.supportedMpt.includes(parse.ext.toLocaleLowerCase());
+		const ext = parse.ext.toLocaleLowerCase();
+		const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+		const isTracker = g.supportedMpt.includes(ext);
 
-		if(isTracker){
+		if(isMIDI){
+			if(!midi){
+				g.text.innerHTML += (g.midiInitError || 'MIDI playback not initialized.') + '<br>';
+				g.blocky = false;
+				return false;
+			}
+			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+			const initialVol = startPaused ? 0 : targetVol;
+			g.currentAudio = {
+				isMidi: true,
+				fp: fp,
+				bench: bench,
+				currentTime: 0,
+				get paused() { return midi ? midi.paused : true; },
+				duration: 0,
+				play: () => {
+					try { midi.setVol((g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol); } catch(e) {}
+					midi.play();
+				},
+				pause: () => { midi.pause(); },
+				seek: (time) => midi.seek(time),
+				getCurrentTime: () => midi.getCurrentTime()
+			};
+			try {
+				await midi.load(tools.getFileURL(fp));
+				
+				// Duration should now be available from metadata event
+				if (!g.currentAudio.duration && midi.getDuration() > 0) {
+					g.currentAudio.duration = midi.getDuration();
+				}
+				
+				midi.setVol(initialVol);
+				midi.setLoop(g.isLoop);
+				if(n > 0){
+					midi.seek(n);
+					g.currentAudio.currentTime = n;
+				}
+				if(startPaused){
+					try { midi.setVol(0); } catch(e) {}
+					midi.pause();
+				} else {
+					midi.play();
+				}
+				
+				// Pass g.currentAudio.metadata to renderInfo if active
+				await renderInfo(fp, g.currentAudio.metadata);
+				g.blocky = false;
+				checkState();
+			} catch(err) {
+				console.error('MIDI playback error:', err);
+				g.text.innerHTML += 'Error loading MIDI file!<br>';
+				g.blocky = false;
+				return false;
+			}
+		}
+		else if(isTracker){
 			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
@@ -1077,6 +1285,37 @@ function renderInfo(fp, metadata){
 			}
 			resolve();
 		}
+		else if(g.currentAudio.isMidi){
+			// Use metadata from onMetadata (stored on g.currentAudio.metadata) if not passed directly
+			const md = metadata || g.currentAudio.metadata || {};
+			g.currentInfo.metadata = md;
+			
+			if(md.duration && md.duration > 0){
+				g.currentAudio.duration = md.duration;
+				g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
+			}
+			g.text.appendChild(renderInfoItem('Format:', 'MIDI'))
+			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
+			
+			if (md.title) g.text.appendChild(renderInfoItem('Title:', md.title));
+			if (md.copyright) g.text.appendChild(renderInfoItem('Copyright:', md.copyright));
+			
+			const infoParts = [];
+			if (md.timeSignature) infoParts.push(md.timeSignature);
+			if (md.originalBPM) infoParts.push(Math.round(md.originalBPM) + ' BPM');
+			if (md.keySignature) infoParts.push('Key: ' + md.keySignature);
+			
+			if (infoParts.length > 0) {
+				g.text.appendChild(renderInfoItem('Info:', infoParts.join(' - ')));
+			}
+
+			if (md.markers && md.markers.length > 0) {
+				// Just show count or first few?
+				// g.text.appendChild(renderInfoItem('Markers:', md.markers.length));
+			}
+
+			resolve();
+		}
 		else {
 			
 			let meta = await getFileInfo(fp);
@@ -1146,12 +1385,13 @@ function clearAudio(){
 	if(g.ffmpegPlayer) g.ffmpegPlayer.stop(true);  // Keep SABs/worklet for reuse
 	if(g.currentAudio){
 		if(g.currentAudio.isMod) player.stop();
+		if(g.currentAudio.isMidi && midi) midi.stop();
 		g.currentAudio = undefined;
 	}
 }
 
 function audioEnded(e){
-	if(g.currentAudio?.isMod && g.isLoop){
+	if((g.currentAudio?.isMod || g.currentAudio?.isMidi) && g.isLoop){
 		playAudio(g.music[g.idx], 0, false, true);
 	}
 	else {
@@ -1226,6 +1466,9 @@ function toggleLoop(){
 	if(g.currentAudio && g.currentAudio.isFFmpeg && g.currentAudio.player){
 		g.currentAudio.player.setLoop(g.isLoop);
 	}
+	if(g.currentAudio && g.currentAudio.isMidi && midi){
+		midi.setLoop(g.isLoop);
+	}
 	checkState();
 }
 
@@ -1269,6 +1512,103 @@ function applyShowControls(show, resetSize = false){
 	}
 }
 
+async function initMidiPlayer(){
+	if(!window.midi || !g.audioContext) return;
+	let fp = g.app_path;
+	if(g.isPackaged){fp = path.dirname(fp);}
+	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
+	const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
+	
+	// Validate soundfont exists, fallback to default if not
+	try {
+		await fs.access(soundfontPath);
+	} catch(e) {
+		console.warn('[MIDI] SoundFont not found:', soundfontFile, '- falling back to default.sf2');
+		const defaultPath = path.resolve(fp + '/bin/soundfonts/default.sf2');
+		const soundfontUrl = tools.getFileURL(defaultPath);
+		await initMidiWithSoundfont(soundfontUrl, defaultPath);
+		return;
+	}
+	
+	const soundfontUrl = tools.getFileURL(soundfontPath);
+	await initMidiWithSoundfont(soundfontUrl, soundfontPath);
+}
+
+async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
+	const midiConfig = {
+		context: g.audioContext,
+		soundfontUrl: soundfontUrl,
+		soundfontPath: soundfontPath
+	};
+	try {
+		midi = new window.midi(midiConfig);
+	} catch(e) {
+		console.error('MIDI init failed:', e);
+		g.midiInitError = 'MIDI init failed: ' + e.message;
+		midi = null;
+		return;
+	}
+	midi.onMetadata((meta) => {
+		console.log('[Stage] Received MIDI Metadata:', meta);
+		if(g.currentAudio && g.currentAudio.isMidi){
+			const dur = (meta && meta.duration) ? meta.duration : midi.getDuration();
+			if(dur > 0){
+				g.currentAudio.duration = dur;
+				g.playremain.innerText = ut.playTime(dur*1000).minsec;
+			}
+			
+			// Store metadata for renderInfo to use
+			if(meta) {
+				g.currentAudio.metadata = meta;
+			}
+
+			// Apply ephemeral settings if they exist (persistence across tracks while window is open)
+			if (g.midiSettings) {
+				if (g.midiSettings.pitch !== 0 && midi.setPitchOffset) {
+					midi.setPitchOffset(g.midiSettings.pitch);
+				}
+				if (g.midiSettings.speed && midi.setPlaybackSpeed) {
+					midi.setPlaybackSpeed(g.midiSettings.speed);
+				}
+				if (g.midiSettings.metronome && midi.setMetronome) {
+					midi.setMetronome(true);
+				}
+			}
+
+			// Update MIDI Settings window if open
+			if(g.windows['midi'] && g.windowsVisible['midi']){
+				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+				let currentBPM = originalBPM;
+				
+				if (g.midiSettings && g.midiSettings.speed) {
+					currentBPM = g.midiSettings.speed;
+				}
+				
+				tools.sendToId(g.windows['midi'], 'update-ui', {
+					originalBPM: originalBPM,
+					speed: currentBPM,
+					metronome: !!(g.midiSettings && g.midiSettings.metronome)
+				});
+			}
+		}
+	});
+	midi.onProgress((e) => {
+		if(g.currentAudio && g.currentAudio.isMidi){
+			g.currentAudio.currentTime = e.pos || 0;
+		}
+	});
+	midi.onEnded(audioEnded);
+	midi.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+	
+	try {
+		await midi.init();
+	} catch(e) {
+		console.error('[MIDI] Failed to initialize MIDI player:', e);
+		g.midiInitError = 'MIDI init failed: ' + e.message;
+		midi = null;
+	}
+}
+
 async function toggleHQMode(desiredState, skipPersist=false){
 	if(!g.config.audio) g.config.audio = {};
 	let next = !!g.config.audio.hqMode;
@@ -1295,12 +1635,15 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : g.music[g.idx];
 	const currentIdx = (currentFile && g.music && g.music.length > 0) ? g.music.indexOf(currentFile) : -1;
 	const wasMod = g.currentAudio?.isMod;
-	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0);
+	const wasMidi = g.currentAudio?.isMidi;
+	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (wasMidi ? (midi?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0));
 	
 	// Stop current playback
 	if(g.currentAudio){
 		if(g.currentAudio.isMod){
 			player.stop();
+		} else if(g.currentAudio.isMidi && midi){
+			midi.stop();
 		} else if(g.currentAudio.player){
 			if(typeof g.currentAudio.player.stop === 'function'){
 				g.currentAudio.player.stop();
@@ -1381,6 +1724,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	});
 	player.onEnded(audioEnded);
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+	await initMidiPlayer();
 	
 	if(currentFile){
 		if(currentIdx >= 0) {
@@ -1451,6 +1795,7 @@ function seek(mx){
 		// Fallbacks in case duration isn't populated yet (paused edge cases)
 		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
 		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
+		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
 	}
 	if(!(dur > 0)) return;
 	let max = g.time_controls.offsetWidth;
@@ -1468,6 +1813,10 @@ function seekTo(s){
 	if(g.currentAudio){
 		if(g.currentAudio.isMod){
 			player.seek(s);
+			g.currentAudio.currentTime = s;
+		}
+		else if(g.currentAudio.isMidi){
+			g.currentAudio.seek(s);
 			g.currentAudio.currentTime = s;
 		}
 		else {
@@ -1549,11 +1898,16 @@ function renderBar(){
 		if(g.currentAudio.isFFmpeg && g.currentAudio.player){
 			g.currentAudio.currentTime = g.currentAudio.player.getCurrentTime();
 		}
+		else if(g.currentAudio.isMidi && g.currentAudio.getCurrentTime){
+			g.currentAudio.currentTime = g.currentAudio.getCurrentTime();
+		}
 		
 		if(g.currentAudio.lastTime != g.currentAudio.currentTime){
 			g.currentAudio.lastTime = g.currentAudio.currentTime;
 			time = g.currentAudio.currentTime;
-			proz = time / g.currentAudio.duration;
+			if(g.currentAudio.duration > 0){
+				proz = time / g.currentAudio.duration;
+			}
 			g.prog.style.width = (proz*100) + '%';
 			let minsec = ut.playTime(time*1000).minsec;
 			if(g.lastMinsec !=  minsec){
@@ -1605,7 +1959,19 @@ async function onKey(e) {
 		openWindow('mixer', false, fp);
 	}
 	else if (shortcutAction === 'toggle-pitchtime') {
-		openWindow('pitchtime');
+		// Open MIDI settings for MIDI files, pitch/time for others
+		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+		if (currentFile) {
+			const ext = path.extname(currentFile).toLowerCase();
+			console.log('[P key] Current file:', currentFile, 'ext:', ext, 'isMIDI:', g.supportedMIDI.includes(ext));
+			if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
+				openWindow('midi');
+			} else {
+				openWindow('pitchtime');
+			}
+		} else {
+			openWindow('pitchtime');
+		}
 	}
 	else if (shortcutAction === 'toggle-controls') {
 		toggleControls();
@@ -1671,12 +2037,16 @@ async function onKey(e) {
 	if (e.keyCode == 40) {
 		volumeDown();
 	}
+	// Speed control handled below in unified block
+	
+	/*
 	if (e.keyCode == 187 || e.keyCode == 107) {
 		speedUp();
 	}
 	if (e.keyCode == 189 || e.keyCode == 109) {
 		speedDown();
 	}
+	*/
 
 	if (e.keyCode == 82) {
 		shufflePlaylist();
@@ -1690,13 +2060,26 @@ async function onKey(e) {
 		playPause();
 		flashButton(g.ctrl_btn_play);
 	}
-	if(e.keyCode == 109 && e.ctrlKey && e.shiftKey){
-		let val = ut.getCssVar('--space-base').value;
-		scaleWindow(val-1)
+	
+	// Mapping for standard keyboard - (189) and Numpad - (109)
+	if(e.keyCode == 189 || e.keyCode == 109 || e.keyCode == 173){
+		if (e.ctrlKey) {
+			console.log('Scaling down');
+			let val = ut.getCssVar('--space-base').value;
+			scaleWindow(val-1)
+		} else {
+			speedDown();
+		}
 	}
-	if(e.keyCode == 107 && e.ctrlKey && e.shiftKey){
-		let val = ut.getCssVar('--space-base').value;
-		scaleWindow(val+1)
+	// Mapping for standard keyboard + (=) and Numpad + (107)
+	if(e.keyCode == 187 || e.keyCode == 107 || e.keyCode == 61){
+		if (e.ctrlKey) {
+			console.log('Scaling up');
+			let val = ut.getCssVar('--space-base').value;
+			scaleWindow(val+1)
+		} else {
+			speedUp();
+		}
 	}
 	// H and S shortcuts now handled globally in app.js
 }
@@ -1729,6 +2112,7 @@ async function getMixerPlaylist(contextFile = null) {
 }
 
 async function openWindow(type, forceShow = false, contextFile = null) {
+	console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'exists:', !!g.windows[type]);
 	async function waitForWindowClosed(t, id, timeoutMs = 2000){
 		return await new Promise((resolve) => {
 			let done = false;
@@ -1757,6 +2141,11 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 	if (g.windows[type]) {
 		// Window exists
+		// When opening/showing MIDI window, ensure it has current ephemeral settings
+		if(type === 'midi' && g.midiSettings){
+			tools.sendToId(g.windows[type], 'update-ui', { pitch: g.midiSettings.pitch, speed: g.midiSettings.speed });
+		}
+
 		if(forceShow){
 			// For Mixer playlist replacement, send new playlist (reuse pattern avoids memory leaks).
 			if(type === 'mixer'){
@@ -1791,7 +2180,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 							g.currentAudio.pause();
 							checkState();
 						}
-						tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+						const ext = path.extname(currentFile).toLowerCase();
+						if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+							tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
+						} else {
+							tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+						}
 					}
 				}
 				return;
@@ -1802,6 +2196,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		if (g.windowsVisible[type]) {
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
+			
+			// If hiding MIDI window, reset ephemeral settings immediately per request
+			if(type === 'midi'){
+				g.midiSettings = { pitch: 0, speed: null };
+				if(midi){
+					if(midi.setPitchOffset) midi.setPitchOffset(0);
+					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+					if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
+				}
+			}
+
 			// Return focus to stage window when hiding
 			g.win.focus();
 		} else {
@@ -1819,6 +2224,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 					idx: playlist.idx
 				});
 			}
+			if(type === 'midi' && g.midiSettings){
+				tools.sendToId(g.windows[type], 'update-ui', { pitch: g.midiSettings.pitch, speed: g.midiSettings.speed });
+			}
 			if(type === 'pitchtime'){
 				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 				const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
@@ -1827,7 +2235,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 						g.currentAudio.pause();
 						checkState();
 					}
-					tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+					const ext = path.extname(currentFile).toLowerCase();
+					if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+						tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
+					} else {
+						tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
+					}
 				}
 			}
 		}
@@ -1894,10 +2307,39 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				g.currentAudio.pause();
 				checkState();
 			}
-			init_data.currentFile = currentFile;
-			init_data.currentTime = currentTime;
+			const ext = path.extname(currentFile).toLowerCase();
+			if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+				init_data.pitchtimeError = 'MIDI files are not supported in Pitch/Time.';
+			} else {
+				init_data.currentFile = currentFile;
+				init_data.currentTime = currentTime;
+			}
 		}
 		init_data.currentVolume = currentVolume;
+	}
+
+	if(type === 'midi'){
+		// Initialize with ephemeral settings if they exist
+		init_data.midiPitch = g.midiSettings ? g.midiSettings.pitch : 0;
+		
+		// Get original BPM if available
+		if (midi && midi.getOriginalBPM) {
+			init_data.originalBPM = midi.getOriginalBPM();
+		} else {
+			init_data.originalBPM = 120;
+		}
+
+		if (g.midiSettings && g.midiSettings.speed) {
+			init_data.midiSpeed = g.midiSettings.speed;
+		} else {
+			// If no override, try to get current actual BPM from player
+			if (midi && midi.getCurrentBPM) {
+				const currentBPM = await midi.getCurrentBPM();
+				init_data.midiSpeed = Math.round(currentBPM);
+			} else {
+				init_data.midiSpeed = 120;
+			}
+		}
 	}
 
 	g.windows[type] = await tools.browserWindow('frameless', {
@@ -1910,6 +2352,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		backgroundColor: '#323232',
 		init_data: init_data
 	});
+	
+	console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
 	
 	// Mark window as visible after creation
 	g.windowsVisible[type] = true;

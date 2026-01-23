@@ -17,11 +17,12 @@ You have full agency over the memory system — use it however you find useful (
 - Major architecture shift: moved from using the FFmpeg CLI to a native NAPI implementation
 
 ## What This Is
-A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats.
+A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats. MIDI playback is a **current in-progress feature** and is **not yet integrated**.
 
 ## Project Structure
 - `js/stage.js` - Main player logic and audio handling
 - `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
+- `js/midi_controller.js` - MIDI playback controller (reference only; integration pending)
 - `js/app.js` - Main process (Electron)
 - `js/config-defaults.js` - Default configuration values and window dimension constants
 - `js/registry.js` - Windows file association handling and Default Programs integration
@@ -39,6 +40,13 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
 - `html/` - Window templates (stage.html, help.html)
 - `css/` - Styling (window.css, fonts.css, etc.)
+
+## Current Feature Focus: MIDI Playback (Planned)
+- **Goal:** Integrate MIDI playback via js-synthesizer + FluidSynth WASM.
+- **Approach:** Use a dedicated submodule and runtime artifacts under `libs/midiplayer/`.
+- **Source (submodule):** `libs/midiplayer/src/js-synthesizer`
+- **Runtime artifacts:** `libs/midiplayer/runtime/` (copied build outputs)
+- **Status:** Not yet wired into `js/stage.js`.
 
 ## Window System
 Secondary windows (help, settings, playlist, mixer) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.

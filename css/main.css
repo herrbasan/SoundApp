@@ -382,6 +382,13 @@ body.shuffle .top .content .shuffle::after{
 	background-color: rgb(100, 100, 100);
 }
 
+.filetype .type.mid,
+.filetype .type.midi,
+.filetype .type.kar,
+.filetype .type.rmi {
+	background-color: rgb(20, 20, 20);
+}
+
 .info .cover:hover .filetype .type{
 	opacity: 0;
 }

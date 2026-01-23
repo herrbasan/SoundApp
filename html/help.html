@@ -82,6 +82,10 @@
                                 <td>Volume down</td>
                             </tr>
                             <tr>
+                                <td><kbd>P</kbd></td>
+                                <td>Pitch/Tempo (audio) / Settings (MIDI)</td>
+                            </tr>
+                            <tr>
                                 <td><kbd>I</kbd></td>
                                 <td>Show file in folder</td>
                             </tr>
@@ -291,6 +295,56 @@
                             </tr>
                         </tbody>
                     </table>
+
+                    <h2>Pitch & Time</h2>
+                    <p>
+                        A dedicated tool (press <kbd>P</kbd>) for independent pitch shifting and time stretching, powered by the high-quality <strong>Rubberband</strong> library.
+                    </p>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Pitch Shift</strong></td>
+                                <td>Change pitch (±12 semitones) without affecting tempo.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Time Stretch</strong></td>
+                                <td>Change playback speed without affecting pitch.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Note</strong></td>
+                                <td>The effect might be very subtle. This is intentional as the algorithm prioritizes high-quality audio preservation.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h2>SoundFonts (MIDI)</h2>
+                    <p>
+                        The application uses SoundFonts (.sf2) for MIDI playback.
+                    </p>
+                    
+                    <h3>Bundled SoundFont</h3>
+                    <p>
+                        We include <strong>GeneralUser GS</strong> (configured as <code>default.sf2</code>) by default.
+                    </p>
+                    <ul style="list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem;">
+                        <li><strong>Author:</strong> S. Christian Collins</li>
+                        <li><strong>Size:</strong> ~30 MB</li>
+                        <li><strong>Description:</strong> A highly regarded GM/GS SoundFont offering an excellent balance of quality and performance.</li>
+                        <li><strong>License:</strong> Permissive (allows redistribution).</li>
+                    </ul>
+
+                    <h3>Using Other SoundFonts</h3>
+                    <p>
+                        You can add custom SoundFonts to your library. While GeneralUser GS is excellent, larger libraries may offer more realistic samples at the cost of memory.
+                    </p>
+                    <p>
+                        <strong>Add a new SoundFont:</strong>
+                    </p>
+                    <ol style="margin-left: 1.5rem; margin-bottom: 1rem;">
+                        <li>Download an <code>.sf2</code> file (e.g. FluidR3_GM, Timbres of Heaven).</li>
+                        <li>Place it in the application's <code>bin/soundfonts</code> folder.</li>
+                        <li>Select it in the MIDI Settings (press <kbd>P</kbd> to toggle).</li>
+                    </ol>
                 </section>
                 <section>
                     <div style="height: 4rem"></div>

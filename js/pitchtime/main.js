@@ -431,6 +431,9 @@ async function init(initData){
 	setupParameterControls();
 	setupDragAndDrop();
 
+	if(g.initData && g.initData.pitchtimeError){
+		showError(g.initData.pitchtimeError);
+	}
 	// Load current file if provided by stage
 	if(g.initData && g.initData.currentFile){
 		if(!(await ensureEngine())) return;
@@ -535,6 +538,10 @@ async function init(initData){
 				console.error('Failed to load pitchtime-file:', err);
 				showError('Failed to load file: ' + err.message);
 			}
+		});
+		window.bridge.on('pitchtime-error', (data) => {
+			const msg = (data && data.message) ? data.message : 'Unsupported file type.';
+			showError(msg);
 		});
 		// Electron secondary windows are often hidden (not unloaded) when closed.
 		// Ensure the whole audio pipeline is torn down on hide, and recreated on show.

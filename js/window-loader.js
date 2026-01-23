@@ -56,6 +56,7 @@ if (isElectron) {
 	
 	// Listen for show window command
 	ipcRenderer.on('show-window', () => {
+		console.log('[window-loader] show-window received');
 		helper.window.show();
 		helper.window.focus();
 	});

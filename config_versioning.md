@@ -128,6 +128,7 @@ Because the current config loader performs shallow merges, the migration/repair 
   "mixer": {
     "preBuffer": 50
   },
+  "midiSoundfont": "default.sf2",
   "windows": {
     "main": { "x": null, "y": null, "width": 480, "height": 217, "scale": 10 },
     "help": { "x": null, "y": null, "width": 800, "height": 700, "scale": 10 },

@@ -63,6 +63,11 @@ async function registry(task, exe_path, app_path) {
                         'ult', 'wow', 'gdm', 'mo3', 'oxm', 'umx', 'xpk', 'ppm', 'mmcmp'
                     ]
                 },
+                soundapp_midi: {
+                    description: 'MIDI Audio File',
+                    icon: 'midi.ico',
+                    extensions: ['mid', 'midi', 'kar', 'rmi']
+                },
                 soundapp_wma: {
                     description: 'Windows Media Audio',
                     icon: 'pcm.ico',
