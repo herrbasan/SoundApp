@@ -2,18 +2,32 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
-function tryInitSubmodule() {
-	try {
-		execSync('git submodule update --init --recursive libs/midiplayer/src/js-synthesizer', {
-			cwd: path.resolve(__dirname, '..'),
-			stdio: 'ignore'
-		});
-		console.log('[patch-midiplayer-worklet] Submodule initialized');
-	} catch (e) {
-		console.warn('[patch-midiplayer-worklet] Submodule init skipped/failed');
+function copyFromNodeModules() {
+	const srcDir = path.resolve(__dirname, '../node_modules/js-synthesizer/dist');
+	const destDirs = [
+		path.resolve(__dirname, '../libs/midiplayer'),
+		path.resolve(__dirname, '../bin/midiplayer-runtime')
+	];
+	const files = ['js-synthesizer.js', 'js-synthesizer.worklet.js', 'libfluidsynth.js'];
+	
+	if (!fs.existsSync(srcDir)) {
+		console.warn('[patch-midiplayer-worklet] Source not found:', srcDir);
+		return false;
 	}
+	
+	for (const dest of destDirs) {
+		fs.mkdirSync(dest, { recursive: true });
+		for (const file of files) {
+			const src = path.join(srcDir, file);
+			const dst = path.join(dest, file);
+			if (fs.existsSync(src)) {
+				fs.copyFileSync(src, dst);
+			}
+		}
+	}
+	console.log('[patch-midiplayer-worklet] Copied files from node_modules');
+	return true;
 }
 
 const targets = [
@@ -24,10 +38,10 @@ const targets = [
 
 const hookSnippet = `\t\t\tconst out = outputs[0];\n\t\t\tconst metro = AudioWorkletGlobalScope.SoundAppMetronome;\n\t\t\tif (metro && out && out[0]) {\n\t\t\t\tmetro.beginBlock(syn, out[0].length, sampleRate);\n\t\t\t}\n\t\t\tsyn.render(out);\n\t\t\tif (metro && out && out[0]) {\n\t\t\t\tmetro.endBlock(outputs, syn);\n\t\t\t}`;
 
-const originalLine = '\t\t\tsyn.render(outputs[0]);';
+const originalPattern = /(\s+)syn\.render\(outputs\[0\]\);/;
 const alreadyPatched = 'AudioWorkletGlobalScope.SoundAppMetronome';
 
-tryInitSubmodule();
+copyFromNodeModules();
 
 let changed = 0;
 let skipped = 0;
@@ -43,11 +57,14 @@ for (let i = 0; i < targets.length; i++) {
 		skipped++;
 		continue;
 	}
-	if (!src.includes(originalLine)) {
+	const match = src.match(originalPattern);
+	if (!match) {
 		console.warn('[patch-midiplayer-worklet] No match in:', fp);
 		continue;
 	}
-	const out = src.replace(originalLine, hookSnippet);
+	const indent = match[1];
+	const indentedHook = hookSnippet.split('\n').map(line => indent + line.substring(3)).join('\n');
+	const out = src.replace(originalPattern, indentedHook);
 	fs.writeFileSync(fp, out, 'utf8');
 	changed++;
 }

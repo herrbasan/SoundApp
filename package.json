@@ -22,5 +22,7 @@
     "@electron-forge/maker-zip": "^7.6.1",
     "electron": "^34.0.2"
   },
-  "dependencies": {}
+  "dependencies": {
+    "js-synthesizer": "1.11.0"
+  }
 }

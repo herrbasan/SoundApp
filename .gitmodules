@@ -13,9 +13,6 @@
 [submodule "libs/ffmpeg-napi-interface"]
 	path = libs/ffmpeg-napi-interface
 	url = https://github.com/herrbasan/ffmpeg-napi-interface.git
-[submodule "libs/midiplayer/src/js-synthesizer"]
-	path = libs/midiplayer/src/js-synthesizer
-	url = https://github.com/jet2jet/js-synthesizer
 [submodule "libs/rubberband-wasm"]
 	path = libs/rubberband-wasm
 	url = https://github.com/herrbasan/rubberband-wasm-soundapp.git

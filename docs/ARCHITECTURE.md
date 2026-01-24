@@ -27,7 +27,6 @@ bin/win_bin/ffmpeg_napi.node           — Native FFmpeg decoder addon
 
 js/midi/midi.js                  — MIDI player wrapper (FluidSynth)
 js/midi/midi.worklet.js          — MIDI hook worklet
-js/midi_controller.js            — Controller for MIDI playback logic
 
 js/mixer/main.js                 — Mixer UI + playlist handover
 js/mixer/mixer_engine.js         — Mixer engine (buffer decode + AudioWorklet)

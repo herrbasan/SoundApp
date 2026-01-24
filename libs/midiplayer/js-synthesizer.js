@@ -3,7 +3,7 @@ js-synthesizer version 1.11.0
 
 @license
 
-Copyright (C) 2026 jet
+Copyright (C) 2025 jet
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -28,7 +28,16 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 OF SUCH DAMAGE.
  */
 
-var JSSynth = (() => {
+(function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory();
+	else if(typeof define === 'function' && define.amd)
+		define([], factory);
+	else if(typeof exports === 'object')
+		exports["js-synthesizer"] = factory();
+	else
+		root["JSSynth"] = factory();
+})(this, () => {
 return /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	// The require scope
@@ -2197,9 +2206,6 @@ class AudioWorkletNodeSynthesizer {
     midiProgramSelect(chan, sfontId, bank, presetNum) {
         postCall(this._messaging, 'midiProgramSelect', [chan, sfontId, bank, presetNum]);
     }
-    midiAllNotesOff(chan) {
-        postCall(this._messaging, 'midiAllNotesOff', [chan]);
-    }
     midiUnsetProgram(chan) {
         postCall(this._messaging, 'midiUnsetProgram', [chan]);
     }
@@ -2347,6 +2353,5 @@ class AudioWorkletNodeSynthesizer {
 /******/ 	return __webpack_exports__;
 /******/ })()
 ;
-})();
-export default JSSynth;
+});
 //# sourceMappingURL=js-synthesizer.js.map

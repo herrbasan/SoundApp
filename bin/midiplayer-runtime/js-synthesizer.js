@@ -3,7 +3,7 @@ js-synthesizer version 1.11.0
 
 @license
 
-Copyright (C) 2026 jet
+Copyright (C) 2025 jet
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,

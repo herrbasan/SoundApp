@@ -24,15 +24,13 @@ midi.worklet.js            (Additional worklet logic if any)
    - Manages SoundFont loading and initialization
    - Provides transport controls (play, pause, stop, seek)
 
-2. **js/midi_controller.js**
-   - High-level controller logic (if distinct from midi.js)
-
-3. **bin/soundfonts/**
+2. **bin/soundfonts/**
    - Directory containing .sf2 soundfont files
    - Default: default.sf2 (GeneralUser GS)
 
-4. **docs/midi-implementation.md**
-   - Comprehensive documentation of the implementation
+3. **scripts/patch-midiplayer-worklet.js**
+   - Copies js-synthesizer bundles from node_modules
+   - Patches worklet files to inject metronome hook
 
 ## Files Modified
 
