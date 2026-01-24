@@ -30,10 +30,10 @@ Audio File
     → Output
 ```
 
-Worklet selection:
+Worklet:
 
-- Preferred: forked realtime RubberBand processor [libs/realtime-pitch-shift-processor.js](../libs/realtime-pitch-shift-processor.js)
-- Fallback: original rubberband-web processor [libs/rubberband-processor.js](../libs/rubberband-processor.js)
+- Custom-built RubberBand processor: [libs/rubberband/realtime-pitch-shift-processor.js](../libs/rubberband/realtime-pitch-shift-processor.js)
+- Built from submodule: [libs/rubberband-wasm/](../libs/rubberband-wasm/) using [scripts/build-rubberband-processor.js](../scripts/build-rubberband-processor.js)
 
 ### High/Low Watermark (Backlog) Management
 
