@@ -22,7 +22,13 @@ function copyFromNodeModules() {
 			const src = path.join(srcDir, file);
 			const dst = path.join(dest, file);
 			if (fs.existsSync(src)) {
-				fs.copyFileSync(src, dst);
+				let content = fs.readFileSync(src, 'utf8');
+				// Fix UMD wrapper to use globalThis instead of 'this' for ES module compatibility
+				if (file === 'js-synthesizer.js') {
+					content = content.replace('(function webpackUniversalModuleDefinition(root, factory) {', 
+						'(function webpackUniversalModuleDefinition(root, factory) {\n\troot = root || globalThis;');
+				}
+				fs.writeFileSync(dst, content, 'utf8');
 			}
 		}
 	}
