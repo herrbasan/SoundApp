@@ -16,3 +16,6 @@
 [submodule "libs/midiplayer/src/js-synthesizer"]
 	path = libs/midiplayer/src/js-synthesizer
 	url = https://github.com/jet2jet/js-synthesizer
+[submodule "libs/libs/rubberband-wasm"]
+	path = libs/libs/rubberband-wasm
+	url = https://github.com/herrbasan/rubberband-wasm-soundapp.git
