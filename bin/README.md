@@ -14,14 +14,23 @@ bin/
 │   ├── ffmpeg-worklet-processor.js   # AudioWorklet processor
 │   ├── index.js                      # Module exports
 │   └── *.dll                         # FFmpeg DLLs
-└── linux_bin/
-    ├── ffmpeg
-    ├── ffprobe
-    ├── ffmpeg_napi.node              # FFmpeg NAPI decoder (native addon)
-    ├── player.js                     # Streaming player class
-    ├── ffmpeg-worklet-processor.js   # AudioWorklet processor
-    ├── index.js                      # Module exports
-    └── *.so                          # FFmpeg shared libraries
+├── linux_bin/
+│   ├── ffmpeg
+│   ├── ffprobe
+│   ├── ffmpeg_napi.node              # FFmpeg NAPI decoder (native addon)
+│   ├── player.js                     # Streaming player class
+│   ├── ffmpeg-worklet-processor.js   # AudioWorklet processor
+│   ├── index.js                      # Module exports
+│   └── *.so                          # FFmpeg shared libraries
+├── midiplayer-runtime/               # MIDI player runtime (copied from npm)
+│   ├── js-synthesizer.js             # Main module (patched)
+│   ├── js-synthesizer.worklet.js     # AudioWorklet (patched)
+│   └── libfluidsynth.js              # FluidSynth WASM
+├── metronome/                        # User-replaceable metronome samples
+│   ├── metronome-high.wav
+│   └── metronome-low.wav
+└── soundfonts/                       # SoundFont files for MIDI
+    └── default.sf2
 ```
 
 ## FFmpeg NAPI Interface

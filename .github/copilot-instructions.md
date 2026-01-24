@@ -50,10 +50,15 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `css/` - Styling (window.css, fonts.css, etc.)
 
 ## MIDI Player Integration (Current)
-- **Player:** `js/midi/midi.js` wraps js-synthesizer (`libs/midiplayer/js-synthesizer.js`) and is initialized by `js/stage.js`.
-- **Worklets:** `js/midi/midi.worklet.js` (MIDI hook) and `js/midi/metronome.worklet.js` (metronome) are loaded via `audioWorklet.addModule()`.
-- **Runtime bundles:** `libs/midiplayer/js-synthesizer.worklet.js` and `bin/midiplayer-runtime/js-synthesizer.worklet.js` are patched to call `AudioWorkletGlobalScope.SoundAppMetronome` if present.
-- **Soundfonts:** `bin/soundfonts/` and MIDI Settings window drive the active SoundFont.
+- **Package:** js-synthesizer v1.11.0 from npm (easy updates)
+- **Player:** `js/midi/midi.js` wraps js-synthesizer and is initialized by `js/stage.js`
+- **Worklets:** `js/midi/midi.worklet.js` (MIDI hook) and `js/midi/metronome.worklet.js` (metronome) are loaded via `audioWorklet.addModule()`
+- **Bundles:** Copied from `node_modules/js-synthesizer/dist/` to `libs/midiplayer/` and `bin/midiplayer-runtime/` by `scripts/patch-midiplayer-worklet.js`
+- **Patches applied:**
+  - UMD wrapper fix for ES module context (`root = root || globalThis`)
+  - Metronome hook injection (`AudioWorkletGlobalScope.SoundAppMetronome`)
+- **Soundfonts:** `bin/soundfonts/` and MIDI Settings window drive the active SoundFont
+- **Updates:** `npm update js-synthesizer && npm run patch-midiplayer-worklet`
 
 ## Window System
 Secondary windows (help, settings, playlist, mixer) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.

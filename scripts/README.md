@@ -133,3 +133,42 @@ Update single platform:
 - Before committing updated binaries to the repo
 
 **Note:** Binaries are committed to the repository, not downloaded during install. This script is for manual updates only.
+
+---
+
+## patch-midiplayer-worklet.js
+
+Node.js script for copying and patching js-synthesizer bundles from npm.
+
+### Usage
+
+```powershell
+npm run patch-midiplayer-worklet
+```
+
+Runs automatically via `postinstall` hook.
+
+### What it does
+
+1. Copies js-synthesizer bundles from `node_modules/js-synthesizer/dist/` to:
+   - `libs/midiplayer/`
+   - `bin/midiplayer-runtime/`
+2. Applies **UMD wrapper fix** to `js-synthesizer.js`:
+   - Adds `root = root || globalThis;` for ES module compatibility
+3. Applies **metronome hook** to `js-synthesizer.worklet.js`:
+   - Injects `AudioWorkletGlobalScope.SoundAppMetronome` calls around `syn.render()`
+   - Handles dynamic indentation
+
+### When to run
+
+- After `npm install` (automatic)
+- After `npm update js-synthesizer`
+- When developing metronome integration
+
+### Files patched
+
+| File | Patch Applied |
+|------|---------------|
+| `js-synthesizer.js` | UMD wrapper fix (globalThis fallback) |
+| `js-synthesizer.worklet.js` | Metronome hook injection |
+| `libfluidsynth.js` | None (copied as-is) |
