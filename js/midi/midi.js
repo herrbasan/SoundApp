@@ -153,8 +153,11 @@ export class MidiPlayer {
 		if (!globalThis.__soundappMidiMainLoad) {
 			globalThis.__soundappMidiMainLoad = (async () => {
 				await import(new URL('../../libs/midiplayer/libfluidsynth.js', import.meta.url).href);
+				// UMD module needs a target - provide globalThis explicitly
+				if (!globalThis.JSSynth) globalThis.JSSynth = {};
 				const module = await import(new URL('../../libs/midiplayer/js-synthesizer.js', import.meta.url).href);
-				globalThis.JSSynth = module.default;
+				// Module may export as default or populate globalThis.JSSynth
+				if (module.default) globalThis.JSSynth = module.default;
 				if (globalThis.JSSynth && typeof globalThis.JSSynth.waitForReady === 'function') {
 					await globalThis.JSSynth.waitForReady();
 				}
