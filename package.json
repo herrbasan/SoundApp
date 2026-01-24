@@ -10,7 +10,7 @@
     "dist": "electron-builder",
     "make": "electron-forge make",
     "patch-midiplayer-worklet": "node scripts/patch-midiplayer-worklet.js",
-    "postinstall": "node scripts/copy-rubberband.js && node scripts/patch-midiplayer-worklet.js"
+    "postinstall": "node scripts/patch-midiplayer-worklet.js"
   },
   "author": "David Renelt",
   "license": "MIT",
@@ -22,7 +22,5 @@
     "@electron-forge/maker-zip": "^7.6.1",
     "electron": "^34.0.2"
   },
-  "dependencies": {
-    "rubberband-web": "^0.2.1"
-  }
+  "dependencies": {}
 }
