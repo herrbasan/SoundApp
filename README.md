@@ -71,6 +71,7 @@ SoundApp is built for keyboard use. You can do almost everything without touchin
 | `Ctrl+←` / `Ctrl+→` | Skip 10 seconds |
 | `↑` / `↓` | Volume up / down |
 | `+` / `-` | Speed up / down (±24 semitones) |
+| `P` | Open Pitch/Time Controls |
 | `M` | Open mixer with current folder |
 | `I` | Show file in folder |
 | `H` | Help |
@@ -117,12 +118,20 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 ---
 
+## What's New in 2.1.0
+
+**High-Quality Pitch Shifting & Time Stretching** — Independent pitch and time control with Rubber Band Library integration. Shift pitch without changing speed, or change speed without affecting pitch. Separate controls window (`P` key) with real-time preview.
+
+**Full MIDI Support** — Plays General MIDI files with FluidSynth and high-quality SoundFonts. Includes tempo control, pitch shifting, and a metronome that syncs to MIDI tempo changes. MIDI settings window (`P` key) lets you customize playback parameters.
+
+**Multi-Track Mixer Improvements** — Enhanced synchronization and performance for stem preview workflows.
+
+---
+
 ## Roadmap
 
 A few things I'd like to add eventually:
 
-- **True pitch shifting** — DSP-based pitch control independent of speed
-- **Time stretching** — change speed while preserving pitch
 - **Playlist window** — for when you actually want to see what's queued
 - **Waveform display** — if performance allows
 - **Markers** — save positions within a file for A/B comparison
@@ -135,6 +144,12 @@ A few things I'd like to add eventually:
 To Norman Franke, who made the original SoundApp. I never forgot how good simple software can be.
 
 To the [FFmpeg](https://ffmpeg.org/) project — the engine that makes universal format support possible. SoundApp wouldn't exist without it.
+
+To [libopenmpt](https://lib.openmpt.org/libopenmpt/) — for bringing tracker music to life with accurate, high-quality playback of MOD, XM, IT, S3M, and dozens of other formats.
+
+To [FluidSynth](https://www.fluidsynth.org/) and [js-synthesizer](https://github.com/jet2jet/js-synthesizer) — for making MIDI playback possible in the browser with real SoundFont support.
+
+To the [Rubber Band Library](https://breakfastquay.com/rubberband/) — for world-class pitch shifting and time stretching that actually sounds good.
 
 ---
 
