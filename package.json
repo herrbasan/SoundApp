@@ -1,6 +1,6 @@
 {
   "name": "soundapp",
-  "version": "2.0.8",
+  "version": "2.1.0b",
   "description": "SoundApp",
   "main": "js/app.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "package": "electron-forge package",
     "dist": "electron-builder",
     "make": "electron-forge make",
-    "postinstall": "node scripts/copy-rubberband.js"
+    "patch-midiplayer-worklet": "node scripts/patch-midiplayer-worklet.js",
+    "postinstall": "node scripts/copy-rubberband.js && node scripts/patch-midiplayer-worklet.js"
   },
   "author": "David Renelt",
   "license": "MIT",

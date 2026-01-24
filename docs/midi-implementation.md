@@ -66,19 +66,6 @@ await synth.resetPlayer();
 await synth.addSMFDataToPlayer(arrayBuffer);
 ```
 
-### Metronome Implementation (Glitch-Free)
-**Problem:** FluidSynth resets all channel volumes to 100 (Max) when `resetPlayer()` is called. If the metronome track is generated with notes but muted via code, there's a race condition where the first tick plays before the mute command takes effect, causing a "single click" artifact on start.
-
-**Solution:**
-1. **Silent Generation:** The metronome track is generated with explicit **CC7 (Volume) = 0** and **CC11 (Expression) = 0** events at **Tick 0**.
-2. **Logic Override:** The track defaults to silent. To enable it, we send `CC7=127` *after* playback starts.
-3. **Strict Persistence:** The feature is forcibly disabled (`metronomeEnabled = false`) on every new file load to prevent unexpected clicking.
-
-### Transposition & Speed
-- **Pitch Shift:** Implemented via `hookPlayerMIDIEventsByName` to intercept NoteOn events in the AudioWorklet. This allows shifting note numbers directly rather than resampling the audio, preserving the drum channel (Ch. 10) pitch.
-- **Playback Speed:** Uses `synth.setPlayerTempo()` (ExternalBPM mode for >4.0 values, Internal multiplier for <4.0).
-- **Sticky Settings:** When the MIDI Settings window is open, pitch/speed persist across tracks. When closed, they reset to default (0 pitch, 1.0 speed).
-
 ### Seeking Behavior
 - **Supports live seeking** - can seek while playing without stopping
 - **Tick unit is milliseconds** - `seekPlayer(seconds * 1000)`

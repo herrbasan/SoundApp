@@ -97,6 +97,7 @@ function initSliders() {
 
 	let pitchTimeout = null;
 	let tempoTimeout = null;
+	let slidersReady = false;
 
 	function createSlider(container, min, max, initial, defaultVal, onChange) {
 		if (!container) return;
@@ -147,6 +148,8 @@ function initSliders() {
 		const rounded = Math.round(v);
 		if (pitchValue) pitchValue.textContent = (rounded >= 0 ? '+' : '') + rounded;
 		
+		if (!slidersReady) return;
+
 		if (pitchTimeout) clearTimeout(pitchTimeout);
 		pitchTimeout = setTimeout(() => {
 			// Don't save to config file (setCfgValue)
@@ -166,6 +169,8 @@ function initSliders() {
 		const bpm = Math.round(v);
 		if (tempoValue) tempoValue.textContent = bpm;
 		
+		if (!slidersReady) return;
+
 		if (tempoTimeout) clearTimeout(tempoTimeout);
 		tempoTimeout = setTimeout(() => {
 			// Don't save to config file
@@ -173,11 +178,21 @@ function initSliders() {
 		}, 30);
 	});
 	tempoUpdate = tempoControl.update;
+	
+	slidersReady = true;
 
 	// Listen for UI updates from stage (e.g. when reopening window or if stage logic changes it)
 	bridge.on('update-ui', (data) => {
-		if (typeof data.pitch === 'number') pitchUpdate(data.pitch, true);
-		if (typeof data.speed === 'number') tempoUpdate(data.speed, true);
+		if (typeof data.pitch === 'number') {
+			pitchUpdate(data.pitch, true);
+			const rounded = Math.round(data.pitch);
+			if (pitchValue) pitchValue.textContent = (rounded >= 0 ? '+' : '') + rounded;
+		}
+		if (typeof data.speed === 'number') {
+			tempoUpdate(data.speed, true);
+			const bpm = Math.round(data.speed);
+			if (tempoValue) tempoValue.textContent = bpm;
+		}
 		if (typeof data.metronome === 'boolean') {
 			const btnMetronome = document.getElementById('btn_metronome');
 			if(btnMetronome) btnMetronome.checked = data.metronome;
@@ -187,6 +202,12 @@ function initSliders() {
 			if (origElem) origElem.textContent = `(Original: ${Math.round(data.originalBPM)})`;
 			if (tempoControl.setDefault) tempoControl.setDefault(Math.round(data.originalBPM));
 			
+			// If speed was not explicitly sent, snap to original
+			if (typeof data.speed !== 'number') {
+				tempoUpdate(data.originalBPM, true);
+				if (tempoValue) tempoValue.textContent = Math.round(data.originalBPM);
+			}
+
 			// Update local cache so reset works correctly
 			if (!g.init_data) g.init_data = {};
 			g.init_data.originalBPM = data.originalBPM;
@@ -199,6 +220,13 @@ function initSliders() {
 		btnReset.addEventListener('click', () => {
 			pitchControl.update(0);
 			tempoControl.update((g.init_data && g.init_data.originalBPM) ? Math.round(g.init_data.originalBPM) : 120);
+			
+			// Reset Metronome
+			const btnMetronome = document.getElementById('btn_metronome');
+			if (btnMetronome && btnMetronome.checked) {
+				btnMetronome.checked = false;
+				bridge.sendToStage('midi-metronome-toggle', false);
+			}
 		});
 	}
 

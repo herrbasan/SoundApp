@@ -17,17 +17,21 @@ You have full agency over the memory system — use it however you find useful (
 - Major architecture shift: moved from using the FFmpeg CLI to a native NAPI implementation
 
 ## What This Is
-A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats. MIDI playback is a **current in-progress feature** and is **not yet integrated**.
+A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats. MIDI playback is integrated via js-synthesizer + FluidSynth WASM.
 
-## Project Structure
-- `js/stage.js` - Main player logic and audio handling
-- `js/audio_controller.js` - Unified Web Audio API controller for browser-native formats
-- `js/midi_controller.js` - MIDI playback controller (reference only; integration pending)
+## Project Structure (Current)
+- `js/stage.js` - Main player logic and audio handling (including MIDI init + window routing)
+- `js/audio_controller.js` - Web Audio controller for browser-native formats
 - `js/app.js` - Main process (Electron)
 - `js/config-defaults.js` - Default configuration values and window dimension constants
 - `js/registry.js` - Windows file association handling and Default Programs integration
 - `js/shortcuts.js` - Centralized keyboard shortcut definitions
 - `js/window-loader.js` - Shared window initialization and IPC bridge
+- `js/midi/midi.js` - MIDI player (js-synthesizer integration + metronome config)
+- `js/midi/midi.worklet.js` - MIDI hook worklet (transpose, etc.)
+- `js/midi/metronome.worklet.js` - Worklet-synced metronome (sample decode + mix)
+- `js/midi-settings/main.js` - MIDI Settings window logic (pitch/tempo/metronome/soundfont)
+- `html/midi.html` - MIDI Settings window UI
 - `html/mixer.html` - Mixer secondary window (NUI chrome + mixer UI)
 - `css/mixer.css` - Mixer window styling
 - `js/mixer/main.js` - Mixer UI + playlist handover + cleanup
@@ -36,17 +40,20 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `bin/win_bin/player.js` - FFmpegStreamPlayerSAB class (NAPI decoder + SharedArrayBuffer + AudioWorklet)
 - `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorkletProcessor for SAB ring buffer playback
 - `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
-- `libs/` - Third-party audio libraries (NUI framework, electron_helper, chiptune, etc.)
+- `bin/metronome/` - Metronome click samples (user-replaceable WAVs)
+- `libs/midiplayer/` - js-synthesizer bundles (main + worklet)
+- `bin/midiplayer-runtime/` - runtime copy of js-synthesizer bundles
+- `scripts/patch-midiplayer-worklet.js` - post-update patch for js-synthesizer worklet hook
+- `libs/` - Third-party audio libraries (NUI, electron_helper, chiptune, etc.)
 - `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
 - `html/` - Window templates (stage.html, help.html)
 - `css/` - Styling (window.css, fonts.css, etc.)
 
-## Current Feature Focus: MIDI Playback (Planned)
-- **Goal:** Integrate MIDI playback via js-synthesizer + FluidSynth WASM.
-- **Approach:** Use a dedicated submodule and runtime artifacts under `libs/midiplayer/`.
-- **Source (submodule):** `libs/midiplayer/src/js-synthesizer`
-- **Runtime artifacts:** `libs/midiplayer/runtime/` (copied build outputs)
-- **Status:** Not yet wired into `js/stage.js`.
+## MIDI Player Integration (Current)
+- **Player:** `js/midi/midi.js` wraps js-synthesizer (`libs/midiplayer/js-synthesizer.js`) and is initialized by `js/stage.js`.
+- **Worklets:** `js/midi/midi.worklet.js` (MIDI hook) and `js/midi/metronome.worklet.js` (metronome) are loaded via `audioWorklet.addModule()`.
+- **Runtime bundles:** `libs/midiplayer/js-synthesizer.worklet.js` and `bin/midiplayer-runtime/js-synthesizer.worklet.js` are patched to call `AudioWorkletGlobalScope.SoundAppMetronome` if present.
+- **Soundfonts:** `bin/soundfonts/` and MIDI Settings window drive the active SoundFont.
 
 ## Window System
 Secondary windows (help, settings, playlist, mixer) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.
@@ -113,6 +120,42 @@ The FFmpeg player uses SharedArrayBuffer for zero-copy audio streaming between t
 - SABs and worklet are created once per sample rate
 - Track switches reuse existing resources via `clearAudio()` → `stop(true)`
 - Only `dispose()` or closing the app fully releases resources
+
+## MIDI Metronome (Worklet-Synced Samples)
+
+The MIDI metronome is implemented as a separate AudioWorklet module that mixes click samples directly into the js-synthesizer output, synced to the player tick stream and tempo map (including tempo changes).
+
+**Files:**
+- [js/midi/metronome.worklet.js](js/midi/metronome.worklet.js) - standalone metronome worklet logic (sample decode, tick scheduling, mixing)
+- [js/midi/midi.js](js/midi/midi.js) - loads the metronome worklet module and sends config/buffers via `callFunction('SoundAppMetronomeConfig', ...)`
+- [libs/midiplayer/js-synthesizer.worklet.js](libs/midiplayer/js-synthesizer.worklet.js) - minimal hook (uses `AudioWorkletGlobalScope.SoundAppMetronome` if present)
+- [bin/midiplayer-runtime/js-synthesizer.worklet.js](bin/midiplayer-runtime/js-synthesizer.worklet.js) - same minimal hook for runtime copy
+
+**How it works:**
+- `midi.js` loads `metronome.worklet.js` before the js-synthesizer worklet.
+- The worklet exposes `SoundAppMetronomeConfig` which receives:
+  - `enabled`, `ppq`, `timeSignatures`, `highGain`, `lowGain`
+  - `highBuffer`, `lowBuffer` (ArrayBuffer WAV data)
+  - `reset`, `resetTick` (for seek alignment)
+- The metronome uses the player’s MIDI tempo (`fluid_player_get_midi_tempo`) to compute ticks-per-second and schedules beat ticks inside each render block.
+- Click samples are mixed as persistent “voices” so they play across blocks without being truncated.
+
+**Samples:**
+- Default files: `bin/metronome/metronome-high.wav` and `bin/metronome/metronome-low.wav`
+- Users can replace these files to customize the click sound.
+
+## js-synthesizer Updates & Patch Workflow
+
+The js-synthesizer worklet bundles are generated artifacts. To keep the metronome hook without modifying the submodule:
+
+- **Patch script:** [scripts/patch-midiplayer-worklet.js](scripts/patch-midiplayer-worklet.js)
+  - Injects the minimal metronome hook into:
+    - [libs/midiplayer/js-synthesizer.worklet.js](libs/midiplayer/js-synthesizer.worklet.js)
+    - [bin/midiplayer-runtime/js-synthesizer.worklet.js](bin/midiplayer-runtime/js-synthesizer.worklet.js)
+- **Auto-run:** `postinstall` runs the patch script.
+- **Manual run:** `npm run patch-midiplayer-worklet` after any update/regeneration of js-synthesizer bundles.
+
+**Rule:** Do not edit the js-synthesizer submodule directly; keep it update-compatible and patch the generated bundles via the script.
 
 ## Controls Bar (Optional UI)
 

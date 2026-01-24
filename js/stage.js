@@ -529,7 +529,8 @@ async function init(){
 
 	ipcRenderer.on('midi-pitch-changed', (e, val) => {
 		// Update ephemeral settings only
-		if(g.midiSettings) g.midiSettings.pitch = val;
+		if(!g.midiSettings) g.midiSettings = {};
+		g.midiSettings.pitch = val;
 		if (midi && midi.setPitchOffset) {
 			midi.setPitchOffset(val);
 		}
@@ -537,7 +538,8 @@ async function init(){
 
 	ipcRenderer.on('midi-speed-changed', (e, val) => {
 		// Update ephemeral settings only
-		if(g.midiSettings) g.midiSettings.speed = val;
+		if(!g.midiSettings) g.midiSettings = {};
+		g.midiSettings.speed = val;
 		if (midi && midi.setPlaybackSpeed) {
 			midi.setPlaybackSpeed(val);
 		}
@@ -1562,32 +1564,47 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 				g.currentAudio.metadata = meta;
 			}
 
-			// Apply ephemeral settings if they exist (persistence across tracks while window is open)
-			if (g.midiSettings) {
-				if (g.midiSettings.pitch !== 0 && midi.setPitchOffset) {
-					midi.setPitchOffset(g.midiSettings.pitch);
-				}
-				if (g.midiSettings.speed && midi.setPlaybackSpeed) {
-					midi.setPlaybackSpeed(g.midiSettings.speed);
-				}
-				if (g.midiSettings.metronome && midi.setMetronome) {
-					midi.setMetronome(true);
+			// RESET Ephemeral Settings for new track (Pitch/Speed), but KEEP Metronome
+			
+			// Source of truth for metronome: g.midiSettings (user intent) or fallback to midi player state
+			let keepMetronome = false;
+			if (g.midiSettings && g.midiSettings.metronome !== undefined) {
+				keepMetronome = !!g.midiSettings.metronome;
+			} else if (midi) {
+				keepMetronome = !!midi.metronomeEnabled;
+				// Sync back to settings if missing
+				if (keepMetronome) {
+					if(!g.midiSettings) g.midiSettings = {};
+					g.midiSettings.metronome = true;
 				}
 			}
 
+			if (!g.midiSettings) g.midiSettings = {};
+			
+			// Reset Pitch/Speed in settings object
+			g.midiSettings.pitch = 0;
+			g.midiSettings.speed = null;
+			
+			// Apply metronome explicit state to player
+			if (midi && midi.setMetronome) {
+				midi.setMetronome(keepMetronome);
+			}
+			
+			// Ensure Player is reset to defaults for Pitch/Speed
+			if(midi && midi.setPitchOffset) midi.setPitchOffset(0);
+			if(midi && midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+
 			// Update MIDI Settings window if open
-			if(g.windows['midi'] && g.windowsVisible['midi']){
+			if(g.windows['midi']){
 				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+				// Since we reset speed, current is original
 				let currentBPM = originalBPM;
-				
-				if (g.midiSettings && g.midiSettings.speed) {
-					currentBPM = g.midiSettings.speed;
-				}
-				
+
 				tools.sendToId(g.windows['midi'], 'update-ui', {
 					originalBPM: originalBPM,
 					speed: currentBPM,
-					metronome: !!(g.midiSettings && g.midiSettings.metronome)
+					pitch: 0, // Explicitly reset UI pitch
+					metronome: keepMetronome
 				});
 			}
 		}
@@ -2143,7 +2160,11 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		// Window exists
 		// When opening/showing MIDI window, ensure it has current ephemeral settings
 		if(type === 'midi' && g.midiSettings){
-			tools.sendToId(g.windows[type], 'update-ui', { pitch: g.midiSettings.pitch, speed: g.midiSettings.speed });
+			tools.sendToId(g.windows[type], 'update-ui', {
+				pitch: g.midiSettings.pitch,
+				speed: g.midiSettings.speed,
+				metronome: !!g.midiSettings.metronome
+			});
 		}
 
 		if(forceShow){
@@ -2225,7 +2246,11 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				});
 			}
 			if(type === 'midi' && g.midiSettings){
-				tools.sendToId(g.windows[type], 'update-ui', { pitch: g.midiSettings.pitch, speed: g.midiSettings.speed });
+				tools.sendToId(g.windows[type], 'update-ui', {
+					pitch: g.midiSettings.pitch,
+					speed: g.midiSettings.speed,
+					metronome: !!g.midiSettings.metronome
+				});
 			}
 			if(type === 'pitchtime'){
 				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
@@ -2257,8 +2282,11 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		stageBounds.y < d.bounds.y + d.bounds.height
 	) || displays[0];
 	
-	// Get window settings (merged defaults + user)
-	const winSettings = (g.config.windows && g.config.windows[type]) || {};
+	// Get window settings (defaults + user overrides)
+	const configDefaults = require('./config-defaults.js');
+	const defaultWinSettings = (configDefaults && configDefaults.windows && configDefaults.windows[type]) || {};
+	const userWinSettings = (g.config.windows && g.config.windows[type]) || {};
+	const winSettings = { ...defaultWinSettings, ...userWinSettings };
 	
 	// Dimensions from config (or fallback)
 	let windowWidth = winSettings.width || 960;
@@ -2320,6 +2348,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 	if(type === 'midi'){
 		// Initialize with ephemeral settings if they exist
+		init_data.metronome = g.midiSettings ? !!g.midiSettings.metronome : false;
 		init_data.midiPitch = g.midiSettings ? g.midiSettings.pitch : 0;
 		
 		// Get original BPM if available
@@ -2332,13 +2361,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		if (g.midiSettings && g.midiSettings.speed) {
 			init_data.midiSpeed = g.midiSettings.speed;
 		} else {
-			// If no override, try to get current actual BPM from player
-			if (midi && midi.getCurrentBPM) {
-				const currentBPM = await midi.getCurrentBPM();
-				init_data.midiSpeed = Math.round(currentBPM);
-			} else {
-				init_data.midiSpeed = 120;
-			}
+			// If no override, default to Original BPM
+			// Using getCurrentBPM() here can be confusing if the track has tempo changes
+			// or if the player reports momentarily different values. 
+			init_data.midiSpeed = init_data.originalBPM || 120;
 		}
 	}
 
