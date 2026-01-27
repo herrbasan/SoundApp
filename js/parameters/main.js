@@ -217,11 +217,8 @@ function initMidiControls() {
             bridge.sendToStage('param-change', { mode: 'midi', param: 'soundfont', value: sfSelect.value });
         });
         
-        // Initial population of soundfonts should probably come from stage/init_data
-        // For now, it's hardcoded in HTML as per midi.html, but real app likely fetches list
-        // logic from midi-settings/main.js: get-available-soundfonts
-        
-        bridge.sendToStage('get-available-soundfonts', {});
+        // Request available soundfonts from stage
+        bridge.sendToStage('get-available-soundfonts', { windowId: bridge.windowId });
         bridge.on('available-soundfonts', (data) => {
             if (data.fonts && data.fonts.length) {
                 const current = sfSelect.value;
@@ -234,9 +231,9 @@ function initMidiControls() {
                 });
                 sfSelect.value = current; // Restore selection if possible
              
-                // Force UI update
+                // Force UI update for superSelect
                 const event = new Event('change', { bubbles: true });
-                sfSelect.dispatchEvent(event); // Trigger superSelect update
+                sfSelect.dispatchEvent(event);
             }
         });
     }

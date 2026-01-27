@@ -671,11 +671,13 @@ async function init(){
 				return a.label.localeCompare(b.label);
 			});
 			
-			tools.sendToId(data.windowId || g.windows['midi'], 'available-soundfonts', { fonts: availableFonts });
+			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
+			tools.sendToId(targetWindow, 'available-soundfonts', { fonts: availableFonts });
 		} catch(err) {
 			console.error('[MIDI] Failed to read soundfonts directory:', err);
 			// Fallback to just default
-			tools.sendToId(data.windowId || g.windows['midi'], 'available-soundfonts', { 
+			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
+			tools.sendToId(targetWindow, 'available-soundfonts', { 
 				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }] 
 			});
 		}
