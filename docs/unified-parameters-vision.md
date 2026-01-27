@@ -375,64 +375,87 @@ Only one pipeline is active at a time. Switching is instant - just route to the 
 
 ## Implementation Phases
 
-### Phase 1: Parameters Window UI
+### Phase 1: Parameters Window UI ✅ COMPLETE
 Create the passive UI window with container switching.
 
 **Tasks:**
-1. Create `html/parameters.html` with NUI chrome
-2. Add three containers: `#audio-controls`, `#midi-controls`, `#tracker-controls`
-3. Create `css/parameters.css` consolidating styles from midi.css + pitchtime.css
-4. Create `js/parameters/main.js` with:
-   - Container switching based on IPC `set-mode` message
-   - Slider value changes send IPC back to stage
-   - Theme handling, window show/hide
-5. Wire up in stage.js: `g.windows.parameters`, keyboard shortcut `P`
+1. ✅ Create `html/parameters.html` with NUI chrome
+2. ✅ Add three containers: `#audio-controls`, `#midi-controls`, `#tracker-controls`
+3. ✅ Create `css/parameters.css` consolidating styles from midi.css + pitchtime.css
+4. ✅ Create `js/parameters/main.js` with:
+   - ✅ Container switching based on IPC `set-mode` message
+   - ✅ Slider value changes send IPC back to stage
+   - ✅ Theme handling, window show/hide
+5. ✅ Wire up in stage.js: `g.windows.parameters`, keyboard shortcut `P`
 
-**Test:** Window opens, shows correct container based on mock file type, sliders send IPC.
+**Test:** ✅ Window opens, shows correct container based on file type, sliders send IPC.
 
-### Phase 2: Rubberband Pipeline in Stage
+### Phase 2: Rubberband Pipeline in Stage ✅ COMPLETE
 Add second FFmpeg player with rubberband processing.
 
 **Tasks:**
-1. Create `g.rubberbandContext` (48kHz AudioContext)
-2. Create `g.rubberbandPlayer` (FFmpegStreamPlayerSAB on rubberband context)
-3. Load rubberband worklet, route: FFmpegPlayer → RubberbandWorklet → destination
-4. Add `g.activePipeline` state tracking
-5. Implement `switchToRubberband()` and `switchToNormal()` functions
+1. ✅ Create `g.rubberbandContext` (48kHz AudioContext)
+2. ✅ Create `g.rubberbandPlayer` (FFmpegStreamPlayerSAB on rubberband context)
+3. ✅ Load rubberband worklet, route: FFmpegPlayer → RubberbandWorklet → destination via `RubberbandPipeline` class
+4. ✅ Add `g.activePipeline` state tracking
+5. ✅ Implement `switchPipeline()` function with automatic mode detection
 
-**Test:** Can manually switch pipelines, audio plays through both.
+**Test:** ✅ Pipelines switch automatically based on parameters window state.
 
-### Phase 3: Pipeline Switching Integration
+### Phase 3: Pipeline Switching Integration ✅ COMPLETE
 Wire parameters window to pipeline switching.
 
 **Tasks:**
-1. Parameters window open (audio file) → call `switchToRubberband()`
-2. Parameters window close → call `switchToNormal()`
-3. Track change while open → detect type, switch if needed
-4. IPC from parameters window → apply pitch/tempo to rubberband worklet
-5. Position preservation across switches
+1. ✅ Parameters window open (audio file) → automatic switch to rubberband pipeline
+2. ✅ Parameters window close (window-hidden event) → automatic switch to normal pipeline
+3. ✅ Track change while open → detect type, switch if needed (audio→MIDI→audio transitions working)
+4. ✅ IPC from parameters window → apply pitch/tempo to rubberband worklet
+5. ✅ Position preservation across switches (via switchPipeline function)
+6. ✅ Settings reset on window close (ephemeral behavior via `RubberbandPipeline.reset()`)
 
-**Test:** Full flow works - open parameters, adjust pitch, close, position preserved.
+**Test:** ✅ Full flow works - open parameters, adjust pitch/tempo, close, position preserved, settings reset.
 
-### Phase 4: MIDI Controls Migration
+### Phase 4: MIDI Controls Migration 🔲 TODO
 Move MIDI controls into unified parameters window.
 
 **Tasks:**
-1. Add MIDI controls to `#midi-controls` container
-2. IPC for transpose/BPM/metronome → apply to midi player
-3. Remove or deprecate standalone `html/midi.html`
-4. Update keyboard shortcut to use unified window
+1. 🔲 Add MIDI controls to `#midi-controls` container
+2. 🔲 IPC for transpose/BPM/metronome → apply to midi player
+3. 🔲 Remove or deprecate standalone `html/midi.html`
+4. 🔲 Update keyboard shortcut to use unified window
 
 **Test:** MIDI files show transpose controls in parameters window.
 
-### Phase 5: Cleanup
+### Phase 5: Cleanup 🔲 TODO
 Remove legacy code.
 
 **Tasks:**
-1. Remove `html/pitchtime.html`, `css/pitchtime.css`, `js/pitchtime/`
-2. Remove `html/midi.html`, `js/midi-settings/` (if fully migrated)
-3. Update documentation
-4. Clean up any dead code in stage.js
+1. 🔲 Remove `html/pitchtime.html`, `css/pitchtime.css`, `js/pitchtime/`
+2. 🔲 Remove `html/midi.html`, `js/midi-settings/` (if fully migrated)
+3. 🔲 Update documentation
+4. 🔲 Clean up any dead code in stage.js
+
+---
+
+## Implementation Status
+
+**Completed:** Phases 1-3 (Dual-pipeline architecture fully functional)
+**Remaining:** Phases 4-5 (MIDI migration and cleanup)
+
+### What Works Now (v2.0.9)
+- ✅ Dual AudioContext architecture (normal + rubberband)
+- ✅ Automatic pipeline switching on parameters window open/close
+- ✅ Audio file pitch/tempo controls in parameters window
+- ✅ Seamless transitions between file types (audio ↔ MIDI ↔ tracker)
+- ✅ Ephemeral settings (reset on window close)
+- ✅ Position preservation across pipeline switches
+- ✅ Sample rate: 48kHz default, up to 192kHz in HQ mode (normal pipeline only)
+- ✅ Settings isolation (HQ mode changes don't affect active rubberband playback)
+
+### Known Issues / TODO
+- 🔧 MIDI controls still in separate window (`html/midi.html`)
+- 🔧 Legacy pitch/time window files still present (not used)
+- 🔧 Minor edge cases to test and polish
 
 ## Future Extensions
 
