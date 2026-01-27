@@ -66,13 +66,15 @@ class FFmpegStreamPlayerSAB {
   /**
    * @param {AudioContext} audioContext
    * @param {string} [workletPath] - Path to SAB worklet
+   * @param {string} [processorName='ffmpeg-stream-sab'] - AudioWorkletProcessor name
    * @param {number} [ringSeconds=2] - Ring buffer size in seconds
    * @param {number} [threadCount=0] - Decoder threads (0=auto)
    * @param {boolean} [connectDestination=true] - Auto-connect to destination
    */
-  constructor(audioContext, workletPath = null, ringSeconds = 2, threadCount = 0, connectDestination = true) {
+  constructor(audioContext, workletPath = null, processorName = 'ffmpeg-stream-sab', ringSeconds = 2, threadCount = 0, connectDestination = true) {
     this.audioContext = audioContext;
     this.workletPath = workletPath;
+    this.processorName = processorName;
     this.ringSeconds = ringSeconds;
     this.threadCount = threadCount | 0;
     
@@ -343,7 +345,7 @@ class FFmpegStreamPlayerSAB {
         this.workletNode = null;
       }
       
-      this.workletNode = new AudioWorkletNode(this.audioContext, 'ffmpeg-stream-sab', {
+      this.workletNode = new AudioWorkletNode(this.audioContext, this.processorName || 'ffmpeg-stream-sab', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2]

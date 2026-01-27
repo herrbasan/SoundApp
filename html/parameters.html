@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<style>
+		html, body { background-color: #323232 !important; }
+		main { opacity: 0; }
+		main.ready { opacity: 1; transition: opacity 0.1s ease-in; }
+	</style>
+	<title>Parameters - SoundApp</title>
+	<link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_select.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+	<link rel="stylesheet" href="../css/window.css">
+	<link rel="stylesheet" href="../css/parameters.css">
+</head>
+<body class="dark no-select" style="background-color:#323232">
+	<div class="nui-app" style="background-color:#323232">
+		<div class="nui-title-bar window-chrome">
+			<div class="title">
+				<div class="nui-icon-container">
+					<i>tune</i>
+				</div>
+				<div class="label">Parameters</div>
+			</div>
+			<div class="controls">
+				<div class="nui-icon-container close"><i>close</i></div>
+			</div>
+		</div>
+		<div class="content">
+			<main>
+                <!-- Audio Controls -->
+                <div id="audio-controls" class="mode-container">
+                    <div class="section">
+                        <div class="param-group">
+                            <label>Pitch Shift</label>
+                            <div class="value-display">
+                                <span id="audio_pitch_value">0</span>
+                                <span class="unit">semitones</span>
+                            </div>
+                            <div id="audio_pitch_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>-12</span>
+                                <span>0</span>
+                                <span>+12</span>
+                            </div>
+                        </div>
+
+                        <div class="param-group">
+                            <label>Time Stretch</label>
+                            <div class="value-display">
+                                <span id="audio_tempo_value">100</span>
+                                <span class="unit">%</span>
+                            </div>
+                            <div id="audio_tempo_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>50%</span>
+                                <span>100%</span>
+                                <span>150%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="controls-row">
+                            <div></div> <!-- Spacer -->
+                            <div id="btn_audio_reset" class="btn-action">Reset Parameters</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MIDI Controls (Ported from midi.html) -->
+                <div id="midi-controls" class="mode-container">
+                    <div class="section">
+                        <div class="param-group">
+                            <label>Global Transpose</label>
+                            <div class="value-display">
+                                <span id="midi_pitch_value">0</span>
+                                <span class="unit">semitones</span>
+                            </div>
+                            <div id="midi_pitch_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>-12</span>
+                                <span>0</span>
+                                <span>+12</span>
+                            </div>
+                        </div>
+
+                        <div class="param-group tempo-group">
+                            <label>Tempo <span id="midi_original_bpm" style="font-weight:normal; opacity:0.7; font-size: 0.9em; margin-left: 8px;"></span></label>
+                            <div class="value-display">
+                                <span id="midi_tempo_value">120</span>
+                                <span class="unit">BPM</span>
+                            </div>
+                            <div id="midi_tempo_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>40</span>
+                                <span>140</span>
+                                <span>240</span>
+                            </div>
+                        </div>
+
+                        <div class="controls-row">
+                            <div class="nui-checkbox" style="margin:0;">
+                                <input type="checkbox" id="btn_metronome">
+                                <label for="btn_metronome" style="font-size:0.9em;">Metronome</label>
+                            </div>
+                            <div id="btn_midi_reset" class="btn-action">Reset Parameters</div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="param-row">
+                            <label>Active SoundFont</label>
+                            <select id="soundfont-select" class="nui-select">
+                                <option value="TimGM6mb.sf2">TimGM6mb (6 MB) - Default</option>
+                                <option value="GeneralUser_GS_v1.471.sf2">GeneralUser GS (30 MB)</option>
+                                <option value="FluidR3_GM.sf2">FluidR3 GM (142 MB)</option>
+                                <option value="MuseScore_General.sf3">MuseScore General (35 MB)</option>
+                                <option value="Timbres_of_Heaven_GM_GS_XG_SFX_V_3.94.sf2">Timbres of Heaven (340 MB)</option>
+                                <option value="SGM-v2.01.sf2">SGM-V2.01 (250 MB)</option>
+                            </select>
+                        </div>
+                        <div class="controls-row" style="margin-top:10px; justify-content: flex-end;">
+                            <div id="btn_open_fonts" class="btn-action">Open Soundfonts Folder</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tracker Controls -->
+                <div id="tracker-controls" class="mode-container">
+                    <div class="section">
+                        <div style="text-align: center; color: rgb(var(--color-shade6)); padding: 2rem;">
+                            Tracker controls coming soon...
+                        </div>
+                    </div>
+                </div>
+
+			</main>
+		</div>
+		<div class="nui-status-bar"></div>
+	</div>
+	<script src="../js/window-loader.js"></script>
+	<script type="module" src="../js/parameters/main.js"></script>
+</body>
+</html>
