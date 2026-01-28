@@ -17,6 +17,12 @@ const controls = {
     midi: {}
 };
 
+// Debounce timers for parameter changes (30ms prevents crackling)
+let audioPitchTimeout = null;
+let audioTempoTimeout = null;
+let midiPitchTimeout = null;
+let midiTempoTimeout = null;
+
 // --- Initialization ---
 
 async function init() {
@@ -44,6 +50,7 @@ async function init() {
     if (bridge && bridge.on) {
         bridge.on('hide-window', () => {
             resetMidiParams(true);
+            resetAudioParams(true);
         });
     }
 
@@ -91,6 +98,14 @@ async function init() {
     bridge.on('set-mode', (data) => {
         console.log('[Parameters] set-mode received:', data);
         setMode(data.mode); // 'audio', 'midi', 'tracker'
+
+        if (data.mode === 'audio' && data.params && data.params.reset) {
+            const lockCheckbox = document.getElementById('audio_lock_settings');
+            if (lockCheckbox && lockCheckbox.checked) {
+                resendAudioParams();
+                return;
+            }
+        }
         
         // Display original BPM for MIDI mode
         if (data.mode === 'midi' && data.params && typeof data.params.originalBPM === 'number') {
@@ -198,6 +213,43 @@ function resetMidiParams(sendStage = false) {
     }
 }
 
+function resetAudioParams(sendStage = false) {
+    if (!controls.audio || !controls.audio.pitch || !controls.audio.tempo) return;
+
+    const pitchVal = document.getElementById('audio_pitch_value');
+    const tempoVal = document.getElementById('audio_tempo_value');
+    const formantCheckbox = document.getElementById('audio_formant_mode');
+    const lockCheckbox = document.getElementById('audio_lock_settings');
+
+    controls.audio.pitch.update(0);
+    controls.audio.tempo.update(1.0);
+
+    if (pitchVal) pitchVal.textContent = '+0';
+    if (tempoVal) tempoVal.textContent = '100';
+    if (formantCheckbox) formantCheckbox.checked = false;
+    if (lockCheckbox) lockCheckbox.checked = false;
+
+    if (sendStage && bridge && bridge.sendToStage) {
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: 0 });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: 1.0 });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: false });
+    }
+}
+
+function resendAudioParams() {
+    if (!controls.audio || !controls.audio.pitch || !controls.audio.tempo) return;
+    if (!bridge || !bridge.sendToStage) return;
+
+    const formantCheckbox = document.getElementById('audio_formant_mode');
+    const pitchVal = controls.audio.pitch.getValue ? controls.audio.pitch.getValue() : 0;
+    const tempoVal = controls.audio.tempo.getValue ? controls.audio.tempo.getValue() : 1.0;
+    const formant = formantCheckbox ? !!formantCheckbox.checked : false;
+
+    bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: Math.round(pitchVal) });
+    bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempoVal });
+    bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
+}
+
 function updateParams(mode, params) {
     if (mode === 'audio') {
         if (typeof params.pitch !== 'undefined') {
@@ -213,6 +265,10 @@ function updateParams(mode, params) {
             const tempoVal = document.getElementById('audio_tempo_value');
             const pct = Math.round(params.tempo * 100);
             if (tempoVal) tempoVal.textContent = pct;
+        }
+        if (typeof params.formant !== 'undefined') {
+            const formantCheckbox = document.getElementById('audio_formant_mode');
+            if (formantCheckbox) formantCheckbox.checked = !!params.formant;
         }
     } else if (mode === 'midi') {
         if (typeof params.transpose !== 'undefined') {
@@ -275,7 +331,8 @@ function createSlider(containerId, min, max, initial, defaultVal, onChange) {
     update(initial, true);
 
     if (ut && ut.dragSlider) {
-        ut.dragSlider(container, (e) => {
+        const target = container.closest('.param-group') || container;
+        ut.dragSlider(target, (e) => {
             update(min + e.prozX * (max - min));
         }, -1, track);
     }
@@ -292,7 +349,10 @@ function initAudioControls() {
     controls.audio.pitch = createSlider('audio_pitch_slider', -12, 12, 0, 0, (v) => {
         const rounded = Math.round(v);
         if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: rounded });
+        if (audioPitchTimeout) clearTimeout(audioPitchTimeout);
+        audioPitchTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: rounded });
+        }, 30);
     });
 
     const tempoVal = document.getElementById('audio_tempo_value');
@@ -300,14 +360,21 @@ function initAudioControls() {
         // v is 0.5 to 1.5
         const pct = Math.round(v * 100);
         if (tempoVal) tempoVal.textContent = pct;
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: v });
+        if (audioTempoTimeout) clearTimeout(audioTempoTimeout);
+        audioTempoTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: v });
+        }, 30);
     });
 
+    const formantCheckbox = document.getElementById('audio_formant_mode');
+    if (formantCheckbox) {
+        formantCheckbox.addEventListener('change', () => {
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
+        });
+    }
+
     document.getElementById('btn_audio_reset').addEventListener('click', () => {
-        controls.audio.pitch.update(0);
-        controls.audio.tempo.update(1.0);
-        
-        // Reset pipeline to normal? Maybe not, keep user preference.
+        resetAudioParams(true);
     });
 }
 
@@ -316,7 +383,10 @@ function initMidiControls() {
     controls.midi.pitch = createSlider('midi_pitch_slider', -12, 12, 0, 0, (v) => {
         const rounded = Math.round(v);
         if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
-        bridge.sendToStage('param-change', { mode: 'midi', param: 'transpose', value: rounded });
+        if (midiPitchTimeout) clearTimeout(midiPitchTimeout);
+        midiPitchTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'midi', param: 'transpose', value: rounded });
+        }, 30);
     });
 
     const tempoVal = document.getElementById('midi_tempo_value');
@@ -324,7 +394,10 @@ function initMidiControls() {
     controls.midi.tempo = createSlider('midi_tempo_slider', 40, 240, 120, 120, (v) => {
         const rounded = Math.round(v);
         if (tempoVal) tempoVal.textContent = rounded;
-        bridge.sendToStage('param-change', { mode: 'midi', param: 'bpm', value: rounded });
+        if (midiTempoTimeout) clearTimeout(midiTempoTimeout);
+        midiTempoTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'midi', param: 'bpm', value: rounded });
+        }, 30);
     });
 
     document.getElementById('btn_metronome').addEventListener('change', (e) => {

@@ -681,6 +681,18 @@ class FFmpegStreamPlayerSAB {
     this.isLoaded = false;
   }
 
+  clearBuffer() {
+    if (this.audioBuffer) {
+      this.audioBuffer.fill(0);
+    }
+    if (this.controlBuffer) {
+      Atomics.store(this.controlBuffer, CONTROL.WRITE_PTR, 0);
+      Atomics.store(this.controlBuffer, CONTROL.READ_PTR, 0);
+      Atomics.store(this.controlBuffer, CONTROL.STATE, STATE.STOPPED);
+      Atomics.store(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 0);
+    }
+  }
+
   /**
    * Get diagnostic info
    */

@@ -382,10 +382,20 @@ The script (`scripts/create-release.ps1`) handles:
 ## Current Bugs
 
 ### Main Window
-- **Pipeline Transition Overlap** - Transition between pipelines (rubberband <-> normal) causes some audible overlap
+- **FluidSynth Background Stutter** - MIDI playback gets distorted/stuttery when the window is in the background (possible background throttling)
 
 ### Parameters Window
-- **Pitchtime Quality Options** - Missing quality presets for pitch/time manipulation (see old implementation in `pitchtime/main.js`)
+- **Audio Overlap Between Tracks** - When Parameters window is open (rubberband pipeline active), audio from the previous track bleeds into the start of the next track. The rubberband worklet accumulates audio in internal buffers with no built-in flush mechanism.
+- **Crackly when Parameters change** - Audio crackles when using the pitch or tempo sliders
+
+### Code Architecture
+- **stage.js Refactor Needed** - The main stage.js file is ~2800 lines mixing audio lifecycle, UI state, Web Audio graph wiring, and utilities. This monolithic structure makes it extremely error-prone for AI agents to edit (syntax errors occur almost every other edit). Should be broken into focused modules:
+  - `audioCore.js` - Web Audio node creation and management
+  - `pipelineManager.js` - Pipeline orchestration (normal/rubberband/loopback)
+  - `utils.js` - Helper functions
+  - Consider wrapping RubberBandPlayer in a class with stable API
+  - Add JSDoc annotations for AI contract understanding
+  - Implement early-return patterns to reduce nesting
 
 ## Backlog / Future Features
 

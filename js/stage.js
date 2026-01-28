@@ -33,6 +33,7 @@ g.idx = 0;
 g.max = -1;
 
 g.midiSettings = { pitch: 0, speed: null }; // Ephemeral MIDI settings (not saved to config)
+g.audioParams = { pitch: 0, tempo: 1.0, formant: false };
 
 // Init
 // ###########################################################################
@@ -692,6 +693,7 @@ async function init(){
 				switchPipeline(data.value);
 			}
 			else if(data.param === 'pitch'){
+				g.audioParams.pitch = data.value;
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
 					// data.value is semitones
 					const ratio = Math.pow(2, data.value / 12.0);
@@ -701,11 +703,18 @@ async function init(){
 				}
 			}
 			else if(data.param === 'tempo'){
+				g.audioParams.tempo = data.value;
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
 					// data.value is ratio (e.g. 1.0, 1.25)
 					if(typeof g.rubberbandPlayer.setTempo === 'function'){
 						g.rubberbandPlayer.setTempo(data.value);
 					}
+				}
+			}
+			else if(data.param === 'formant'){
+				g.audioParams.formant = !!data.value;
+				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer && typeof g.rubberbandPlayer.setOptions === 'function'){
+					g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
 				}
 			}
 		}
@@ -1218,7 +1227,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 		
 		// Skip fade out during auto-advance (track already ended naturally)
 		if(!autoAdvance && g.currentAudio && !g.currentAudio.paused){
-			if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function'){
+			if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function' && g.activePipeline !== 'rubberband'){
 				await g.currentAudio.player.fadeOut();
 			}
 		}
@@ -1464,8 +1473,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 					tools.sendToId(g.windows.parameters, 'set-mode', { 
 						mode: 'audio', 
 						params: {
-							pitch: 0, // Reset pitch for new file? Or preserve? Vision says "Load file with current settings"
-							tempo: 1.0
+							pitch: 0,
+							tempo: 1.0,
+							formant: g.audioParams ? !!g.audioParams.formant : false,
+							reset: true
 						} 
 					});
 				}
@@ -1667,13 +1678,19 @@ async function switchPipeline(newMode){
 function clearAudio(){
 	console.log('[clearAudio] Stopping current audio, pipeline:', g.activePipeline);
 	if(g.ffmpegPlayer) {
+		if(typeof g.ffmpegPlayer.clearBuffer === 'function') g.ffmpegPlayer.clearBuffer();
 		g.ffmpegPlayer.stop(true);
 		console.log('[clearAudio] Stopped ffmpegPlayer');
 	}
 	if(g.rubberbandPlayer) {
 		g.rubberbandPlayer.disconnect();
-		g.rubberbandPlayer.stop(true);
-		console.log('[clearAudio] Stopped and disconnected rubberbandPlayer');
+		g.rubberbandPlayer.reset();
+		if(g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function'){
+			g.rubberbandPlayer.player.clearBuffer();
+		}
+		g.rubberbandPlayer.stop(false);
+		console.log('[clearAudio] Stopped, reset, and disconnected rubberbandPlayer');
+		g.activePipeline = 'normal';
 	}
 	if(g.currentAudio){
 		if(g.currentAudio.isMod) player.stop();
@@ -2665,8 +2682,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 		else if(mode === 'audio'){
 			init_data.params = {
-				pitch: 0,
-				tempo: 1.0
+				pitch: g.audioParams ? g.audioParams.pitch : 0,
+				tempo: g.audioParams ? g.audioParams.tempo : 1.0,
+				formant: g.audioParams ? !!g.audioParams.formant : false,
+				reset: false
 			};
 		}
 	}

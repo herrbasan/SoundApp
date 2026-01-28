@@ -18,6 +18,13 @@ class RubberbandPipeline {
         this.currentVolume = 1.0;
         this.isLoop = false;
         this.isConnected = false;
+
+        this.options = {
+            highQuality: true,
+            transients: 'smooth',
+            detector: 'soft',
+            formantPreserved: false
+        };
         
         this.initialized = false;
     }
@@ -48,7 +55,7 @@ class RubberbandPipeline {
                 outputChannelCount: [2],
                 processorOptions: { 
                     blockSize: 4096,
-                    highQuality: false 
+                    highQuality: true 
                 }
             });
 
@@ -79,6 +86,7 @@ class RubberbandPipeline {
         
         this.setPitch(this.currentPitch);
         this.setTempo(this.currentTempo);
+        this.setOptions(this.options);
 
         this.initialized = true;
     }
@@ -107,6 +115,30 @@ class RubberbandPipeline {
 
     async stop(retain = false) {
         if(this.player) await this.player.stop(retain);
+    }
+
+    fadeOut() {
+        if (!this.gainNode) return Promise.resolve();
+        return new Promise(resolve => {
+            const now = this.ctx.currentTime;
+            const gain = this.gainNode.gain;
+            gain.cancelScheduledValues(now);
+            gain.setValueAtTime(gain.value, now);
+            gain.linearRampToValueAtTime(0, now + 0.012);
+            setTimeout(resolve, 12);
+        });
+    }
+
+    fadeIn() {
+        if (!this.gainNode) return Promise.resolve();
+        return new Promise(resolve => {
+            const now = this.ctx.currentTime;
+            const gain = this.gainNode.gain;
+            gain.cancelScheduledValues(now);
+            gain.setValueAtTime(0, now);
+            gain.linearRampToValueAtTime(this.currentVolume || 1.0, now + 0.015);
+            setTimeout(resolve, 15);
+        });
     }
 
     seek(time) {
@@ -163,6 +195,14 @@ class RubberbandPipeline {
         this.setPitch(this.currentPitch);
     }
 
+    setOptions(opts) {
+        if(!opts) return;
+        this.options = { ...this.options, ...opts };
+        if(this.rubberbandNode) {
+            this.rubberbandNode.port.postMessage(JSON.stringify(['options', this.options]));
+        }
+    }
+
     setPlaybackRate(semitones) {
         const ratio = Math.pow(2, semitones / 12.0);
         this.setPitch(ratio);
@@ -200,7 +240,10 @@ class RubberbandPipeline {
     }
 
     async onEnded(callback) {
-        if(this.player) this.player.onEnded = callback;
+        if(this.player) {
+            if(typeof this.player.onEnded === 'function') this.player.onEnded(callback);
+            else this.player.onEnded = callback;
+        }
     }
 
     dispose() {

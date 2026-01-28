@@ -45,6 +45,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
+	cursor: pointer;
 }
 
 .param-group label {
@@ -80,7 +81,6 @@
 	bottom: 0;
 	background: rgb(var(--color-shade3));
 	border-radius: 0.25rem;
-	cursor: pointer;
 }
 
 .param-slider .handle {
@@ -92,13 +92,8 @@
 	top: 50%;
 	transform: translate(-50%, -50%);
 	left: 50%;
-	cursor: grab;
 	box-shadow: 0 0.1rem 0.3rem rgba(0,0,0,0.3);
 	z-index: 2;
-}
-
-.param-slider .handle:active {
-	cursor: grabbing;
 }
 
 .param-slider .center-mark {
@@ -127,6 +122,12 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.param-toggles {
+	display: flex;
+	gap: 1rem;
+	align-items: center;
 }
 
 .btn-action {
