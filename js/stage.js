@@ -224,7 +224,8 @@ async function init(){
 		g.ffmpeg_player_pm_path = path.resolve(fp + '/bin/linux_bin/player-pm.js');
 		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-pm.js');
 		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
-		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/libs/rubberband/realtime-pitch-shift-processor.js');
+		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
+		g.rubberband_worklet_path = path.resolve(fp + '/libs/rubberband/realtime-pitch-shift-processor.js');
 	}
 	else {
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
@@ -2589,9 +2590,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		currentSampleRate: g.audioContext.sampleRate,
 		ffmpeg_napi_path: g.ffmpeg_napi_path,
 		ffmpeg_player_path: g.ffmpeg_player_path,
-		ffmpeg_worklet_path: g.ffmpeg_worklet_path,
-		ffmpeg_player_sab_path: g.ffmpeg_player_sab_path,
-		ffmpeg_worklet_sab_path: g.ffmpeg_worklet_sab_path
+		ffmpeg_worklet_path: g.ffmpeg_worklet_path
 	};
 
 	if(type === 'parameters'){

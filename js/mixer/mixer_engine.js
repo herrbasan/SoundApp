@@ -68,7 +68,7 @@ class MixerTrack {
 				// Thread count: 1 per track to avoid CPU over-subscription.
 				const ringSeconds = 4;
 				const workletPath = initData.ffmpeg_worklet_path;
-				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayerSAB(ctx, workletPath, ringSeconds, 1, false);
+				const player = this.ffPlayer ? this.ffPlayer : new FFmpegStreamPlayerSAB(ctx, workletPath, 'ffmpeg-stream-sab', ringSeconds, 1, false);
 				let filePath = src;
 				if(filePath.startsWith('file:///')) filePath = decodeURIComponent(filePath.substring(8));
 				else if(filePath.startsWith('file://')) filePath = decodeURIComponent(filePath.substring(7));
