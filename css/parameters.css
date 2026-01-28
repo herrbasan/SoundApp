@@ -151,6 +151,68 @@
     display: block;
 }
 
+/* Audio section toggle styles */
+.audio-section {
+    position: relative;
+    cursor: pointer;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.section-title {
+    font-size: 1.1em;
+    font-weight: 500;
+    color: rgb(var(--color-shade8));
+}
+
+.section-check {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.section-check > i {
+    color: var(--color-highlight) !important;
+}
+
+/* Show check on active section */
+.audio-section:not(.disabled) .section-check {
+    opacity: 1;
+}
+
+/* Dim title on disabled section */
+.audio-section.disabled .section-title {
+    opacity: 0.5;
+}
+
+/* Disabled section state - clickable to activate */
+.audio-section.disabled {
+    cursor: pointer;
+}
+
+.audio-section.disabled .section-content {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* Header always clickable even when section disabled */
+.audio-section.disabled .section-header {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Compact section for Lock Settings */
+.section-compact {
+    padding: 1rem 1.5rem;
+    gap: 0;
+}
+
 /* Soundfont selector specifics */
 .param-row {
     display: flex;

@@ -32,55 +32,93 @@
 			<main>
                 <!-- Audio Controls -->
                 <div id="audio-controls" class="mode-container">
-                    <div class="section">
-                        <div class="param-group">
-                            <label>Pitch Shift</label>
-                            <div class="value-display">
-                                <span id="audio_pitch_value">0</span>
-                                <span class="unit">semitones</span>
+                    <!-- Section 1: Tape Speed (default active) -->
+                    <div class="section audio-section" id="tape-section">
+                        <div class="section-header">
+                            <span class="section-title">Tape Speed</span>
+                            <div class="nui-icon-container section-check"><i>check</i></div>
+                        </div>
+                        <div class="section-content">
+                            <div class="param-group">
+                                <div class="value-display">
+                                    <span id="tape_speed_value">+0</span>
+                                    <span class="unit">semitones</span>
+                                </div>
+                                <div id="tape_speed_slider" class="param-slider">
+                                    <div class="track"></div>
+                                    <div class="handle"></div>
+                                    <div class="center-mark"></div>
+                                </div>
+                                <div class="range-labels">
+                                    <span>-12</span>
+                                    <span>0</span>
+                                    <span>+12</span>
+                                </div>
                             </div>
-                            <div id="audio_pitch_slider" class="param-slider">
-                                <div class="track"></div>
-                                <div class="handle"></div>
-                                <div class="center-mark"></div>
-                            </div>
-                            <div class="range-labels">
-                                <span>-12</span>
-                                <span>0</span>
-                                <span>+12</span>
+                            <div class="controls-row" style="justify-content: flex-end;">
+                                <div id="btn_tape_reset" class="btn-action">Reset</div>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="param-group">
-                            <label>Time Stretch</label>
-                            <div class="value-display">
-                                <span id="audio_tempo_value">100</span>
-                                <span class="unit">%</span>
-                            </div>
-                            <div id="audio_tempo_slider" class="param-slider">
-                                <div class="track"></div>
-                                <div class="handle"></div>
-                                <div class="center-mark"></div>
-                            </div>
-                            <div class="range-labels">
-                                <span>50%</span>
-                                <span>100%</span>
-                                <span>150%</span>
-                            </div>
+                    <!-- Section 2: Pitch/Time (opt-in, disabled by default) -->
+                    <div class="section audio-section disabled" id="pitchtime-section">
+                        <div class="section-header">
+                            <span class="section-title">Pitch / Time</span>
+                            <div class="nui-icon-container section-check"><i>check</i></div>
                         </div>
-                        
-                        <div class="controls-row">
-                            <div class="param-toggles">
+                        <div class="section-content">
+                            <div class="param-group">
+                                <label>Pitch Shift</label>
+                                <div class="value-display">
+                                    <span id="audio_pitch_value">+0</span>
+                                    <span class="unit">semitones</span>
+                                </div>
+                                <div id="audio_pitch_slider" class="param-slider">
+                                    <div class="track"></div>
+                                    <div class="handle"></div>
+                                    <div class="center-mark"></div>
+                                </div>
+                                <div class="range-labels">
+                                    <span>-12</span>
+                                    <span>0</span>
+                                    <span>+12</span>
+                                </div>
+                            </div>
+
+                            <div class="param-group">
+                                <label>Time Stretch</label>
+                                <div class="value-display">
+                                    <span id="audio_tempo_value">100</span>
+                                    <span class="unit">%</span>
+                                </div>
+                                <div id="audio_tempo_slider" class="param-slider">
+                                    <div class="track"></div>
+                                    <div class="handle"></div>
+                                    <div class="center-mark"></div>
+                                </div>
+                                <div class="range-labels">
+                                    <span>50%</span>
+                                    <span>100%</span>
+                                    <span>150%</span>
+                                </div>
+                            </div>
+                            
+                            <div class="controls-row">
                                 <div class="nui-checkbox" style="margin:0;">
                                     <input type="checkbox" id="audio_formant_mode">
                                     <label for="audio_formant_mode" style="font-size:0.9em;">Preserve Formants</label>
                                 </div>
-                                <div class="nui-checkbox" style="margin:0;">
-                                    <input type="checkbox" id="audio_lock_settings">
-                                    <label for="audio_lock_settings" style="font-size:0.9em;">Lock Settings</label>
-                                </div>
+                                <div id="btn_audio_reset" class="btn-action">Reset</div>
                             </div>
-                            <div id="btn_audio_reset" class="btn-action">Reset Parameters</div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3: Lock Settings (applies globally) -->
+                    <div class="section section-compact">
+                        <div class="nui-checkbox" style="margin:0;">
+                            <input type="checkbox" id="audio_lock_settings">
+                            <label for="audio_lock_settings" style="font-size:0.9em;">Lock Settings</label>
                         </div>
                     </div>
                 </div>

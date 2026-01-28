@@ -12,12 +12,15 @@ let g = {
 };
 
 let currentMode = 'audio';
+let audioMode = 'tape'; // 'tape' or 'pitchtime'
 const controls = {
     audio: {},
+    tape: {},
     midi: {}
 };
 
 // Debounce timers for parameter changes (30ms prevents crackling)
+let tapeSpeedTimeout = null;
 let audioPitchTimeout = null;
 let audioTempoTimeout = null;
 let midiPitchTimeout = null;
@@ -43,8 +46,10 @@ async function init() {
     }
 
     // Wire up sliders
+    initTapeControls();
     initAudioControls();
     initMidiControls();
+    initAudioModeSections();
 
     // NOTE: Do NOT reset params when window is hidden
     // Parameters should persist between hide/show cycles
@@ -215,7 +220,6 @@ function resetAudioParams(sendStage = false) {
     const pitchVal = document.getElementById('audio_pitch_value');
     const tempoVal = document.getElementById('audio_tempo_value');
     const formantCheckbox = document.getElementById('audio_formant_mode');
-    const lockCheckbox = document.getElementById('audio_lock_settings');
 
     controls.audio.pitch.update(0);
     controls.audio.tempo.update(1.0);
@@ -223,7 +227,6 @@ function resetAudioParams(sendStage = false) {
     if (pitchVal) pitchVal.textContent = '+0';
     if (tempoVal) tempoVal.textContent = '100';
     if (formantCheckbox) formantCheckbox.checked = false;
-    if (lockCheckbox) lockCheckbox.checked = false;
 
     if (sendStage && bridge && bridge.sendToStage) {
         bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: 0 });
@@ -233,31 +236,66 @@ function resetAudioParams(sendStage = false) {
 }
 
 function resendAudioParams() {
-    if (!controls.audio || !controls.audio.pitch || !controls.audio.tempo) return;
     if (!bridge || !bridge.sendToStage) return;
 
-    const formantCheckbox = document.getElementById('audio_formant_mode');
-    const pitchVal = controls.audio.pitch.getValue ? controls.audio.pitch.getValue() : 0;
-    const tempoVal = controls.audio.tempo.getValue ? controls.audio.tempo.getValue() : 1.0;
-    const formant = formantCheckbox ? !!formantCheckbox.checked : false;
+    // First send the current mode
+    bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: audioMode });
 
-    bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: Math.round(pitchVal) });
-    bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempoVal });
-    bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
+    if (audioMode === 'tape') {
+        // Tape mode: send tape speed
+        if (controls.tape && controls.tape.speed) {
+            const tapeVal = controls.tape.speed.getValue ? controls.tape.speed.getValue() : 0;
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: Math.round(tapeVal) });
+        }
+    } else {
+        // Pitch/Time mode: send pitch, tempo, formant
+        if (!controls.audio || !controls.audio.pitch || !controls.audio.tempo) return;
+        
+        const formantCheckbox = document.getElementById('audio_formant_mode');
+        const pitchVal = controls.audio.pitch.getValue ? controls.audio.pitch.getValue() : 0;
+        const tempoVal = controls.audio.tempo.getValue ? controls.audio.tempo.getValue() : 1.0;
+        const formant = formantCheckbox ? !!formantCheckbox.checked : false;
+
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: Math.round(pitchVal) });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempoVal });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
+    }
 }
 
 function updateParams(mode, params) {
     if (mode === 'audio') {
+        // Handle audio mode switching
+        if (typeof params.audioMode !== 'undefined') {
+            const tapeSection = document.getElementById('tape-section');
+            const pitchtimeSection = document.getElementById('pitchtime-section');
+            
+            audioMode = params.audioMode;
+            if (params.audioMode === 'tape') {
+                tapeSection.classList.remove('disabled');
+                pitchtimeSection.classList.add('disabled');
+            } else {
+                tapeSection.classList.add('disabled');
+                pitchtimeSection.classList.remove('disabled');
+            }
+        }
+        
+        // Handle tape speed
+        if (typeof params.tapeSpeed !== 'undefined' && controls.tape && controls.tape.speed) {
+            controls.tape.speed.update(params.tapeSpeed, true);
+            const speedVal = document.getElementById('tape_speed_value');
+            const rounded = Math.round(params.tapeSpeed);
+            if (speedVal) speedVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
+        }
+        
+        // Handle pitch/time params
         if (typeof params.pitch !== 'undefined') {
             controls.audio.pitch.update(params.pitch, true);
-            // Update text display
             const pitchVal = document.getElementById('audio_pitch_value');
             const rounded = Math.round(params.pitch);
             if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         }
         if (typeof params.tempo !== 'undefined') {
             controls.audio.tempo.update(params.tempo, true);
-            // Update text display
             const tempoVal = document.getElementById('audio_tempo_value');
             const pct = Math.round(params.tempo * 100);
             if (tempoVal) tempoVal.textContent = pct;
@@ -265,6 +303,10 @@ function updateParams(mode, params) {
         if (typeof params.formant !== 'undefined') {
             const formantCheckbox = document.getElementById('audio_formant_mode');
             if (formantCheckbox) formantCheckbox.checked = !!params.formant;
+        }
+        if (typeof params.locked !== 'undefined') {
+            const lockCheckbox = document.getElementById('audio_lock_settings');
+            if (lockCheckbox) lockCheckbox.checked = !!params.locked;
         }
     } else if (mode === 'midi') {
         // Store originalBPM if provided (for reset button)
@@ -346,6 +388,81 @@ function createSlider(containerId, min, max, initial, defaultVal, onChange) {
     return { update, getValue: () => value, setDefault: (v) => { defaultVal = v; } };
 }
 
+function initTapeControls() {
+    const speedVal = document.getElementById('tape_speed_value');
+    controls.tape.speed = createSlider('tape_speed_slider', -12, 12, 0, 0, (v) => {
+        const rounded = Math.round(v);
+        if (speedVal) speedVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
+        if (tapeSpeedTimeout) clearTimeout(tapeSpeedTimeout);
+        tapeSpeedTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: rounded });
+        }, 30);
+    });
+
+    const resetBtn = document.getElementById('btn_tape_reset');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            resetTapeParams(true);
+        });
+    }
+}
+
+function initAudioModeSections() {
+    const tapeSection = document.getElementById('tape-section');
+    const pitchtimeSection = document.getElementById('pitchtime-section');
+
+    function setAudioMode(mode) {
+        if (audioMode === mode) return; // Already in this mode
+        console.log('[Parameters] setAudioMode called:', mode, 'previous:', audioMode);
+        audioMode = mode;
+        
+        // Send audioMode - this triggers pipeline switch in stage.js
+        console.log('[Parameters] Sending audioMode:', mode);
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: mode });
+        
+        if (mode === 'tape') {
+            tapeSection.classList.remove('disabled');
+            pitchtimeSection.classList.add('disabled');
+        } else {
+            tapeSection.classList.add('disabled');
+            pitchtimeSection.classList.remove('disabled');
+        }
+    }
+
+    // Click anywhere on disabled section to activate it
+    if (tapeSection) {
+        tapeSection.addEventListener('click', () => {
+            if (tapeSection.classList.contains('disabled')) {
+                setAudioMode('tape');
+            }
+        });
+    }
+    
+    if (pitchtimeSection) {
+        pitchtimeSection.addEventListener('click', () => {
+            if (pitchtimeSection.classList.contains('disabled')) {
+                setAudioMode('pitchtime');
+            }
+        });
+    }
+    
+    // Expose setAudioMode for updateParams
+    window._setAudioMode = setAudioMode;
+}
+
+function resetTapeParams(sendStage = false) {
+    if (!controls.tape || !controls.tape.speed) return;
+
+    const speedVal = document.getElementById('tape_speed_value');
+    controls.tape.speed.update(0);
+
+    if (speedVal) speedVal.textContent = '+0';
+
+    if (sendStage && bridge && bridge.sendToStage) {
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: 0 });
+    }
+}
+
 function initAudioControls() {
     const pitchVal = document.getElementById('audio_pitch_value');
     controls.audio.pitch = createSlider('audio_pitch_slider', -12, 12, 0, 0, (v) => {
@@ -372,6 +489,13 @@ function initAudioControls() {
     if (formantCheckbox) {
         formantCheckbox.addEventListener('change', () => {
             bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
+        });
+    }
+
+    const lockCheckbox = document.getElementById('audio_lock_settings');
+    if (lockCheckbox) {
+        lockCheckbox.addEventListener('change', () => {
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'locked', value: lockCheckbox.checked });
         });
     }
 

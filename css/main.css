@@ -432,14 +432,12 @@ body.shuffle .top .content .shuffle::after{
 	align-items: center;
 }
 
-.time_controls .playtime .volume,
-.time_controls .playtime .speed {
+.time_controls .playtime .volume {
 	justify-content: center;
 	opacity: 0.5;
 }
 
-.time_controls .playtime .volume label,
-.time_controls .playtime .speed label {
+.time_controls .playtime .volume label {
 	padding-right: 0.1rem; /* 0.2rem * 10/14 = 0.1rem */
 }
 

@@ -33,7 +33,14 @@ g.idx = 0;
 g.max = -1;
 
 g.midiSettings = { pitch: 0, speed: null };
-g.audioParams = { pitch: 0, tempo: 1.0, formant: false };
+g.audioParams = { 
+	mode: 'tape',      // 'tape' or 'pitchtime'
+	tapeSpeed: 0,      // -12 to +12 semitones
+	pitch: 0,          // -12 to +12 semitones (for rubberband)
+	tempo: 1.0,        // 0.5 to 1.5 ratio (for rubberband)
+	formant: false,    // formant preservation
+	locked: false      // lock settings across track changes
+};
 
 // Init
 // ###########################################################################
@@ -357,6 +364,27 @@ async function init(){
 
 		if(data.type === 'parameters'){
 			g.parametersOpen = false;
+			
+			// Reset audio params to defaults
+			const wasTapeMode = g.audioParams.mode === 'tape';
+			const hadTapeSpeed = g.audioParams.tapeSpeed !== 0;
+			
+			g.audioParams.mode = 'tape';
+			g.audioParams.tapeSpeed = 0;
+			g.audioParams.pitch = 0;
+			g.audioParams.tempo = 1.0;
+			g.audioParams.formant = false;
+			// Note: locked is intentionally NOT reset here
+			
+			// Reset tape speed on current player if it was applied
+			if(hadTapeSpeed){
+				if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
+					g.currentAudio.player.setPlaybackRate(0);
+				}
+				if(g.currentAudio?.isMod && player){
+					player.setTempo(1.0);
+				}
+			}
 		
 			if(g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband'){
 				try {
@@ -582,7 +610,7 @@ async function init(){
 		}
 	});
 
-	ipcRenderer.on('param-change', (e, data) => {
+	ipcRenderer.on('param-change', async (e, data) => {
 		if(data.mode === 'midi'){
 			if(!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
 			
@@ -627,7 +655,31 @@ async function init(){
 			}
 		}
 		else if(data.mode === 'audio'){
-			if(data.param === 'pipeline'){
+			console.log('[Stage] param-change audio:', data.param, '=', data.value);
+			if(data.param === 'audioMode'){
+				const newMode = data.value; // 'tape' or 'pitchtime'
+				const oldMode = g.audioParams.mode;
+				console.log('[Stage] audioMode change:', oldMode, '→', newMode);
+				g.audioParams.mode = newMode;
+				
+				// Switch pipeline based on mode
+				if(newMode === 'pitchtime' && g.activePipeline !== 'rubberband'){
+					console.log('[Stage] Switching to rubberband pipeline');
+					await switchPipeline('rubberband');
+				} else if(newMode === 'tape' && g.activePipeline === 'rubberband'){
+					console.log('[Stage] Switching to normal pipeline');
+					await switchPipeline('normal');
+				}
+			}
+			else if(data.param === 'tapeSpeed'){
+				console.log('[Stage] tapeSpeed:', data.value, 'currentAudio:', g.currentAudio?.isFFmpeg, g.currentAudio?.isMod);
+				g.audioParams.tapeSpeed = data.value;
+				applyTapeSpeed(data.value);
+			}
+			else if(data.param === 'locked'){
+				g.audioParams.locked = !!data.value;
+			}
+			else if(data.param === 'pipeline'){
 				switchPipeline(data.value);
 			}
 			else if(data.param === 'pitch'){
@@ -736,7 +788,6 @@ async function appStart(){
 	g.type_band = g.cover.el('.filetype .type');
 	g.playtime = ut.el('.playtime .time');
 	g.playvolume = ut.el('.playtime .volume span');
-	g.playspeed = ut.el('.playtime .speed span');
 	g.playremain = ut.el('.playtime .remain');
 	g.top_btn_loop = ut.el('.top .content .loop');
 	g.top_btn_shuffle = ut.el('.top .content .shuffle');
@@ -795,7 +846,6 @@ async function appStart(){
 	g.isLoop = false;
 	
 	if(!g.config.audio) g.config.audio = {};
-	g.config.audio.playbackRate = 0;
 	
 	setupWindow();
 	setupDragDrop();
@@ -1226,14 +1276,11 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
 			
-			const playbackRate = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
-			if(playbackRate !== 0){
-				const tempoFactor = Math.pow(2, playbackRate / 12.0);
+			// Apply tape speed if locked and in tape mode
+			const locked = g.audioParams && g.audioParams.locked;
+			if(locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0){
+				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
 				player.setTempo(tempoFactor);
-			}
-			if(g.playspeed){
-				if(playbackRate > 0) g.playspeed.innerText = '+' + playbackRate;
-				else g.playspeed.innerText = playbackRate.toString();
 			}
 
 			if(g.windows.parameters){
@@ -1328,11 +1375,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				
 				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 				
-			const playbackRate = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
-			ffPlayer.setPlaybackRate(playbackRate);
-			if(g.playspeed){
-				if(playbackRate > 0) g.playspeed.innerText = '+' + playbackRate;
-				else g.playspeed.innerText = playbackRate.toString();
+			// Apply tape speed if locked and in tape mode, otherwise no speed adjustment
+			const locked = g.audioParams && g.audioParams.locked;
+			if(locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0){
+				ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
 			}
 			
 				if (!startPaused) {
@@ -1350,15 +1396,62 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				g.blocky = false;
 
 				if(g.windows.parameters){
-					tools.sendToId(g.windows.parameters, 'set-mode', { 
-						mode: 'audio', 
-						params: {
-							pitch: 0,
-							tempo: 1.0,
-							formant: g.audioParams ? !!g.audioParams.formant : false,
-							reset: true
-						} 
-					});
+					// If locked, preserve all settings; otherwise reset to defaults
+					const locked = g.audioParams && g.audioParams.locked;
+					const params = locked ? {
+						audioMode: g.audioParams.mode,
+						tapeSpeed: g.audioParams.tapeSpeed,
+						pitch: g.audioParams.pitch,
+						tempo: g.audioParams.tempo,
+						formant: g.audioParams.formant,
+						locked: true,
+						reset: false
+					} : {
+						audioMode: 'tape',
+						tapeSpeed: 0,
+						pitch: 0,
+						tempo: 1.0,
+						formant: false,
+						locked: false,
+						reset: true
+					};
+					
+					// If not locked, also reset to tape mode and normal pipeline
+					if(!locked){
+						g.audioParams.mode = 'tape';
+						g.audioParams.tapeSpeed = 0;
+						g.audioParams.pitch = 0;
+						g.audioParams.tempo = 1.0;
+						if(g.activePipeline === 'rubberband'){
+							await switchPipeline('normal');
+						}
+					} else {
+						// If locked, apply the appropriate settings for the current mode
+						if(g.audioParams.mode === 'tape'){
+							// Tape mode: apply tape speed
+							if(g.audioParams.tapeSpeed !== 0){
+								applyTapeSpeed(g.audioParams.tapeSpeed);
+							}
+						} else if(g.audioParams.mode === 'pitchtime'){
+							// Pitchtime mode: switch to rubberband and apply pitch/tempo
+							if(g.activePipeline !== 'rubberband'){
+								await switchPipeline('rubberband');
+							} else {
+								// Already on rubberband, just apply the settings
+								if(g.rubberbandPlayer){
+									if(typeof g.rubberbandPlayer.setPitch === 'function'){
+										const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+										g.rubberbandPlayer.setPitch(pitchRatio);
+									}
+									if(typeof g.rubberbandPlayer.setTempo === 'function'){
+										g.rubberbandPlayer.setTempo(g.audioParams.tempo || 1.0);
+									}
+								}
+							}
+						}
+					}
+					
+					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
 				}
 			}
 			catch(err) {
@@ -1529,6 +1622,40 @@ async function switchPipeline(newMode){
 			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			newPlayer.volume = vol;
 			newPlayer.setLoop(g.isLoop);
+			
+			// Apply stored audio params when switching to rubberband
+			if(newMode === 'rubberband' && g.audioParams){
+				// Connect rubberband to audio destination
+				if(typeof newPlayer.connect === 'function'){
+					newPlayer.connect();
+					console.log('[switchPipeline] Connected rubberband player');
+				}
+				if(typeof newPlayer.setPitch === 'function'){
+					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+					newPlayer.setPitch(pitchRatio);
+					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
+				}
+				if(typeof newPlayer.setTempo === 'function'){
+					newPlayer.setTempo(g.audioParams.tempo || 1.0);
+					console.log('[switchPipeline] Applied tempo:', g.audioParams.tempo || 1.0);
+				}
+				if(typeof newPlayer.setOptions === 'function'){
+					newPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
+				}
+			}
+			
+			// Apply tape speed when switching to normal
+			if(newMode === 'normal'){
+				// Disconnect rubberband when switching away from it
+				if(g.rubberbandPlayer && typeof g.rubberbandPlayer.disconnect === 'function'){
+					g.rubberbandPlayer.disconnect();
+					console.log('[switchPipeline] Disconnected rubberband player');
+				}
+				if(g.audioParams && g.audioParams.tapeSpeed !== undefined){
+					applyTapeSpeed(g.audioParams.tapeSpeed);
+					console.log('[switchPipeline] Applied tapeSpeed:', g.audioParams.tapeSpeed);
+				}
+			}
 
 			if(currentTime > 0) newPlayer.seek(currentTime);
 			
@@ -1939,34 +2066,24 @@ function volumeDown(){
 	setVolume(v, true);
 }
 
-function setPlaybackRate(semitones){
-	semitones = Math.max(-24, Math.min(24, semitones | 0));
-	if(!g.config.audio) g.config.audio = {};
-	g.config.audio.playbackRate = semitones;
+function applyTapeSpeed(semitones){
+	semitones = Math.max(-12, Math.min(12, semitones | 0));
+	console.log('[Stage] applyTapeSpeed:', semitones);
+	console.log('[Stage] currentAudio:', g.currentAudio ? { isFFmpeg: g.currentAudio.isFFmpeg, isMod: g.currentAudio.isMod, hasPlayer: !!g.currentAudio.player } : null);
+	g.audioParams.tapeSpeed = semitones;
 	
 	if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
+		console.log('[Stage] Calling ffPlayer.setPlaybackRate(' + semitones + ')');
 		g.currentAudio.player.setPlaybackRate(semitones);
 	}
 	
 	if(g.currentAudio?.isMod && player){
 		const tempoFactor = Math.pow(2, semitones / 12.0);
+		console.log('[Stage] Calling player.setTempo(' + tempoFactor + ')');
 		player.setTempo(tempoFactor);
 	}
 	
-	if(g.playspeed){
-		if(semitones > 0) g.playspeed.innerText = '+' + semitones;
-		else g.playspeed.innerText = semitones.toString();
-	}
-}
-
-function speedUp(){
-	const current = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
-	setPlaybackRate(current + 1);
-}
-
-function speedDown(){
-	const current = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
-	setPlaybackRate(current - 1);
+	// Note: MIDI has its own tempo controls, tape speed does not apply
 }
 
 function seek(mx){
@@ -2205,13 +2322,12 @@ async function onKey(e) {
 		flashButton(g.ctrl_btn_play);
 	}
 	
+	// Ctrl+/- for window scaling only (speed control moved to Parameters window)
 	if(e.keyCode == 189 || e.keyCode == 109 || e.keyCode == 173){
 		if (e.ctrlKey) {
 			console.log('Scaling down');
 			let val = ut.getCssVar('--space-base').value;
 			scaleWindow(val-1)
-		} else {
-			speedDown();
 		}
 	}
 	if(e.keyCode == 187 || e.keyCode == 107 || e.keyCode == 61){
@@ -2219,8 +2335,6 @@ async function onKey(e) {
 			console.log('Scaling up');
 			let val = ut.getCssVar('--space-base').value;
 			scaleWindow(val+1)
-		} else {
-			speedUp();
 		}
 	}
 }
@@ -2331,7 +2445,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				}
 				if(type === 'parameters'){
 					g.parametersOpen = true;
-					if(g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
+					// Only switch to rubberband if pitchtime mode is active
+					if(g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
 						if(g.activePipeline !== 'rubberband'){
 							try {
 								await switchPipeline('rubberband');
@@ -2480,9 +2595,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 		else if(mode === 'audio'){
 			init_data.params = {
+				audioMode: g.audioParams ? g.audioParams.mode : 'tape',
+				tapeSpeed: g.audioParams ? g.audioParams.tapeSpeed : 0,
 				pitch: g.audioParams ? g.audioParams.pitch : 0,
 				tempo: g.audioParams ? g.audioParams.tempo : 1.0,
 				formant: g.audioParams ? !!g.audioParams.formant : false,
+				locked: g.audioParams ? !!g.audioParams.locked : false,
 				reset: false
 			};
 		}
@@ -2554,7 +2672,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	
 	if(type === 'parameters'){
 		g.parametersOpen = true;
-		if(g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
+		// Only switch to rubberband if pitchtime mode is active
+		if(g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
 			if(g.activePipeline !== 'rubberband'){
 				try {
 					await switchPipeline('rubberband');
