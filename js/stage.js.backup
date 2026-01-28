@@ -32,7 +32,7 @@ g.music = [];
 g.idx = 0;
 g.max = -1;
 
-g.midiSettings = { pitch: 0, speed: null };
+g.midiSettings = { pitch: 0, speed: null }; // Ephemeral MIDI settings (not saved to config)
 g.audioParams = { pitch: 0, tempo: 1.0, formant: false };
 
 // Init
@@ -94,6 +94,7 @@ async function init(){
 		}
 
 		if(oldDeviceId !== deviceId){
+			// Apply to BOTH audio contexts (dual-pipeline architecture)
 			const contexts = [g.audioContext, g.rubberbandContext].filter(ctx => ctx && typeof ctx.setSinkId === 'function');
 			for(const ctx of contexts){
 				try {
@@ -121,6 +122,7 @@ async function init(){
 			}
 		}
 
+
 		if(oldStereoSep !== stereoSep){
 			if(player && g.currentAudio?.isMod){
 				player.setStereoSeparation(stereoSep);
@@ -138,6 +140,7 @@ async function init(){
 			applyShowControls(showControls, true);
 		}
 
+		// If streaming settings changed, perform a clean reset of the player
 		const newBuffer = (g.config && g.config.ffmpeg && g.config.ffmpeg.stream) ? g.config.ffmpeg.stream.prebufferChunks : undefined;
 		const newThreads = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder) ? g.config.ffmpeg.decoder.threads : undefined;
 		if (g.ffmpegPlayer && (oldBuffer !== newBuffer || oldThreads !== newThreads)) {
@@ -157,6 +160,7 @@ async function init(){
 					console.error('Failed to reset player after config change:', err);
 				}
 			} else {
+				// Just update parameters for next load
 				g.ffmpegPlayer.prebufferSize = (newBuffer !== undefined) ? (newBuffer | 0) : 10;
 				g.ffmpegPlayer.threadCount = (newThreads !== undefined) ? (newThreads | 0) : 0;
 			}
@@ -172,19 +176,23 @@ async function init(){
 	if((g.config.windows.main.scale|0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
 	if(saveCnf) { g.config_obj.set(g.config); }
 
+	// Apply theme at startup
 	const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
 	if(theme0 === 'dark') {
 		document.body.classList.add('dark');
 	} else {
 		document.body.classList.remove('dark');
 	}
+	// Send initial theme to main process
 	tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
 
+	// Apply showControls at startup
 	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
 	applyShowControls(showControls0);
 	
 	ut.setCssVar('--space-base', s);
 
+	// Window bounds restoration
 	let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
 	if(b){
 		const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
@@ -200,8 +208,11 @@ async function init(){
 		await g.win.setBounds(nb);
 		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s|0 };
 	}
+	// Small delay to allow first paint before showing - workaround for white flash
+	//await new Promise(r => setTimeout(r, 5));
 	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 	g.win.show();
+	//g.win.transparent
 	if(!g.isPackaged) { g.win.toggleDevTools() }
 	
 	let fp = g.app_path;
@@ -288,6 +299,7 @@ async function init(){
 			g.currentAudio.duration = player.duration;
 			g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
 			await renderInfo(g.currentAudio.fp, meta);
+			//console.log('Operation took: ' + Math.round((performance.now() - g.currentAudio.bench)) );
 		}
 		g.blocky = false;
 	});
@@ -327,18 +339,20 @@ async function init(){
 			g.windows[data.type] = null;
 			g.windowsVisible[data.type] = false;
 			
+			// Reset MIDI settings if MIDI window closes
 			if(data.type === 'midi'){
 				g.midiSettings = { pitch: 0, speed: null };
 				if(midi){
 					if(midi.setPitchOffset) midi.setPitchOffset(0);
 					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-					if(midi.setMetronome) midi.setMetronome(false);
+					if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
 				}
 			}
 			
 
 		}
 		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+		// Return focus to stage window after small delay to ensure window is gone
 		setTimeout(() => g.win.focus(), 50);
 	});
 
@@ -346,6 +360,7 @@ async function init(){
 		g.windowsVisible[data.type] = false;
 		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
 		
+		// Reset MIDI settings if MIDI window is hidden
 		if(data.type === 'midi'){
 			g.midiSettings = { pitch: 0, speed: null };
 			if(midi){
@@ -355,9 +370,11 @@ async function init(){
 			}
 		}
 
+		// Switch back to normal pipeline when parameters window is hidden
 		if(data.type === 'parameters'){
 			g.parametersOpen = false;
 		
+			// Reset audio pipeline if using rubberband
 			if(g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband'){
 				try {
 					g.rubberbandPlayer.reset();
@@ -370,11 +387,13 @@ async function init(){
 				g.rubberbandPlayer.reset();
 			}
 			
+			// Reset MIDI settings
 			if(g.midiSettings){
 				g.midiSettings.pitch = 0;
 				g.midiSettings.speed = 1.0;
 				g.midiSettings.metronome = false;
 				
+				// Apply reset to current MIDI playback if active
 				if(midi && g.currentAudio && g.currentAudio.isMidi){
 					if(midi.setTranspose) midi.setTranspose(0);
 					if(midi.setBPM){
@@ -454,6 +473,7 @@ async function init(){
 		}
 		else if (data.action === 'toggle-mixer') {
 			const fp = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : ((g.music && g.music[g.idx]) ? g.music[g.idx] : null);
+			// Keep the main player loaded; just pause while the mixer runs independently.
 			if(g.currentAudio && !g.currentAudio.paused){
 				g.currentAudio.pause();
 				checkState();
@@ -461,6 +481,7 @@ async function init(){
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-pitchtime') {
+			// Open MIDI settings for MIDI files, pitch/time for others
 			const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 			if (currentFile) {
 				const ext = path.extname(currentFile).toLowerCase();
@@ -500,10 +521,12 @@ async function init(){
 		} else {
 			document.body.classList.remove('dark');
 		}
+		// Save theme preference to config (stage window is responsible for persistence)
 		if(!g.config.ui) g.config.ui = {};
 		g.config.ui.theme = data.dark ? 'dark' : 'light';
 		g.config_obj.set(g.config);
 		
+		// Broadcast to all open windows
 	});
 
 	ipcRenderer.on('open-soundfonts-folder', () => {
@@ -514,26 +537,33 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-soundfont-changed', async (e, soundfontFile) => {
+		// Reload MIDI player with new soundfont and restore playback state
 		const wasPlaying = g.currentAudio && !g.currentAudio.paused;
 		const currentFile = g.currentAudio ? g.currentAudio.fp : null;
 		const currentTime = g.currentAudio ? g.currentAudio.getCurrentTime() : 0;
 		const currentLoop = g.isLoop;
 		const isMIDI = currentFile && g.supportedMIDI && g.supportedMIDI.includes(path.extname(currentFile).toLowerCase());
 		
+		// Dispose old MIDI player
 		if (midi) {
 			midi.dispose();
 			midi = null;
 		}
 		
+		// Reinitialize MIDI player with new soundfont
 		await initMidiPlayer();
 		
+		// Reload current MIDI file if one was loaded
 		if (isMIDI && currentFile) {
 			try {
+				// Load the file with startPaused flag to prevent auto-play
 				await playAudio(currentFile, currentTime, !wasPlaying);
 				
+				// Wait for player to be fully initialized
 				await new Promise(resolve => setTimeout(resolve, 100));
 				
 				if (g.currentAudio && wasPlaying) {
+					// Start playing if it was playing before
 					g.currentAudio.play();
 				}
 				
@@ -553,6 +583,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-pitch-changed', (e, val) => {
+		// Update ephemeral settings only
 		if(!g.midiSettings) g.midiSettings = {};
 		g.midiSettings.pitch = val;
 		if (midi && midi.setPitchOffset) {
@@ -561,6 +592,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-speed-changed', (e, val) => {
+		// Update ephemeral settings only
 		if(!g.midiSettings) g.midiSettings = {};
 		g.midiSettings.speed = val;
 		if (midi && midi.setPlaybackSpeed) {
@@ -583,6 +615,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('param-change', (e, data) => {
+		// Unified parameter handler
 		if(data.mode === 'midi'){
 			if(!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
 			
@@ -614,6 +647,7 @@ async function init(){
 						g.config = c;
 					}
 					if(midi && midi.setSoundFont) {
+						// Build full path to soundfont
 					let fp = g.app_path;
 					if(g.isPackaged){fp = path.dirname(fp);}
 					const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
@@ -633,6 +667,7 @@ async function init(){
 			else if(data.param === 'pitch'){
 				g.audioParams.pitch = data.value;
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
+					// data.value is semitones
 					const ratio = Math.pow(2, data.value / 12.0);
 					if(typeof g.rubberbandPlayer.setPitch === 'function'){
 						g.rubberbandPlayer.setPitch(ratio);
@@ -642,6 +677,7 @@ async function init(){
 			else if(data.param === 'tempo'){
 				g.audioParams.tempo = data.value;
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
+					// data.value is ratio (e.g. 1.0, 1.25)
 					if(typeof g.rubberbandPlayer.setTempo === 'function'){
 						g.rubberbandPlayer.setTempo(data.value);
 					}
@@ -657,6 +693,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('get-available-soundfonts', async (e, data) => {
+		// Scan bin/soundfonts directory for .sf2 and .sf3 files
 		let fp = g.app_path;
 		if(g.isPackaged){fp = path.dirname(fp);}
 		const soundfontsDir = path.resolve(fp + '/bin/soundfonts/');
@@ -666,11 +703,13 @@ async function init(){
 			const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
 			
 			const availableFonts = soundfontFiles.map(filename => {
-				let label = filename.replace(/\.(sf2|sf3)$/i, '');
-				label = label.replace(/_/g, ' ');
+				// Create display label from filename
+				let label = filename.replace(/\.(sf2|sf3)$/i, ''); // Remove extension
+				label = label.replace(/_/g, ' '); // Replace underscores with spaces
 				return { filename, label };
 			});
 			
+			// Sort: Default first, then alphabetically
 			availableFonts.sort((a, b) => {
 				if (a.filename.startsWith('TimGM')) return -1;
 				if (b.filename.startsWith('TimGM')) return 1;
@@ -681,6 +720,7 @@ async function init(){
 			tools.sendToId(targetWindow, 'available-soundfonts', { fonts: availableFonts });
 		} catch(err) {
 			console.error('[MIDI] Failed to read soundfonts directory:', err);
+			// Fallback to just default
 			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
 			tools.sendToId(targetWindow, 'available-soundfonts', { 
 				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }] 
@@ -794,6 +834,7 @@ async function appStart(){
 	g.idx = 0;
 	g.isLoop = false;
 	
+	// Initialize ephemeral playback rate to 0 (always reset on app start)
 	if(!g.config.audio) g.config.audio = {};
 	g.config.audio.playbackRate = 0;
 	
@@ -852,6 +893,7 @@ async function appStart(){
 }
 
 function onWheelVolume(e){
+	// Allow browser zoom / Electron zoom gestures to work
 	if(e.ctrlKey || e.metaKey) return;
 	if(!e) return;
 	const dy = +e.deltaY;
@@ -872,6 +914,7 @@ function onWheelVolume(e){
 		volumeDown();
 	}
 
+	// Prevent page scroll / inertial scroll side effects
 	e.preventDefault();
 }
 
@@ -937,8 +980,19 @@ function setupDragDrop(){
 		}
 		if(e.target.id == 'drop_mixer'){
 			let files = fileListArray(e.dataTransfer.files);
+			// For mixer, we just want to get the file list to pass to the mixer window,
+			// NOT update the main player's playlist (g.music).
+			// We use playListFromMulti just to resolve folders recursively if needed,
+			// but we need to capture the result without modifying g.music.
 			
+			// Create a temporary dummy object to capture the playlist if playListFromMulti modifies global state
+			// But looking at playListFromMulti, it modifies g.music directly if add=true or replaces it.
+			// We need a version that just returns the paths.
 			
+			// Actually, playListFromMulti returns the list 'pl'.
+			// But it also sets g.music. We should refactor or just use a temporary variable.
+			// Let's modify playListFromMulti to accept a 'dryRun' or similar, or just manually do it here.
+			// Or better, let's just use the tools directly here to get the list.
 			
 			let pl = [];
 			for(let i=0; i<files.length; i++){
@@ -946,7 +1000,8 @@ function setupDragDrop(){
 				let stat = await fs.lstat(path.normalize(fp));
 				if(stat.isDirectory()){
 					let folder_files = [];
-					if(!e.ctrlKey){
+					if(!e.ctrlKey){ // Recursive by default unless Ctrl pressed (logic inverted from playListFromMulti?)
+						// In playListFromMulti: rec = !e.ctrlKey.
 						folder_files = await tools.getFilesRecursive(fp, g.supportedFilter);
 					}
 					else {
@@ -961,13 +1016,28 @@ function setupDragDrop(){
 				}
 			}
 			
+			// Don't clear audio of main player if we are just opening mixer?
+			// "clearAudio();" stops the main player.
+			// If we want to play in mixer, we probably want to stop main player.
+			// clearAudio();
 			if(g.currentAudio && !g.currentAudio.paused){
 				g.currentAudio.pause();
 				checkState();
 			}
 			
+			// We need to pass the 'pl' array to openWindow.
+			// openWindow currently takes (type, show, file_path).
+			// We need to pass the list.
+			// We can temporarily set g.currentAudio.fp or modify openWindow to accept a list.
+			// But openWindow uses 'init_data'.
 			
+			// Let's look at openWindow implementation.
+			// It constructs init_data.
+			// If we pass a list, we need to handle it.
 			
+			// Hack: We can set a temporary property on g that openWindow reads, 
+			// or better, pass it as an argument.
+			// openWindow(type, show, fileOrList)
 			
 			openWindow('mixer', true, pl);
 			return;
@@ -984,14 +1054,17 @@ function setupDragDrop(){
 	}
 }
 
+
 function setupWindow(){
 	g.win.hook_event('blur', handler);
 	g.win.hook_event('focus', handler);
 	g.win.hook_event('move', handler);
+	// electron_helper historically used both event names; support both.
 	g.win.hook_event('resized', handler);
 	g.win.hook_event('resize', handler);
 
 	function handler(e, data){
+		//clearDrop();
 		if(data.type == 'blur'){
 			g.frame.classList.remove('focus');
 		}
@@ -1023,6 +1096,7 @@ function timelineSlider(e){
 	if(!g.currentAudio) return;
 	let dur = g.currentAudio.duration;
 	if(!(dur > 0)){
+		// Fallbacks in case duration isn't populated yet (paused edge cases)
 		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
 		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
 		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
@@ -1106,6 +1180,8 @@ function playListFromMulti(ar, add=false, rec=false){
 	})
 }
 
+
+
 async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 	if(!g.blocky){
 		if(fp && g.music && g.music.length > 0){
@@ -1121,6 +1197,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 		let parse = path.parse(fp);
 		let bench = performance.now();
 		
+		// Skip fade out during auto-advance (track already ended naturally)
 		if(!autoAdvance && g.currentAudio && !g.currentAudio.paused){
 			if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function' && g.activePipeline !== 'rubberband'){
 				await g.currentAudio.player.fadeOut();
@@ -1165,6 +1242,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			try {
 				await midi.load(tools.getFileURL(fp));
 				
+				// Duration should now be available from metadata event
 				if (!g.currentAudio.duration && midi.getDuration() > 0) {
 					g.currentAudio.duration = midi.getDuration();
 				}
@@ -1182,10 +1260,12 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 					midi.play();
 				}
 				
+				// Pass g.currentAudio.metadata to renderInfo if active
 				await renderInfo(fp, g.currentAudio.metadata);
 				g.blocky = false;
 				checkState();
 
+				// Unified Parameters Window: Update Context
 				if(g.windows.parameters){
 					console.log('[playAudio] Updating parameters window for MIDI');
 					const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
@@ -1226,6 +1306,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
 			
+			// Apply current ephemeral playback rate to tracker
 			const playbackRate = (g.config && g.config.audio && g.config.audio.playbackRate !== undefined) ? (g.config.audio.playbackRate | 0) : 0;
 			if(playbackRate !== 0){
 				const tempoFactor = Math.pow(2, playbackRate / 12.0);
@@ -1236,6 +1317,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				else g.playspeed.innerText = playbackRate.toString();
 			}
 
+			// Unified Parameters Window: Update Context (Tracker)
 			if(g.windows.parameters){
 				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params: {} });
 			}
@@ -1260,6 +1342,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				setTimeout(doSeek, 25);
 			}
 			if(startPaused) {
+				// Chiptune.js tends to auto-start asynchronously after load().
+				// Enforce paused state immediately and shortly after to catch async start.
 				try { player.gain.gain.value = 0; } catch(e) {}
 				try { player.pause(); } catch(e) {}
 				setTimeout(() => {
@@ -1284,6 +1368,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 		else {
 			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
 			try {
+				// Switch to rubberband pipeline if parameters window is open
 				if(g.parametersOpen && g.rubberbandPlayer && g.activePipeline !== 'rubberband'){
 					console.log('[playAudio] Need to switch to rubberband - was:', g.activePipeline);
 					g.activePipeline = 'rubberband';
@@ -1295,9 +1380,11 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 					g.activePipeline = 'normal';
 				}
 				
+				// Select active player based on pipeline mode
 				const ffPlayer = (g.activePipeline === 'rubberband' && g.rubberbandPlayer) ? g.rubberbandPlayer : g.ffmpegPlayer;
 				console.log('[playAudio] Selected player:', g.activePipeline === 'rubberband' ? 'rubberbandPlayer' : 'ffmpegPlayer');
 				
+				// Ensure rubberband player is connected if we're using it (clearAudio may have disconnected it)
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer && !g.rubberbandPlayer.isConnected){
 					console.log('[playAudio] Reconnecting rubberband player (was disconnected by clearAudio)');
 					g.rubberbandPlayer.connect();
@@ -1342,13 +1429,18 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				}
 				else {
 					console.log('[playAudio] Pausing (startPaused=true)');
+					// Some backends may begin rendering immediately after open();
+					// enforce paused state so UI/playPause stays consistent.
 					if(typeof ffPlayer.pause === 'function') await ffPlayer.pause();
 				}
 				
 				checkState();
+				//console.log('Operation took: ' + Math.round((performance.now() - bench)));
 				await renderInfo(fp);
 				g.blocky = false;
 
+				// Unified Parameters Window: Update Context (Audio)
+				// Note: Phase 2 will add logic here to check if we should switch to rubberband pipeline
 				if(g.windows.parameters){
 					tools.sendToId(g.windows.parameters, 'set-mode', { 
 						mode: 'audio', 
@@ -1408,6 +1500,7 @@ function renderInfo(fp, metadata){
 			resolve();
 		}
 		else if(g.currentAudio.isMidi){
+			// Use metadata from onMetadata (stored on g.currentAudio.metadata) if not passed directly
 			const md = metadata || g.currentAudio.metadata || {};
 			g.currentInfo.metadata = md;
 			
@@ -1431,6 +1524,8 @@ function renderInfo(fp, metadata){
 			}
 
 			if (md.markers && md.markers.length > 0) {
+				// Just show count or first few?
+				// g.text.appendChild(renderInfoItem('Markers:', md.markers.length));
 			}
 
 			resolve();
@@ -1486,8 +1581,9 @@ function renderInfo(fp, metadata){
 	})
 }
 
+
 function renderInfoItem(label, text){
-	let el = ut.htmlObject(  `
+	let el = ut.htmlObject( /*html*/ `
 		<div id="#item_folder" class="item">
 			<div class="label">${label}</div>
 			<div class="content">${text}</div>
@@ -1508,6 +1604,7 @@ async function switchPipeline(newMode){
 	const wasPlaying = g.currentAudio.player ? g.currentAudio.player.isPlaying : false;
 	const currentTime = g.currentAudio.getCurrentTime ? g.currentAudio.getCurrentTime() : 0;
 	
+	// Stop current
 	if(g.currentAudio.player){
 		try { await g.currentAudio.player.stop(true); } catch(e){}
 	}
@@ -1517,19 +1614,25 @@ async function switchPipeline(newMode){
 	
 	if(newPlayer){
 		try {
+			// Reuse metadata from existing g.currentAudio if possible, or re-open?
+			// Player.open reads metadata using NAPI. It's fast.
 			await newPlayer.open(g.currentAudio.fp);
 			
+			// Update g.currentAudio reference
 			g.currentAudio.player = newPlayer;
 			
+			// Update methods
 			g.currentAudio.play = () => { g.currentAudio.paused = false; newPlayer.play(); };
 			g.currentAudio.pause = () => { g.currentAudio.paused = true; newPlayer.pause(); };
 			g.currentAudio.seek = (t) => newPlayer.seek(t);
 			g.currentAudio.getCurrentTime = () => newPlayer.getCurrentTime();
 
+			// Sync settings
 			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			newPlayer.volume = vol;
 			newPlayer.setLoop(g.isLoop);
 
+			// Seek to sync
 			if(currentTime > 0) newPlayer.seek(currentTime);
 			
 			if(wasPlaying) {
@@ -1698,6 +1801,7 @@ async function initMidiPlayer(){
 	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
 	const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
 	
+	// Validate soundfont exists, fallback to default if not
 	try {
 		await fs.access(soundfontPath);
 	} catch(e) {
@@ -1735,16 +1839,20 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 				g.playremain.innerText = ut.playTime(dur*1000).minsec;
 			}
 			
+			// Store metadata for renderInfo to use
 			if(meta) {
 				g.currentAudio.metadata = meta;
 			}
 
+			// RESET Ephemeral Settings for new track (Pitch/Speed), but KEEP Metronome
 			
+			// Source of truth for metronome: g.midiSettings (user intent) or fallback to midi player state
 			let keepMetronome = false;
 			if (g.midiSettings && g.midiSettings.metronome !== undefined) {
 				keepMetronome = !!g.midiSettings.metronome;
 			} else if (midi) {
 				keepMetronome = !!midi.metronomeEnabled;
+				// Sync back to settings if missing
 				if (keepMetronome) {
 					if(!g.midiSettings) g.midiSettings = {};
 					g.midiSettings.metronome = true;
@@ -1753,16 +1861,20 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 
 			if (!g.midiSettings) g.midiSettings = {};
 			
+			// Reset Pitch/Speed in settings object
 			g.midiSettings.pitch = 0;
 			g.midiSettings.speed = null;
 			
+			// Apply metronome explicit state to player
 			if (midi && midi.setMetronome) {
 				midi.setMetronome(keepMetronome);
 			}
 			
+			// Ensure Player is reset to defaults for Pitch/Speed
 			if(midi && midi.setPitchOffset) midi.setPitchOffset(0);
 			if(midi && midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
 
+			// Update Parameters window if open (set MIDI BPM to detected original)
 			if(g.windows.parameters){
 				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
 				const params = {
@@ -1776,14 +1888,16 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 				tools.sendToId(g.windows.parameters, 'update-params', { mode: 'midi', params });
 			}
 
+			// Update MIDI Settings window if open
 			if(g.windows['midi']){
 				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+				// Since we reset speed, current is original
 				let currentBPM = originalBPM;
 
 				tools.sendToId(g.windows['midi'], 'update-ui', {
 					originalBPM: originalBPM,
 					speed: currentBPM,
-					pitch: 0,
+					pitch: 0, // Explicitly reset UI pitch
 					metronome: keepMetronome
 				});
 			}
@@ -1819,6 +1933,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const targetRate = g.config.audio.hqMode ? g.maxSampleRate : 48000;
 	console.log('Switching to', g.config.audio.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
 	
+	// Use underlying player state (more reliable than g.currentAudio.paused).
 	let wasPlaying = false;
 	if(g.currentAudio){
 		if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.isPlaying !== 'undefined'){
@@ -1834,6 +1949,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const wasMidi = g.currentAudio?.isMidi;
 	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (wasMidi ? (midi?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0));
 	
+	// Stop current playback
 	if(g.currentAudio){
 		if(g.currentAudio.isMod){
 			player.stop();
@@ -1857,6 +1973,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
 	
+	/* Re-apply saved output device after AudioContext rebuild */
 	const devId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
 	if (devId) {
 		try {
@@ -1869,6 +1986,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 		}
 	}
 	
+	// Fully dispose old ffmpegPlayer before creating new one
 	if (g.ffmpegPlayer) {
 		try { g.ffmpegPlayer.dispose(); } catch(e) { console.warn('ffmpegPlayer dispose error:', e); }
 		g.ffmpegPlayer = null;
@@ -1878,7 +1996,9 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
+	// Constructor: (audioContext, workletPath, processorName, ringSeconds, threadCount, connectDestination)
 	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, threadCount, true);
+	// Reduce AudioWorkletNode churn when reopening after AudioContext rebuild.
 	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
 	await g.ffmpegPlayer.init();
 	
@@ -1890,6 +2010,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	};
 	player = new window.chiptune(modConfig);
 	
+	// Wait for player to initialize before continuing
 	await new Promise((resolve) => {
 		player.onInitialized(() => {
 			console.log('Player Initialized after HQ toggle');
@@ -1898,6 +2019,7 @@ async function toggleHQMode(desiredState, skipPersist=false){
 		});
 	});
 	
+	// Now set up remaining handlers
 	player.onMetadata(async (meta) => {
 		if(g.currentAudio){
 			g.currentAudio.duration = player.duration;
@@ -1919,8 +2041,11 @@ async function toggleHQMode(desiredState, skipPersist=false){
 		if(currentIdx >= 0) {
 			g.idx = currentIdx;
 		}
+		// Reload the current track but preserve paused state.
+		// playAudio() has startPaused support for FFmpeg; trackers are best-effort.
 		await playAudio(currentFile, currentTime, !wasPlaying);
 
+		// Resume only if it was playing before the toggle.
 		if(wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play){
 			g.currentAudio.play();
 		}
@@ -1944,19 +2069,23 @@ function setPlaybackRate(semitones){
 	if(!g.config.audio) g.config.audio = {};
 	g.config.audio.playbackRate = semitones;
 	
+	// Apply to FFmpeg player
 	if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
 		g.currentAudio.player.setPlaybackRate(semitones);
 	}
 	
+	// Apply to tracker/mod player using tempo
 	if(g.currentAudio?.isMod && player){
 		const tempoFactor = Math.pow(2, semitones / 12.0);
 		player.setTempo(tempoFactor);
 	}
 	
+	// Update UI
 	if(g.playspeed){
 		if(semitones > 0) g.playspeed.innerText = '+' + semitones;
 		else g.playspeed.innerText = semitones.toString();
 	}
+	// Note: NOT persisting to config - speed is ephemeral
 }
 
 function speedUp(){
@@ -1969,10 +2098,12 @@ function speedDown(){
 	setPlaybackRate(current - 1);
 }
 
+
 function seek(mx){
 	if(!g.currentAudio) return;
 	let dur = g.currentAudio.duration;
 	if(!(dur > 0)){
+		// Fallbacks in case duration isn't populated yet (paused edge cases)
 		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
 		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
 		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
@@ -2071,6 +2202,7 @@ function loop(){
 	requestAnimationFrame(loop);
 }
 
+
 function renderBar(){
 	let proz = 0;
 	let time = 0;
@@ -2107,9 +2239,15 @@ function renderBar(){
 	
 }
 
+
+
+// Tools
 // ###########################################################################
 
+
+
 async function onKey(e) {
+	//fb(e.keyCode)
 	let shortcutAction = null;
 	if(shortcuts && shortcuts.handleShortcut){
 		shortcutAction = shortcuts.handleShortcut(e, 'stage');
@@ -2133,6 +2271,7 @@ async function onKey(e) {
 		openWindow('mixer', false, fp);
 	}
 	else if (shortcutAction === 'toggle-pitchtime') {
+		// Unified Parameters Window
 		openWindow('parameters');
 	}
 	else if (shortcutAction === 'toggle-controls') {
@@ -2141,7 +2280,17 @@ async function onKey(e) {
 	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
-	
+	/*
+	if(e.keyCode == 112 && e.ctrlKey && e.shiftKey){
+		if(main_env.startType == 'installed'){
+			console.log(await registry('register', g.main_env.app_exe, g.main_env.app_path));
+		}
+	}
+	if(e.keyCode == 113 && e.ctrlKey && e.shiftKey){
+		if(main_env.startType == 'installed'){
+			console.log(await registry('unregister', g.main_env.app_exe, g.main_env.app_path));
+		}
+	}*/
 	if (e.keyCode == 123) {
 		g.win.toggleDevTools();
 	}
@@ -2189,8 +2338,16 @@ async function onKey(e) {
 	if (e.keyCode == 40) {
 		volumeDown();
 	}
+	// Speed control handled below in unified block
 	
-	
+	/*
+	if (e.keyCode == 187 || e.keyCode == 107) {
+		speedUp();
+	}
+	if (e.keyCode == 189 || e.keyCode == 109) {
+		speedDown();
+	}
+	*/
 
 	if (e.keyCode == 82) {
 		shufflePlaylist();
@@ -2205,6 +2362,7 @@ async function onKey(e) {
 		flashButton(g.ctrl_btn_play);
 	}
 	
+	// Mapping for standard keyboard - (189) and Numpad - (109)
 	if(e.keyCode == 189 || e.keyCode == 109 || e.keyCode == 173){
 		if (e.ctrlKey) {
 			console.log('Scaling down');
@@ -2214,6 +2372,7 @@ async function onKey(e) {
 			speedDown();
 		}
 	}
+	// Mapping for standard keyboard + (=) and Numpad + (107)
 	if(e.keyCode == 187 || e.keyCode == 107 || e.keyCode == 61){
 		if (e.ctrlKey) {
 			console.log('Scaling up');
@@ -2223,6 +2382,7 @@ async function onKey(e) {
 			speedUp();
 		}
 	}
+	// H and S shortcuts now handled globally in app.js
 }
 
 async function getMixerPlaylist(contextFile = null) {
@@ -2275,11 +2435,14 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		});
 	}
 
+	// If a window is currently closing, wait briefly so we don't race against the old instance.
 	if(g.windows[type] && g.windowsClosing[type]){
 		await waitForWindowClosed(type, g.windows[type], 2000);
 	}
 
 	if (g.windows[type]) {
+		// Window exists
+		// When opening/showing MIDI window, ensure it has current ephemeral settings
 		if(type === 'midi' && g.midiSettings){
 			tools.sendToId(g.windows[type], 'update-ui', {
 				pitch: g.midiSettings.pitch,
@@ -2289,6 +2452,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 
 		if(forceShow){
+			// For Mixer playlist replacement, send new playlist (reuse pattern avoids memory leaks).
 			if(type === 'mixer'){
 				if(g.currentAudio && !g.currentAudio.paused){
 					g.currentAudio.pause();
@@ -2347,24 +2511,29 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			}
 		}
 
+		// Default behavior: toggle visibility based on tracked state
 		if (g.windowsVisible[type]) {
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
 			
+			// If hiding MIDI window, reset ephemeral settings immediately per request
 			if(type === 'midi'){
 				g.midiSettings = { pitch: 0, speed: null };
 				if(midi){
 					if(midi.setPitchOffset) midi.setPitchOffset(0);
 					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-					if(midi.setMetronome) midi.setMetronome(false);
+					if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
 				}
 			}
 
+			// Return focus to stage window when hiding
 			g.win.focus();
 			
+			// Note: Parameters window uses 'window-hidden' event, not this code path
 		} else {
 			tools.sendToId(g.windows[type], 'show-window');
 			g.windowsVisible[type] = true;
+			// Refresh mixer playlist when showing an existing mixer window
 			if(type === 'mixer'){
 				if(g.currentAudio && !g.currentAudio.paused){
 					g.currentAudio.pause();
@@ -2417,6 +2586,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		return;
 	}
 	
+	// Get the stage window's display to open new window on same screen
 	let stageBounds = await g.win.getBounds();
 	let displays = await helper.screen.getAllDisplays();
 	let targetDisplay = displays.find(d => 
@@ -2426,17 +2596,21 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		stageBounds.y < d.bounds.y + d.bounds.height
 	) || displays[0];
 	
+	// Get window settings (defaults + user overrides)
 	const configDefaults = require('./config-defaults.js');
 	const defaultWinSettings = (configDefaults && configDefaults.windows && configDefaults.windows[type]) || {};
 	const userWinSettings = (g.config.windows && g.config.windows[type]) || {};
 	const winSettings = { ...defaultWinSettings, ...userWinSettings };
 	
+	// Dimensions from config (or fallback)
 	let windowWidth = winSettings.width || 960;
 	let windowHeight = winSettings.height || 800;
 	
+	// Calculate center of target display (using workArea to respect taskbars)
 	let x = targetDisplay.workArea.x + Math.round((targetDisplay.workArea.width - windowWidth) / 2);
 	let y = targetDisplay.workArea.y + Math.round((targetDisplay.workArea.height - windowHeight) / 2);
 	
+	// Use saved position if available
 	if(winSettings.x !== null && winSettings.x !== undefined) x = winSettings.x;
 	if(winSettings.y !== null && winSettings.y !== undefined) y = winSettings.y;
 	
@@ -2521,9 +2695,11 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	}
 
 	if(type === 'midi'){
+		// Initialize with ephemeral settings if they exist
 		init_data.metronome = g.midiSettings ? !!g.midiSettings.metronome : false;
 		init_data.midiPitch = g.midiSettings ? g.midiSettings.pitch : 0;
 		
+		// Get original BPM if available
 		if (midi && midi.getOriginalBPM) {
 			init_data.originalBPM = midi.getOriginalBPM();
 		} else {
@@ -2533,6 +2709,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		if (g.midiSettings && g.midiSettings.speed) {
 			init_data.midiSpeed = g.midiSettings.speed;
 		} else {
+			// If no override, default to Original BPM
+			// Using getCurrentBPM() here can be confusing if the track has tempo changes
+			// or if the player reports momentarily different values. 
 			init_data.midiSpeed = init_data.originalBPM || 120;
 		}
 	}
@@ -2550,11 +2729,14 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	
 	console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
 	
+	// Mark window as visible after creation
 	g.windowsVisible[type] = true;
 	
+	// Switch to rubberband pipeline for audio files when parameters window opens
 	if(type === 'parameters'){
 		g.parametersOpen = true;
 		if(g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
+			// Switch to rubberband pipeline automatically
 			if(g.activePipeline !== 'rubberband'){
 				try {
 					await switchPipeline('rubberband');
@@ -2567,6 +2749,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 	}
 	
+	// Show the newly created window with a small delay to prevent white flash
 	setTimeout(() => {
 		tools.sendToId(g.windows[type], 'show-window');
 	}, 100);
@@ -2594,10 +2777,12 @@ async function scaleWindow(val){
 	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
 	ut.setCssVar('--space-base', val);
 	g.config_obj.set(g.config);
+	// Keep Electron min size in sync with the current UI scale
 	const scaledMinW = _scaledDim(MIN_WIDTH, val|0);
 	const scaledMinH = _scaledDim(MIN_H, val|0);
 	tools.sendToMain('command', { command: 'set-min-height', minHeight: scaledMinH, minWidth: scaledMinW });
 }
+
 
 function fb(o){
     console.log(o);

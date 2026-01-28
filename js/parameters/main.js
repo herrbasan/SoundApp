@@ -46,13 +46,9 @@ async function init() {
     initAudioControls();
     initMidiControls();
 
-    // Reset MIDI params when window is hidden (secondary windows are hidden, not unloaded)
-    if (bridge && bridge.on) {
-        bridge.on('hide-window', () => {
-            resetMidiParams(true);
-            resetAudioParams(true);
-        });
-    }
+    // NOTE: Do NOT reset params when window is hidden
+    // Parameters should persist between hide/show cycles
+    // Only reset when a new track loads (via set-mode event)
 
     window.addEventListener('keydown', (e) => {
         if (!e) return;
@@ -271,6 +267,12 @@ function updateParams(mode, params) {
             if (formantCheckbox) formantCheckbox.checked = !!params.formant;
         }
     } else if (mode === 'midi') {
+        // Store originalBPM if provided (for reset button)
+        if (typeof params.originalBPM === 'number') {
+            if (!g.init_data) g.init_data = {};
+            g.init_data.originalBPM = params.originalBPM;
+        }
+        
         if (typeof params.transpose !== 'undefined') {
             controls.midi.pitch.update(params.transpose, true);
             const pitchVal = document.getElementById('midi_pitch_value');
@@ -296,19 +298,19 @@ function updateParams(mode, params) {
             }
         }
         if (params.soundfont) {
-            const sfSelect = document.getElementById('soundfont-select');
-            if (sfSelect) {
+            // Use requestAnimationFrame to ensure DOM is ready after mode switch
+            requestAnimationFrame(() => {
+                const sfSelect = document.getElementById('soundfont-select');
+                if (!sfSelect) return;
+                
+                // Set the native select value
                 sfSelect.value = params.soundfont;
-                // Trigger superSelect update by finding and clicking the matching option in the custom UI
-                const customSelect = sfSelect.parentElement.querySelector('.nui-select-display');
-                if (customSelect) {
-                    // Find the selected option's text
-                    const selectedOption = sfSelect.options[sfSelect.selectedIndex];
-                    if (selectedOption) {
-                        customSelect.textContent = selectedOption.textContent;
-                    }
+                
+                // Force superSelect to sync its display with the native select value
+                if (sfSelect.reRender) {
+                    sfSelect.reRender();
                 }
-            }
+            });
         }
     }
 }
@@ -455,11 +457,18 @@ async function initSoundfontSelector() {
     
     // Initialize nui-select
     console.log('[SoundFont] Calling superSelect()');
-    superSelect(sfSelect);
+    const selectInstance = superSelect(sfSelect);
     
-    // Force update the visual state of the select
-    const event = new Event('change', { bubbles: true });
-    sfSelect.dispatchEvent(event);
+    // Force superSelect to update its visual display
+    if (selectInstance && selectInstance.updateDisplay) {
+        selectInstance.updateDisplay();
+    } else {
+        // Fallback: manually update the display element
+        const customDisplay = sfSelect.parentElement.querySelector('.nui-select-display');
+        if (customDisplay && sfSelect.selectedIndex >= 0) {
+            customDisplay.textContent = sfSelect.options[sfSelect.selectedIndex].textContent;
+        }
+    }
     
     // Listen for changes
     sfSelect.addEventListener('change', () => {

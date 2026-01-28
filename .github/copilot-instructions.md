@@ -388,14 +388,10 @@ The script (`scripts/create-release.ps1`) handles:
 - **Audio Overlap Between Tracks** - When Parameters window is open (rubberband pipeline active), audio from the previous track bleeds into the start of the next track. The rubberband worklet accumulates audio in internal buffers with no built-in flush mechanism.
 - **Crackly when Parameters change** - Audio crackles when using the pitch or tempo sliders
 
-### Code Architecture
-- **stage.js Refactor Needed** - The main stage.js file is ~2800 lines mixing audio lifecycle, UI state, Web Audio graph wiring, and utilities. This monolithic structure makes it extremely error-prone for AI agents to edit (syntax errors occur almost every other edit). Should be broken into focused modules:
-  - `audioCore.js` - Web Audio node creation and management
-  - `pipelineManager.js` - Pipeline orchestration (normal/rubberband/loopback)
-  - `utils.js` - Helper functions
-  - Consider wrapping RubberBandPlayer in a class with stable API
-  - Add JSDoc annotations for AI contract understanding
-  - Implement early-return patterns to reduce nesting
+## Immediate Features
+
+- **Tape-Style Pitch Control in Parameters Window** - Move tape-style tempo from main window into Parameters window as default section (no pipeline switch), with Pitch/Time controls as opt-in advanced mode (switches to rubberband). Remove confusing speed control from main window. See [docs/tape-style-parameters-refactor.md](docs/tape-style-parameters-refactor.md) for full plan.
+- **Dynamic Parameters Window Title** - Window title should reflect active content type: "Parameters - Audio", "Parameters - MIDI", or "Parameters - Tracker (MOD)" depending on current playback.
 
 ## Backlog / Future Features
 
