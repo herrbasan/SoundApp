@@ -155,6 +155,11 @@
 		</div>
 		<div class="nui-status-bar"></div>
 	</div>
+        <script type="module">
+            // Import centralized shortcuts
+            const shortcuts = require('../js/shortcuts.js');
+            window.shortcuts = shortcuts;
+        </script>
 	<script src="../js/window-loader.js"></script>
 	<script type="module" src="../js/parameters/main.js"></script>
 </body>

@@ -526,6 +526,22 @@ async function init(){
 		}
 	});
 
+	ipcRenderer.on('stage-keydown', (e, data) => {
+		if (!data) return;
+		const ev = {
+			keyCode: data.keyCode | 0,
+			ctrlKey: !!data.ctrlKey,
+			shiftKey: !!data.shiftKey,
+			altKey: !!data.altKey,
+			metaKey: !!data.metaKey,
+			code: data.code || '',
+			key: data.key || '',
+			preventDefault: () => {},
+			stopPropagation: () => {}
+		};
+		onKey(ev);
+	});
+
 	ipcRenderer.on('theme-changed', (e, data) => {
 		if (data.dark) {
 			document.body.classList.add('dark');
@@ -608,6 +624,20 @@ async function init(){
 		g.midiSettings.speed = val;
 		if (midi && midi.setPlaybackSpeed) {
 			midi.setPlaybackSpeed(val);
+		}
+	});
+
+	ipcRenderer.on('midi-reset-params', () => {
+		if(!g.midiSettings) g.midiSettings = {};
+		g.midiSettings.pitch = 0;
+		g.midiSettings.speed = null;
+		g.midiSettings.metronome = false;
+
+		if (midi) {
+			if (midi.setPitchOffset) midi.setPitchOffset(0);
+			if (midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+			else if (midi.setPlaybackSpeed) midi.setPlaybackSpeed(1.0);
+			if (midi.setMetronome) midi.setMetronome(false);
 		}
 	});
 
@@ -1855,6 +1885,20 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 			if(midi && midi.setPitchOffset) midi.setPitchOffset(0);
 			if(midi && midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
 
+			// Update Parameters window if open (set MIDI BPM to detected original)
+			if(g.windows.parameters){
+				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+				const params = {
+					transpose: 0,
+					bpm: Math.round(originalBPM),
+					metronome: keepMetronome,
+					soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2',
+					originalBPM: originalBPM
+				};
+				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
+				tools.sendToId(g.windows.parameters, 'update-params', { mode: 'midi', params });
+			}
+
 			// Update MIDI Settings window if open
 			if(g.windows['midi']){
 				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
@@ -2616,6 +2660,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			const orig = (midi && midi.getOriginalBPM) ? midi.getOriginalBPM() : 120;
 			const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
 			init_data.params.bpm = Math.round(orig * speed);
+			init_data.params.originalBPM = orig;
+			init_data.originalBPM = orig;
 		}
 		else if(mode === 'audio'){
 			init_data.params = {

@@ -40,8 +40,56 @@ async function init() {
     initAudioControls();
     initMidiControls();
 
+    // Reset MIDI params when window is hidden (secondary windows are hidden, not unloaded)
+    if (bridge && bridge.on) {
+        bridge.on('hide-window', () => {
+            resetMidiParams(true);
+        });
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (!e) return;
+        if (shouldIgnoreKeyTarget(e.target || e.srcElement)) return;
+
+        const code = '' + (e.code || '');
+
+        // P: toggle Parameters window (hide when already open)
+        if (e.keyCode === 80) {
+            e.preventDefault();
+            if (bridge && bridge.closeWindow) bridge.closeWindow();
+            else if (bridge && bridge.window && bridge.window.hide) bridge.window.hide();
+            return;
+        }
+
+        // F12: Toggle DevTools
+        if (code === 'F12') {
+            e.preventDefault();
+            if (window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+            return;
+        }
+
+        // Handle global shortcuts via shared module
+        if (window.shortcuts && window.shortcuts.handleShortcut) {
+            const action = window.shortcuts.handleShortcut(e, 'parameters');
+            if (action) return;
+        }
+
+        if (bridge && bridge.sendToStage) {
+            bridge.sendToStage('stage-keydown', {
+                keyCode: e.keyCode | 0,
+                code: e.code || '',
+                key: e.key || '',
+                ctrlKey: !!e.ctrlKey,
+                shiftKey: !!e.shiftKey,
+                altKey: !!e.altKey,
+                metaKey: !!e.metaKey
+            });
+        }
+    });
+
     // Listen for file type / mode changes from stage
     bridge.on('set-mode', (data) => {
+        console.log('[Parameters] set-mode received:', data);
         setMode(data.mode); // 'audio', 'midi', 'tracker'
         
         // Display original BPM for MIDI mode
@@ -61,7 +109,13 @@ async function init() {
 
     // Listen for parameter updates (e.g. from key commands in main window)
     bridge.on('update-params', (data) => {
-        updateParams(currentMode, data);
+        console.log('[Parameters] update-params received:', data);
+        if(data && data.mode && data.params){
+            setMode(data.mode);
+            updateParams(data.mode, data.params);
+        } else {
+            updateParams(currentMode, data);
+        }
     });
     
     document.querySelector('main').classList.add('ready');
@@ -117,6 +171,33 @@ function setMode(mode) {
     }
 }
 
+function shouldIgnoreKeyTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+function resetMidiParams(sendStage = false) {
+    if (!controls.midi || !controls.midi.pitch || !controls.midi.tempo) return;
+
+    const pitchVal = document.getElementById('midi_pitch_value');
+    const tempoVal = document.getElementById('midi_tempo_value');
+    const metronomeBtn = document.getElementById('btn_metronome');
+
+    const originalBPM = (g.init_data && typeof g.init_data.originalBPM === 'number') ? Math.round(g.init_data.originalBPM) : 120;
+
+    controls.midi.pitch.update(0);
+    controls.midi.tempo.update(originalBPM);
+
+    if (pitchVal) pitchVal.textContent = '0';
+    if (tempoVal) tempoVal.textContent = '' + originalBPM;
+    if (metronomeBtn) metronomeBtn.checked = false;
+
+    if (sendStage && bridge && bridge.sendToStage) {
+        bridge.sendToStage('midi-reset-params', {});
+    }
+}
+
 function updateParams(mode, params) {
     if (mode === 'audio') {
         if (typeof params.pitch !== 'undefined') {
@@ -134,8 +215,18 @@ function updateParams(mode, params) {
             if (tempoVal) tempoVal.textContent = pct;
         }
     } else if (mode === 'midi') {
-        if (typeof params.transpose !== 'undefined') controls.midi.pitch.update(params.transpose, true);
-        if (typeof params.bpm !== 'undefined') controls.midi.tempo.update(params.bpm, true);
+        if (typeof params.transpose !== 'undefined') {
+            controls.midi.pitch.update(params.transpose, true);
+            const pitchVal = document.getElementById('midi_pitch_value');
+            const rounded = Math.round(params.transpose);
+            if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
+        }
+        if (typeof params.bpm !== 'undefined') {
+            controls.midi.tempo.update(params.bpm, true);
+            const tempoVal = document.getElementById('midi_tempo_value');
+            const rounded = Math.round(params.bpm);
+            if (tempoVal) tempoVal.textContent = '' + rounded;
+        }
         if (typeof params.metronome !== 'undefined') {
             document.getElementById('btn_metronome').checked = !!params.metronome;
         }
@@ -241,11 +332,7 @@ function initMidiControls() {
     });
 
     document.getElementById('btn_midi_reset').addEventListener('click', () => {
-        controls.midi.pitch.update(0);
-        // Reset tempo to original BPM
-        const originalBPM = (g.init_data && g.init_data.originalBPM) ? Math.round(g.init_data.originalBPM) : 120;
-        controls.midi.tempo.update(originalBPM);
-        bridge.sendToStage('midi-reset-params', {});
+        resetMidiParams(true);
     });
     
     document.getElementById('btn_open_fonts').addEventListener('click', () => {

@@ -385,9 +385,6 @@ The script (`scripts/create-release.ps1`) handles:
 - **Pipeline Transition Overlap** - Transition between pipelines (rubberband <-> normal) causes some audible overlap
 
 ### Parameters Window
-- **Global Shortcuts** - Window toggle shortcuts (e.g., theme toggle) not working when Parameters window is focused
-- **Main Player Shortcuts** - Main player controls (pause, play, loop, seek, next/prev file) should work when Parameters window is focused but currently don't
-- **MIDI Parameter Reset** - MIDI parameters don't reset when the window closes (hides)
 - **Pitchtime Quality Options** - Missing quality presets for pitch/time manipulation (see old implementation in `pitchtime/main.js`)
 
 ## Backlog / Future Features

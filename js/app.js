@@ -299,9 +299,13 @@ async function resetAllWindows(){
 		const wa = primary && primary.workArea ? primary.workArea : { x: 0, y: 0, width: 1024, height: 768 };
 
 		const defaults = (configDefaults && configDefaults.windows) ? configDefaults.windows : {};
-		for(const k in defaults){
-			const d = defaults[k];
-			if(!d) continue;
+		const keys = new Set([
+			...Object.keys(defaults || {}),
+			...Object.keys(cnf.windows || {})
+		]);
+
+		for(const k of keys){
+			const d = defaults[k] || cnf.windows[k] || {};
 			const w = d.width|0;
 			const h = d.height|0;
 			if(w <= 0 || h <= 0) continue;
