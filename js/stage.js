@@ -49,8 +49,8 @@ async function detectMaxSampleRate(){
 		}
 		await ctx.close();
 	}
-	console.log('Fallback to 44100');
-	return 44100;
+	console.log('Fallback to 48000');
+	return 48000;
 }
 
 init();
@@ -392,13 +392,15 @@ async function init(){
 			if(midi){
 				if(midi.setPitchOffset) midi.setPitchOffset(0);
 				if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-				if(midi.setMetronome) midi.setMetronome(false); // Reset metronome
+				if(midi.setMetronome) midi.setMetronome(false);
 			}
 		}
 
 		// Switch back to normal pipeline when parameters window is hidden
 		if(data.type === 'parameters'){
 			g.parametersOpen = false;
+		
+			// Reset audio pipeline if using rubberband
 			if(g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband'){
 				try {
 					g.rubberbandPlayer.reset();
@@ -409,6 +411,23 @@ async function init(){
 				}
 			} else if(g.rubberbandPlayer) {
 				g.rubberbandPlayer.reset();
+			}
+			
+			// Reset MIDI settings
+			if(g.midiSettings){
+				g.midiSettings.pitch = 0;
+				g.midiSettings.speed = 1.0;
+				g.midiSettings.metronome = false;
+				
+				// Apply reset to current MIDI playback if active
+				if(midi && g.currentAudio && g.currentAudio.isMidi){
+					if(midi.setTranspose) midi.setTranspose(0);
+					if(midi.setBPM){
+						const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
+						midi.setBPM(orig);
+					}
+					if(midi.setMetronome) midi.setMetronome(false);
+				}
 			}
 		}
 
@@ -612,6 +631,10 @@ async function init(){
 				if(midi && midi.setMetronome) midi.setMetronome(!!data.value);
 			}
 			else if(data.param === 'soundfont') {
+				console.log('[MIDI] Soundfont change requested:', data.value);
+				console.log('[MIDI] Current soundfont:', g.config?.midiSoundfont);
+				console.log('[MIDI] midi player exists:', !!midi);
+				console.log('[MIDI] midi.setSoundFont exists:', !!(midi && midi.setSoundFont));
 				if(g.config && g.config.midiSoundfont !== data.value){
 					if(g.config_obj) {
 						let c = g.config_obj.get();
@@ -619,7 +642,17 @@ async function init(){
 						g.config_obj.set(c);
 						g.config = c;
 					}
-					if(midi && midi.loadSoundfont) midi.loadSoundfont(data.value);
+					if(midi && midi.setSoundFont) {
+						// Build full path to soundfont
+					let fp = g.app_path;
+					if(g.isPackaged){fp = path.dirname(fp);}
+					const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
+					const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
+					console.log('[MIDI] Calling midi.setSoundFont with URL:', soundfontUrl);
+						midi.setSoundFont(soundfontUrl);
+					}
+				} else {
+					console.log('[MIDI] Soundfont not changed - already set to:', data.value);
 				}
 			}
 		}
@@ -1229,7 +1262,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 						transpose: g.midiSettings ? g.midiSettings.pitch : 0,
 						bpm: Math.round(orig * speed),
 						metronome: g.midiSettings ? g.midiSettings.metronome : false,
-						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2'
+						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2',
+					originalBPM: orig
 					};
 					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
 				}

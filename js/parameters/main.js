@@ -36,10 +36,6 @@ async function init() {
         };
     }
 
-    // Override the default close behavior from window-loader/nui_app if needed
-    // But usually standard window-loader sends 'window-closed' and main process hides it.
-    // The plan says "Window hides (doesn't destroy)".
-    
     // Wire up sliders
     initAudioControls();
     initMidiControls();
@@ -47,6 +43,17 @@ async function init() {
     // Listen for file type / mode changes from stage
     bridge.on('set-mode', (data) => {
         setMode(data.mode); // 'audio', 'midi', 'tracker'
+        
+        // Display original BPM for MIDI mode
+        if (data.mode === 'midi' && data.params && typeof data.params.originalBPM === 'number') {
+            const origElem = document.getElementById('midi_original_bpm');
+            if (origElem) origElem.textContent = `(Original: ${Math.round(data.params.originalBPM)})`;
+            // Set the default value for the tempo slider
+            if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
+                controls.midi.tempo.setDefault(Math.round(data.params.originalBPM));
+            }
+        }
+        
         if (data.params) {
             updateParams(data.mode, data.params);
         }
@@ -56,24 +63,39 @@ async function init() {
     bridge.on('update-params', (data) => {
         updateParams(currentMode, data);
     });
-
-    // Initialize logic based on initial data (passed via window-loader)
-    // window-loader usually sets window.init_data
-    if (window.init_data) {
-        g.init_data = window.init_data;
-        if (window.init_data.mode) {
-            setMode(window.init_data.mode);
-        }
-        if (window.init_data.params) {
-            updateParams(window.init_data.mode || 'audio', window.init_data.params);
-        }
-    } else {
-        // Default to audio if opened without context
-        setMode('audio');
-    }
     
     document.querySelector('main').classList.add('ready');
 }
+
+// Wait for bridge-ready event which provides init_data
+window.addEventListener('bridge-ready', async (e) => {
+    const data = e.detail;
+    g.init_data = data;
+    console.log('[Parameters] bridge-ready, init_data received:', data);
+    
+    // Initialize soundfont selector now that we have init_data
+    await initSoundfontSelector();
+    
+    if (data.mode) {
+        console.log('[Parameters] Setting mode:', data.mode);
+        setMode(data.mode);
+    }
+    
+    // Display original BPM for MIDI mode
+    if (data.mode === 'midi' && typeof data.originalBPM === 'number') {
+        const origElem = document.getElementById('midi_original_bpm');
+        if (origElem) origElem.textContent = `(Original: ${Math.round(data.originalBPM)})`;
+        // Set the default value for the tempo slider
+        if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
+            controls.midi.tempo.setDefault(Math.round(data.originalBPM));
+        }
+    }
+    
+    if (data.params) {
+        console.log('[Parameters] Updating params:', data.params);
+        updateParams(data.mode || 'audio', data.params);
+    }
+});
 
 // Ensure DOM is ready
 if (document.readyState === 'loading') {
@@ -117,13 +139,28 @@ function updateParams(mode, params) {
         if (typeof params.metronome !== 'undefined') {
             document.getElementById('btn_metronome').checked = !!params.metronome;
         }
+        // Display original BPM beside the Tempo label
+        if (g.init_data && typeof g.init_data.originalBPM === 'number') {
+            const origElem = document.getElementById('midi_original_bpm');
+            if (origElem) origElem.textContent = `(Original: ${Math.round(g.init_data.originalBPM)})`;
+            // Set the default value for the tempo slider
+            if (controls.midi.tempo && controls.midi.tempo.setDefault) {
+                controls.midi.tempo.setDefault(Math.round(g.init_data.originalBPM));
+            }
+        }
         if (params.soundfont) {
             const sfSelect = document.getElementById('soundfont-select');
             if (sfSelect) {
                 sfSelect.value = params.soundfont;
-                // Update superSelect visual if needed (usually dispatch change event handles logic, but simple value set needs manual update if custom UI used)
-                 // If using specific library update method...
-                 // Assuming native select value change is enough for now or superSelect handles it.
+                // Trigger superSelect update by finding and clicking the matching option in the custom UI
+                const customSelect = sfSelect.parentElement.querySelector('.nui-select-display');
+                if (customSelect) {
+                    // Find the selected option's text
+                    const selectedOption = sfSelect.options[sfSelect.selectedIndex];
+                    if (selectedOption) {
+                        customSelect.textContent = selectedOption.textContent;
+                    }
+                }
             }
         }
     }
@@ -205,40 +242,69 @@ function initMidiControls() {
 
     document.getElementById('btn_midi_reset').addEventListener('click', () => {
         controls.midi.pitch.update(0);
-        // controls.midi.tempo.update(120); // Should reset to file original tempo? Need logic for that.
+        // Reset tempo to original BPM
+        const originalBPM = (g.init_data && g.init_data.originalBPM) ? Math.round(g.init_data.originalBPM) : 120;
+        controls.midi.tempo.update(originalBPM);
         bridge.sendToStage('midi-reset-params', {});
     });
     
-    // SoundFont Selector
+    document.getElementById('btn_open_fonts').addEventListener('click', () => {
+        bridge.sendToStage('open-soundfonts-folder', {});
+    });
+}
+
+async function initSoundfontSelector() {
     const sfSelect = document.getElementById('soundfont-select');
-    if (sfSelect) {
-        superSelect(sfSelect);
-        sfSelect.addEventListener('change', () => {
-            bridge.sendToStage('param-change', { mode: 'midi', param: 'soundfont', value: sfSelect.value });
-        });
-        
-        // Request available soundfonts from stage
+    if (!sfSelect) return;
+    
+    // Get current soundfont from init_data (will be set by bridge-ready event)
+    const getCurrentFont = () => (g.init_data && g.init_data.params && g.init_data.params.soundfont) || 'TimGM6mb.sf2';
+    
+    console.log('[SoundFont] Requesting available soundfonts, windowId:', bridge.windowId);
+    
+    // Get list of available soundfonts from stage
+    const availableFonts = await new Promise((resolve) => {
         bridge.sendToStage('get-available-soundfonts', { windowId: bridge.windowId });
-        bridge.on('available-soundfonts', (data) => {
-            if (data.fonts && data.fonts.length) {
-                const current = sfSelect.value;
-                sfSelect.innerHTML = '';
-                data.fonts.forEach(font => {
-                    const option = document.createElement('option');
-                    option.value = font.filename;
-                    option.textContent = font.label;
-                    sfSelect.appendChild(option);
-                });
-                sfSelect.value = current; // Restore selection if possible
-             
-                // Force UI update for superSelect
-                const event = new Event('change', { bubbles: true });
-                sfSelect.dispatchEvent(event);
-            }
+        bridge.once('available-soundfonts', (data) => {
+            console.log('[SoundFont] Received available soundfonts:', data);
+            resolve(data.fonts || []);
+        });
+    });
+    
+    // Populate dropdown with available fonts
+    if (availableFonts.length > 0) {
+        sfSelect.innerHTML = '';
+        availableFonts.forEach(font => {
+            const option = document.createElement('option');
+            option.value = font.filename;
+            option.textContent = font.label;
+            sfSelect.appendChild(option);
         });
     }
     
-    document.getElementById('btn_open_fonts').addEventListener('click', () => {
-        bridge.sendToStage('open-soundfonts-folder', {});
+    // Set current value before initializing superSelect
+    const currentFont = getCurrentFont();
+    sfSelect.value = currentFont;
+    console.log('[SoundFont] Set select value to:', currentFont, 'selectedIndex:', sfSelect.selectedIndex);
+    
+    // Ensure something is selected
+    if (sfSelect.selectedIndex === -1 && sfSelect.options.length > 0) {
+        console.warn('[SoundFont] Configured soundfont not found, defaulting to first option');
+        sfSelect.selectedIndex = 0;
+    }
+    
+    // Initialize nui-select
+    console.log('[SoundFont] Calling superSelect()');
+    superSelect(sfSelect);
+    
+    // Force update the visual state of the select
+    const event = new Event('change', { bubbles: true });
+    sfSelect.dispatchEvent(event);
+    
+    // Listen for changes
+    sfSelect.addEventListener('change', () => {
+        const newFont = sfSelect.value;
+        console.log('[SoundFont] Changed to:', newFont);
+        bridge.sendToStage('param-change', { mode: 'midi', param: 'soundfont', value: newFont });
     });
 }

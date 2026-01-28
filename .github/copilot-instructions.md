@@ -20,6 +20,44 @@ You have full agency over the memory system — use it however you find useful (
 A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats. MIDI playback is integrated via js-synthesizer + FluidSynth WASM.
 
 ## Project Structure (Current)
+```
+.github/
+    copilot-instructions.md
+.vscode/
+bin/
+    linux_bin/
+    metronome/
+    midiplayer-runtime/
+    soundfonts/
+    win_bin/
+build/
+    icons/
+css/
+    fonts/
+docs/
+html/
+js/
+    chiptune/
+    help/
+    midi/
+    midi-settings/
+    mixer/
+    parameters/
+    pitchtime/
+    settings/
+libs/
+    chiptune/
+    electron_helper/
+    ffmpeg-napi-interface/
+    midiplayer/
+    native-registry/
+    nui/
+    rubberband/
+    rubberband-wasm/
+scripts/
+```
+
+**Key Files:**
 - `js/stage.js` - Main player logic and audio handling (including MIDI init + window routing)
 - `js/audio_controller.js` - Web Audio controller for browser-native formats
 - `js/app.js` - Main process (Electron)
@@ -27,27 +65,30 @@ A cross-platform desktop audio player built with Electron, designed to play a wi
 - `js/registry.js` - Windows file association handling and Default Programs integration
 - `js/shortcuts.js` - Centralized keyboard shortcut definitions
 - `js/window-loader.js` - Shared window initialization and IPC bridge
+- `js/rubberband-pipeline.js` - Rubber Band audio stretching pipeline
 - `js/midi/midi.js` - MIDI player (js-synthesizer integration + metronome config)
 - `js/midi/midi.worklet.js` - MIDI hook worklet (transpose, etc.)
 - `js/midi/metronome.worklet.js` - Worklet-synced metronome (sample decode + mix)
 - `js/midi-settings/main.js` - MIDI Settings window logic (pitch/tempo/metronome/soundfont)
-- `html/midi.html` - MIDI Settings window UI
-- `html/mixer.html` - Mixer secondary window (NUI chrome + mixer UI)
-- `css/mixer.css` - Mixer window styling
+- `js/parameters/main.js` - Parameters window logic (unified control interface)
+- `js/pitchtime/main.js` - Pitch/Time window logic
+- `js/pitchtime/pitchtime_engine.js` - Pitch/time manipulation engine
+- `html/*.html` - Window templates (stage, help, settings, mixer, midi, parameters, pitchtime)
+- `css/*.css` - Styling (main, window, mixer, midi, parameters, pitchtime, etc.)
 - `js/mixer/main.js` - Mixer UI + playlist handover + cleanup
 - `js/mixer/mixer_engine.js` - Mixer engine (buffer decode + AudioWorklet mixer)
 - `js/mixer/mixer-worklet-processor.js` - AudioWorkletProcessor (`soundapp-mixer`)
-- `bin/win_bin/player.js` - FFmpegStreamPlayerSAB class (NAPI decoder + SharedArrayBuffer + AudioWorklet)
-- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorkletProcessor for SAB ring buffer playback
+- `bin/win_bin/player-sab.js` - FFmpegStreamPlayerSAB class (NAPI decoder + SharedArrayBuffer + AudioWorklet)
+- `bin/win_bin/ffmpeg-worklet-sab.js` - AudioWorkletProcessor for SAB ring buffer playback
 - `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
 - `bin/metronome/` - Metronome click samples (user-replaceable WAVs)
 - `libs/midiplayer/` - js-synthesizer bundles (main + worklet)
 - `bin/midiplayer-runtime/` - runtime copy of js-synthesizer bundles
 - `scripts/patch-midiplayer-worklet.js` - post-update patch for js-synthesizer worklet hook
+- `scripts/sync-ffmpeg-napi.ps1` - sync ffmpeg-napi-interface to bin/
+- `scripts/create-release.ps1` - release workflow script
 - `libs/` - Third-party audio libraries (NUI, electron_helper, chiptune, etc.)
-- `bin/` - FFmpeg binaries and NAPI addon for Windows and Linux
-- `html/` - Window templates (stage.html, help.html)
-- `css/` - Styling (window.css, fonts.css, etc.)
+- `docs/` - Architecture documentation
 
 ## MIDI Player Integration (Current)
 - **Package:** js-synthesizer v1.11.0 from npm (easy updates)
@@ -94,6 +135,13 @@ async function openWindow(type) {
 
 **Global Settings Pattern:**
 Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via `ipcRenderer.on('theme-changed')` and apply on open via init_data.
+
+**Window Lifecycle (Hide vs Close):**
+**Important:** Windows are hidden rather than closed when the user "closes" them. This means:
+- Use `'hide'` event instead of `'close'` event for cleanup logic
+- Window state persists between hide/show cycles
+- Clean up temporary state when window is hidden, not when window object is destroyed
+- The window object remains in `g.windows` until explicitly set to `null`
 
 **Creating New Windows:**
 1. Copy help.html structure with NUI framework classes
@@ -247,7 +295,7 @@ Use the MCP memory endpoint to memorize noteworthy discoveries and learnings:
 
 Focus on quality evidence, not preferences - what demonstrably produces better outcomes in this codebase.
 
-### Collaboration Rules for Gemini 3 Flash (Preview)
+### Collaboration Rules for Gemini
 - **Announce Before Action**: Always describe the specific changes you intend to make (files, functions, logic) before using any edit tools.
 - **Wait for Confirmation**: If a change is complex or involves visual/UI styling, wait for user approval before proceeding.
 - **No Unsolicited Changes**: Do not fix "extra" things or add unrequested features (like standard D&D visuals) without explicit instruction.
@@ -261,7 +309,7 @@ When the user asks to create a release, **always use the release script**:
 1. npm version patch   # (or minor/major) - bumps version in package.json
 2. git add -A && git commit -m "Description (vX.X.X)"
 3. git push origin main
-4. .\scripts\create-release.ps1   # Builds and creates GitHub release with all artifacts
+4. .\scripts\create-release.ps1 -Notes "description of changes since last release"
 ```
 
 The script (`scripts/create-release.ps1`) handles:
@@ -271,12 +319,28 @@ The script (`scripts/create-release.ps1`) handles:
 
 **Never manually run `gh release create`** - the nupkg and RELEASES files are required for Squirrel auto-updates to work.
 
-Options:
-- `.\scripts\create-release.ps1 -Clean` - Clean old builds first
-- `.\scripts\create-release.ps1 -Draft` - Create as draft (won't trigger auto-updates)
-- `.\scripts\create-release.ps1 -Notes "changelog text"` - Custom release notes
+**Required Parameter:**
+- `-Notes "text"` - **REQUIRED** - Description of what has changed since the last release (changelog)
+
+**Optional Parameters:**
+- `-Clean` - Clean old builds first
+- `-Draft` - Create as draft (won't trigger auto-updates)
 
 ## Release History
+
+### Version 2.1.0 (January 2026)
+- **High-Quality Pitch Shifting & Time Stretching** - Rubber Band Library integration
+  - Independent pitch and tempo control for professional audio manipulation
+  - Real-time DSP processing with configurable quality presets
+  - Dedicated controls windows for precise parameter adjustment
+- **Full MIDI Support** - FluidSynth-based MIDI playback
+  - Native SoundFont synthesis via js-synthesizer (FluidSynth WASM)
+  - Worklet-synced metronome with customizable click samples
+  - MIDI Settings window for pitch/tempo/soundfont configuration
+- **Dedicated Controls Windows** - Specialized UI for advanced features
+  - Pitch/Time window for real-time audio manipulation
+  - MIDI Settings window for comprehensive MIDI control
+  - Parameters window for future extensibility
 
 ### Version 2.0.8 (January 2026)
 - **Tape-Style Speed Control** - Variable playback speed from -24 to +24 semitones
@@ -315,28 +379,30 @@ Options:
   - All settings have fallback values in code and UI
   - Empty/missing config files work correctly with defaults
 
+## Current Bugs
+
+### Main Window
+- **Pipeline Transition Overlap** - Transition between pipelines (rubberband <-> normal) causes some audible overlap
+
+### Parameters Window
+- **Global Shortcuts** - Window toggle shortcuts (e.g., theme toggle) not working when Parameters window is focused
+- **Main Player Shortcuts** - Main player controls (pause, play, loop, seek, next/prev file) should work when Parameters window is focused but currently don't
+- **MIDI Parameter Reset** - MIDI parameters don't reset when the window closes (hides)
+- **Pitchtime Quality Options** - Missing quality presets for pitch/time manipulation (see old implementation in `pitchtime/main.js`)
+
 ## Backlog / Future Features
 
-### Short Term Updates
-
-1. **Playlist Window**
+- **Playlist Window**
    - Separate window displaying full playlist
    - Use `libs/nui/nui_list.js` for virtualized list handling
    - Search, sort, and scroll through large playlists
-
-1. **Playlist Window**
-   - Separate window displaying full playlist
-   - Use `libs/nui/nui_list.js` for virtualized list handling
-   - Search, sort, and scroll through large playlists
-
-2## Version 2.0 (Future)
+- **Tracker Type Controls for the Parameters Window** - Tracker-style parameter controls in Parameters window
+- **Automatic or User Driven Soundfont Downloads** - Download SoundFonts from Archive.org sources
 - **Waveform Visualization** - Display audio waveform (if performance allows)
+- **BPM Detection** - Detect tempo, maybe in conjunction with the waveform display
 - **Quick Compare Mode** - Hold key to jump to another track, release to return
 - **Export Playlist** - Save playlist as M3U or text file
 - **Marker System** - Set up to 10 markers in a file (keys 1-0), jump and play from markers
   - Integrates with Quick Compare Mode for A/B comparison between markers
 - **Folder Metadata Display** - Show folder stats (duration, file count, size)
 - **Quick Tag Editor** - Simple inline ID3/metadata editing
-1+ (Future)
-- **True Pitch Shifting** - DSP-based pitch shifting independent of playback speed
-- **Time Stretching** - Change playback speed while preserving pitch (phase vocoder
