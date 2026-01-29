@@ -705,8 +705,31 @@ async function init(){
 			}
 			else if(data.param === 'formant'){
 				g.audioParams.formant = !!data.value;
-				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer && typeof g.rubberbandPlayer.setOptions === 'function'){
-					g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
+				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
+					// Options changes: use fade + stabilization pattern
+					// (rubberband internally recreates kernel, which needs settling time)
+					if(g.rubberbandPlayer.isPlaying && typeof g.rubberbandPlayer.fadeOut === 'function'){
+						try {
+							await g.rubberbandPlayer.fadeOut();
+							
+							if(typeof g.rubberbandPlayer.setOptions === 'function'){
+								g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
+							}
+							
+							// 300ms stabilization for kernel recreation
+							await new Promise(resolve => setTimeout(resolve, 300));
+							
+							await g.rubberbandPlayer.fadeIn();
+							console.log('[Stage] Formant option changed with fade+stabilization');
+						} catch(err) {
+							console.error('[Stage] Error during formant change:', err);
+						}
+					} else {
+						// Not playing - just apply option directly
+						if(typeof g.rubberbandPlayer.setOptions === 'function'){
+							g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
+						}
+					}
 				}
 			}
 		}
@@ -1712,12 +1735,20 @@ function clearAudio(){
 	}
 	if(g.rubberbandPlayer) {
 		g.rubberbandPlayer.disconnect();
+		
+		// Dispose worklet to flush internal buffers and prevent audio bleed
+		if(typeof g.rubberbandPlayer.disposeWorklet === 'function'){
+			g.rubberbandPlayer.disposeWorklet().catch(e => {
+				console.error('[clearAudio] Failed to dispose rubberband worklet:', e);
+			});
+		}
+		
 		g.rubberbandPlayer.reset();
 		if(g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function'){
 			g.rubberbandPlayer.player.clearBuffer();
 		}
 		g.rubberbandPlayer.stop(false);
-		console.log('[clearAudio] Stopped, reset, and disconnected rubberbandPlayer');
+		console.log('[clearAudio] Stopped, reset, and disposed rubberband worklet');
 		g.activePipeline = 'normal';
 	}
 	if(g.currentAudio){

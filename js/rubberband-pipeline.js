@@ -18,6 +18,7 @@ class RubberbandPipeline {
         this.currentVolume = 1.0;
         this.isLoop = false;
         this.isConnected = false;
+        this.filePath = null;
 
         this.options = {
             highQuality: true,
@@ -87,12 +88,28 @@ class RubberbandPipeline {
         this.setPitch(this.currentPitch);
         this.setTempo(this.currentTempo);
         this.setOptions(this.options);
+        
+        // Prime the kernel with silence to avoid warm-up artifacts on first play
+        this.rubberbandNode.port.postMessage(JSON.stringify(['prime', 4]));
 
         this.initialized = true;
     }
 
     async open(filePath) {
         if(!this.initialized) await this.init();
+        
+        // Recreate worklet if:
+        // 1. It was disposed (rubberbandNode is null), OR
+        // 2. We're changing files (prevents audio bleed from previous track's internal buffers)
+        const needsRecreate = !this.rubberbandNode || (this.filePath && this.filePath !== filePath);
+        
+        if(needsRecreate) {
+            console.log('[RubberbandPipeline] Recreating worklet, reason:', !this.rubberbandNode ? 'disposed' : 'file change');
+            await this.recreateWorklet();
+        }
+        
+        this.filePath = filePath;
+        
         let metadata = null;
         if(this.player) {
             metadata = await this.player.open(filePath);
@@ -246,18 +263,97 @@ class RubberbandPipeline {
         }
     }
 
-    dispose() {
-        this.stop(false);
-        if(this.player) this.player.dispose();
+    async disposeWorklet() {
         if(this.rubberbandNode) {
-            this.rubberbandNode.disconnect();
+            // Send close message to processor - this sets running=false 
+            // so process() returns false and processor can be GC'd
+            try {
+                this.rubberbandNode.port.postMessage(JSON.stringify(['close']));
+            } catch(e) {}
+            
+            try {
+                this.rubberbandNode.disconnect();
+            } catch(e) {
+                console.error('[RubberbandPipeline] Error disconnecting worklet:', e);
+            }
+            
+            // Clear port reference
+            try {
+                this.rubberbandNode.port.onmessage = null;
+            } catch(e) {}
+            
+            // Give worklet time to clean up
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            this.rubberbandNode = null;
+            // Note: isConnected tracks gainNode→destination, not rubberband state
+            
+            console.log('[RubberbandPipeline] Worklet disposed');
+        }
+    }
+
+    async recreateWorklet() {
+        if(this.rubberbandNode) {
+            await this.disposeWorklet();
+        }
+        
+        // Disconnect player from old routing (it was connected to the now-disposed rubberbandNode)
+        if(this.player && this.player.gainNode) {
+            try { this.player.gainNode.disconnect(); } catch(e) {}
+        }
+        
+        try {
+            this.rubberbandNode = new AudioWorkletNode(this.ctx, 'realtime-pitch-shift-processor', {
+                numberOfInputs: 1,
+                numberOfOutputs: 1,
+                outputChannelCount: [2],
+                processorOptions: { 
+                    blockSize: 4096,
+                    highQuality: this.options.highQuality !== undefined ? this.options.highQuality : true
+                }
+            });
+            
+            // Rebuild the full audio chain: player.gainNode → rubberbandNode → this.gainNode
+            this.rubberbandNode.connect(this.gainNode);
+            
+            // Reconnect player output to new rubberband node
+            if(this.player && this.player.gainNode) {
+                this.player.gainNode.connect(this.rubberbandNode);
+            }
+            
+            // Reapply current settings
+            this.setPitch(this.currentPitch);
+            this.setTempo(this.currentTempo);
+            this.setOptions(this.options);
+            
+            // Prime the kernel with silence to avoid warm-up artifacts
+            this.rubberbandNode.port.postMessage(JSON.stringify(['prime', 4]));
+            
+            console.log('[RubberbandPipeline] Worklet recreated with pitch:', this.currentPitch, 'tempo:', this.currentTempo);
+        } catch(e) {
+            console.error('[RubberbandPipeline] Failed to recreate rubberband worklet:', e);
+            throw e;
+        }
+    }
+
+    dispose() {
+        console.log('[RubberbandPipeline] Full dispose');
+        this.stop(false);
+        if(this.player) {
+            this.player.dispose();
+            this.player = null;
+        }
+        if(this.rubberbandNode) {
+            try { this.rubberbandNode.disconnect(); } catch(e) {}
             this.rubberbandNode = null;
         }
         if(this.gainNode) {
-            this.gainNode.disconnect();
+            try { this.gainNode.disconnect(); } catch(e) {}
             this.gainNode = null;
         }
+        this.isConnected = false;
         this.initialized = false;
+        this.filePath = null;
     }
 }
 

@@ -416,13 +416,7 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Current Bugs
 
-### Main Window
-- **FluidSynth Background Stutter** - MIDI playback gets distorted/stuttery when the window is in the background (possible background throttling)
-
-### Parameters Window
-- **Audio Overlap Between Tracks** - When Parameters window is open (rubberband pipeline active), audio from the previous track bleeds into the start of the next track. The rubberband worklet accumulates audio in internal buffers with no built-in flush mechanism.
-- **Crackly when Parameters change** - Audio crackles when using the pitch or tempo sliders
-- **Memory Leak** - Rubberband pipeline has a serious memory leak. Need better cleanup/reset strategy when switching pipelines or changing tracks.
+(none)
 
 ## Immediate Features
 
