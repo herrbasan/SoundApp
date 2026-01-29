@@ -4,9 +4,6 @@
 [submodule "libs/nui"]
 	path = libs/nui
 	url = https://github.com/herrbasan/nui.git
-[submodule "libs/chiptune"]
-	path = libs/chiptune
-	url = https://github.com/DrSnuggles/chiptune.git
 [submodule "libs/native-registry"]
 	path = libs/native-registry
 	url = https://github.com/herrbasan/windows-native-registry.git
@@ -16,3 +13,6 @@
 [submodule "libs/rubberband-wasm"]
 	path = libs/rubberband-wasm
 	url = https://github.com/herrbasan/rubberband-wasm-soundapp.git
+[submodule "libs/chiptune"]
+	path = libs/chiptune
+	url = https://github.com/herrbasan/chiptune-soundapp.git
