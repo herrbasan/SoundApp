@@ -363,6 +363,15 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Release History
 
+### Version 2.1.1 (January 2026)
+- **Unified Parameters Window** - Context-aware control panel that adapts to file type
+  - Audio files: Tape Speed (default) or Pitch/Time (Rubber Band) controls with optional Lock Settings
+  - MIDI files: Global transpose, tempo, metronome, and SoundFont selection
+  - Tracker files: Pitch shift, tempo, channel mixer with solo/mute, and stereo separation
+  - Replaced help button in controls bar with parameters button
+- **Updated Documentation** - Comprehensive documentation for Parameters window in README and Help
+- **Cleaned Settings Window** - Removed duplicate tracker settings (now exclusively in Parameters window)
+
 ### Version 2.1.0 (January 2026)
 - **High-Quality Pitch Shifting & Time Stretching** - Rubber Band Library integration
   - Independent pitch and tempo control for professional audio manipulation
