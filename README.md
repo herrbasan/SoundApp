@@ -71,7 +71,7 @@ SoundApp is built for keyboard use. You can do almost everything without touchin
 | `Ctrl+←` / `Ctrl+→` | Skip 10 seconds |
 | `↑` / `↓` | Volume up / down |
 | `+` / `-` | Speed up / down (±24 semitones) |
-| `P` | Open Pitch/Time Controls |
+| `P` | Open Parameters (Pitch/Time/MIDI/Tracker) |
 | `M` | Open mixer with current folder |
 | `I` | Show file in folder |
 | `H` | Help |
@@ -120,9 +120,14 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 ## What's New in 2.1.0
 
-**High-Quality Pitch Shifting & Time Stretching** — Independent pitch and time control with Rubber Band Library integration. Shift pitch without changing speed, or change speed without affecting pitch. Separate controls window (`P` key) with real-time preview.
+**Parameters Window** — Unified controls window (`P` key) for advanced playback features, automatically adapting to the current file type:
+- **Audio Files:** Tape Speed (coupled pitch/tempo) or Pitch/Time (independent pitch shifting and time stretching via Rubber Band Library)
+- **MIDI Files:** Transpose, tempo control, metronome, and SoundFont selection
+- **Tracker Modules:** Pitch/tempo control, channel mixer with solo/mute, and stereo separation
 
-**Full MIDI Support** — Plays General MIDI files with FluidSynth and high-quality SoundFonts. Includes tempo control, pitch shifting, and a metronome that syncs to MIDI tempo changes. MIDI settings window (`P` key) lets you customize playback parameters.
+**High-Quality Pitch Shifting & Time Stretching** — Independent pitch and time control with Rubber Band Library integration. Shift pitch without changing speed, or change speed without affecting pitch.
+
+**Full MIDI Support** — Plays General MIDI files with FluidSynth and high-quality SoundFonts. Includes tempo control, pitch shifting, and a metronome that syncs to MIDI tempo changes.
 
 **Multi-Track Mixer Improvements** — Enhanced synchronization and performance for stem preview workflows.
 

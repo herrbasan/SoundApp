@@ -235,36 +235,6 @@ function initMixerPreBuffer() {
 	});
 }
 
-function initModStereoSeparation() {
-	const modStereoSeparationSelect = document.getElementById('modStereoSeparationSelect');
-	modStereoSeparationSelect.value = getCfg(['tracker','stereoSeparation'], 100);
-	superSelect(modStereoSeparationSelect, { searchable: false });
-
-	let stereoSeparationChangeTimeout = null;
-	modStereoSeparationSelect.addEventListener('change', () => {
-		clearTimeout(stereoSeparationChangeTimeout);
-		stereoSeparationChangeTimeout = setTimeout(() => {
-			const stereoSeparation = parseInt(modStereoSeparationSelect.value);
-			setCfgValue(['tracker','stereoSeparation'], stereoSeparation);
-		}, 200);
-	});
-}
-
-function initModInterpolationFilter() {
-	const modInterpolationFilterSelect = document.getElementById('modInterpolationFilterSelect');
-	modInterpolationFilterSelect.value = getCfg(['tracker','interpolationFilter'], 0);
-	superSelect(modInterpolationFilterSelect, { searchable: false });
-
-	let interpolationFilterChangeTimeout = null;
-	modInterpolationFilterSelect.addEventListener('change', () => {
-		clearTimeout(interpolationFilterChangeTimeout);
-		interpolationFilterChangeTimeout = setTimeout(() => {
-			const interpolationFilter = parseInt(modInterpolationFilterSelect.value);
-			setCfgValue(['tracker','interpolationFilter'], interpolationFilter);
-		}, 200);
-	});
-}
-
 function initDefaultDirectory() {
 	const dirInput = document.getElementById('defaultDirInput');
 	const browseBtn = document.getElementById('browseBtn');
@@ -346,8 +316,6 @@ async function init(data) {
 	initBufferSize();
 	initDecoderThreads();
 	initMixerPreBuffer();
-	initModStereoSeparation();
-	initModInterpolationFilter();
 	initDefaultDirectory();
 	initFileAssociations();
 }

@@ -83,7 +83,7 @@
                             </tr>
                             <tr>
                                 <td><kbd>P</kbd></td>
-                                <td>Pitch/Tempo (audio) / Settings (MIDI)</td>
+                                <td>Open Parameters window (adapts to file type)</td>
                             </tr>
                             <tr>
                                 <td><kbd>I</kbd></td>
@@ -296,23 +296,69 @@
                         </tbody>
                     </table>
 
-                    <h2>Pitch & Time</h2>
+                    <h2>Parameters Window</h2>
                     <p>
-                        A dedicated tool (press <kbd>P</kbd>) for independent pitch shifting and time stretching, powered by the high-quality <strong>Rubberband</strong> library.
+                        Press <kbd>P</kbd> to open the Parameters window — a unified control panel that automatically adapts to the file type you're playing.
                     </p>
+                    
+                    <h3>Audio Files</h3>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Tape Speed</strong></td>
+                                <td>Classic tape-style speed control (±12 semitones) where pitch and tempo change together. Active by default. Use <kbd>+</kbd>/<kbd>-</kbd> keys or the slider.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Pitch / Time</strong></td>
+                                <td>High-quality independent control via Rubber Band Library. Enable this section to shift pitch (±12 semitones) without affecting tempo, or change playback speed (50-150%) without affecting pitch. Optionally preserve formants for more natural pitch shifting.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Lock Settings</strong></td>
+                                <td>Keep parameters across track changes (disabled by default — resets to normal speed on next track).</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <h3>MIDI Files</h3>
+                    <table class="shortcuts-table">
+                        <tbody>
+                            <tr>
+                                <td><strong>Global Transpose</strong></td>
+                                <td>Shift all MIDI notes up or down (±12 semitones).</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Tempo</strong></td>
+                                <td>Adjust playback tempo (40-240 BPM) — shows original tempo when available.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Metronome</strong></td>
+                                <td>Enable click track synced to MIDI tempo and time signature changes.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>SoundFont</strong></td>
+                                <td>Choose from installed SoundFonts or open the soundfonts folder to add custom .sf2 files.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <h3>Tracker / Module Files</h3>
                     <table class="shortcuts-table">
                         <tbody>
                             <tr>
                                 <td><strong>Pitch Shift</strong></td>
-                                <td>Change pitch (±12 semitones) without affecting tempo.</td>
+                                <td>Transpose tracker music (±12 semitones).</td>
                             </tr>
                             <tr>
-                                <td><strong>Time Stretch</strong></td>
-                                <td>Change playback speed without affecting pitch.</td>
+                                <td><strong>Tempo</strong></td>
+                                <td>Speed control (50-200%) for MOD/XM/IT/S3M files.</td>
                             </tr>
                             <tr>
-                                <td><strong>Note</strong></td>
-                                <td>The effect might be very subtle. This is intentional as the algorithm prioritizes high-quality audio preservation.</td>
+                                <td><strong>Channel Mixer</strong></td>
+                                <td>Solo or mute individual channels. Perfect for studying arrangements or isolating instruments.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Stereo Separation</strong></td>
+                                <td>Adjust stereo width (0-200%) — set to 100% for classic Amiga-style hard panning, or 0% for mono.</td>
                             </tr>
                         </tbody>
                     </table>

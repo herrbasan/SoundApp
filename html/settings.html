@@ -4,9 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        html, body { background-color: #323232 !important; }
-        main { opacity: 0; }
-        main.ready { opacity: 1; transition: opacity 0.1s ease-in; }
+        html,
+        body {
+            background-color: #323232 !important;
+        }
+
+        main {
+            opacity: 0;
+        }
+
+        main.ready {
+            opacity: 1;
+            transition: opacity 0.1s ease-in;
+        }
     </style>
     <title>Settings - SoundApp</title>
     <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
@@ -53,109 +63,54 @@
                             <div class="setting-description">
                                 Show the playback controls bar at the bottom of the main window. Toggle with 'C' key.
                             </div>
-                            </section>
-                            <hr>
-                            <section class="settings-section">
+                        </section>
+                        <hr>
+                        <section class="settings-section">
                             <div class="nui-input">
                                 <div>
                                     <label>Default Directory</label>
                                     <div class="browse-input">
                                         <div style="position: relative; display: flex; align-items: center;">
-                                            <input type="text" id="defaultDirInput" readonly placeholder="No directory set" style="width: 100%; padding-right: 2.5rem;">
-                                            <div id="clearDirBtn" class="nui-icon-container" style="position: absolute; right: 0.5rem; cursor: pointer; display: none; opacity: 0.7;">
+                                            <input type="text" id="defaultDirInput" readonly
+                                                placeholder="No directory set"
+                                                style="width: 100%; padding-right: 2.5rem;">
+                                            <div id="clearDirBtn" class="nui-icon-container"
+                                                style="position: absolute; right: 0.5rem; cursor: pointer; display: none; opacity: 0.7;">
                                                 <i>close</i>
                                             </div>
                                         </div>
                                         <button id="browseBtn" type="button">Browse...</button>
                                     </div>
-								<div class="setting-description">
-									Optional start folder used for file dialogs and drag & drop convenience.
-								</div>
+                                    <div class="setting-description">
+                                        Optional start folder used for file dialogs and drag & drop convenience.
+                                    </div>
                                 </div>
                             </div>
                             <hr>
-                            </section>
-                             <section class="settings-section">
-                        <div class="nui-checkbox" style="margin-top: 1rem;">
-                            <input type="checkbox" id="keepRunningInTrayToggle">
-                            <label for="keepRunningInTrayToggle">
-                                <strong>Keep running in tray</strong>
-                            </label>
-                        </div>
-                        <div class="setting-description">
-                            When enabled, closing the main window will hide SoundApp to the tray instead of exiting. Useful for faster restart.
-                        </div>
                         </section>
-                    </div>
-                    
-                    <div class="nui-card">
                         <section class="settings-section">
-                            <h2>File Associations</h2>
-                            <div class="nui-button-container">
-                                <button id="registerFilesBtn" type="button" class="nui-button">Register File Types</button>
-                                <button id="unregisterFilesBtn" type="reset" class="nui-button secondary">Unregister File Types</button>
-                            </div>
-                            <div class="restart-notice" id="registryNotice">
-                                Done!
-                            </div>
-                            <div class="setting-description" style="margin-bottom: 1rem;">
-                                Register SoundApp as the default handler for supported audio file types in Windows Explorer.
-                            </div>
-                            <hr>
-                            <div class="nui-button-container" style="margin-top: 1rem;">
-                                <button id="setDefaultBtn" type="button" class="nui-button">Set as Default Player</button>
+                            <div class="nui-checkbox" style="margin-top: 1rem;">
+                                <input type="checkbox" id="keepRunningInTrayToggle">
+                                <label for="keepRunningInTrayToggle">
+                                    <strong>Keep running in tray</strong>
+                                </label>
                             </div>
                             <div class="setting-description">
-                                Opens Windows Default Programs where you can set SoundApp as the default for all audio formats at once.
+                                When enabled, closing the main window will hide SoundApp to the tray instead of exiting.
+                                Useful for faster restart.
                             </div>
                         </section>
                     </div>
-
-                    <div class="nui-card">
-                        <section>
-                            <h2>Module / Tracker</h2>
-                            <div class="nui-input">
-                                <label>MOD Stereo Separation</label>
-                                <select id="modStereoSeparationSelect">
-                                    <option value="0">0% (Mono)</option>
-                                    <option value="25">25%</option>
-                                    <option value="50">50%</option>
-                                    <option value="75">75%</option>
-                                    <option value="100" selected>100% (Full Amiga stereo)</option>
-                                </select>
-                                <div class="setting-description">
-                                    Stereo width control for tracker/module formats (MOD, XM, S3M, IT). 0% = mono, 100% = full Amiga-style hard stereo panning. Affects MOD files only. Changing this reloads the current file.
-                                </div>
-                            </div>
-
-                            <div class="nui-input">
-                                <label>MOD Interpolation Filter</label>
-                                <select id="modInterpolationFilterSelect">
-                                    <option value="0" selected>Internal default</option>
-                                    <option value="1">No interpolation (zero order hold)</option>
-                                    <option value="2">Linear interpolation</option>
-                                    <option value="4">Cubic interpolation</option>
-                                    <option value="8">Windowed sinc (8 taps, highest quality)</option>
-                                </select>
-                                <div class="setting-description">
-                                    Sample interpolation quality for tracker/module formats. Higher quality reduces aliasing artifacts at the cost of slightly more CPU usage. Affects MOD files only. Changing this reloads the current file.
-                                </div>
-                            </div>
-                        </section>
-                    </div>
-                </div>
-
-                <div class="settings-column">
-                    
 
                     <div class="nui-card">
                         <section class="settings-section">
                             <h2>Audio / Quality</h2>
-                            
+
                             <div class="nui-checkbox">
                                 <input type="checkbox" id="hqModeToggle">
                                 <label for="hqModeToggle">
-                                    <strong>Max output sample rate</strong><span style="padding-left: 0.5rem;">(up to device max)</span>
+                                    <strong>Max output sample rate</strong><span style="padding-left: 0.5rem;">(up to
+                                        device max)</span>
                                 </label>
                             </div>
                             <div class="restart-notice" id="hqRestartNotice">
@@ -175,16 +130,20 @@
                                     <option value="">System Default</option>
                                 </select>
                                 <div class="setting-description">
-                                    Choose which audio interface to use for playback. Useful for professionals with multiple interfaces (monitors, headphones, external DACs). Changes take effect immediately.
+                                    Choose which audio interface to use for playback. Useful for professionals with
+                                    multiple interfaces (monitors, headphones, external DACs). Changes take effect
+                                    immediately.
                                 </div>
                             </div>
-                            
+
                             <div class="restart-notice" id="deviceChangeNotice">
                                 Switching output device...
                             </div>
                         </section>
                     </div>
+                </div>
 
+                <div class="settings-column">
                     <div class="nui-card">
                         <section>
                             <h2>Streaming</h2>
@@ -205,7 +164,9 @@
                                     <option value="60">60 (~6 sec)</option>
                                 </select>
                                 <div class="setting-description">
-                                    Amount of audio buffered ahead during streaming playback. Higher values prevent dropouts on slower systems or during CPU spikes, but use slightly more memory. Lower values reduce latency. Default works well for most systems.
+                                    Amount of audio buffered ahead during streaming playback. Higher values prevent
+                                    dropouts on slower systems or during CPU spikes, but use slightly more memory. Lower
+                                    values reduce latency. Default works well for most systems.
                                 </div>
                             </div>
 
@@ -219,7 +180,9 @@
                                     <option value="8">8 threads</option>
                                 </select>
                                 <div class="setting-description">
-                                    Number of CPU threads for FFmpeg audio decoding. Auto mode uses all available cores for best performance. Lower values reduce CPU usage on slower systems. Changes take effect when loading the next file.
+                                    Number of CPU threads for FFmpeg audio decoding. Auto mode uses all available cores
+                                    for best performance. Lower values reduce CPU usage on slower systems. Changes take
+                                    effect when loading the next file.
                                 </div>
                             </div>
                         </section>
@@ -239,8 +202,36 @@
                                     <option value="300">300ms (Safest)</option>
                                 </select>
                                 <div class="setting-description">
-                                    Pre-roll buffer time to ensure synchronous start of all tracks. Increase this value if you experience sync issues or stuttering at the start of playback.
+                                    Pre-roll buffer time to ensure synchronous start of all tracks. Increase this value
+                                    if you experience sync issues or stuttering at the start of playback.
                                 </div>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="nui-card">
+                        <section class="settings-section">
+                            <h2>File Associations</h2>
+                            <div class="nui-button-container">
+                                <button id="registerFilesBtn" type="button" class="nui-button">Register File
+                                    Types</button>
+                                <button id="unregisterFilesBtn" type="reset" class="nui-button secondary">Unregister
+                                    File Types</button>
+                            </div>
+                            <div class="restart-notice" id="registryNotice">
+                                Done!
+                            </div>
+                            <div class="setting-description" style="margin-bottom: 1rem;">
+                                Register SoundApp as the default handler for supported audio file types in Windows
+                                Explorer.
+                            </div>
+                            <hr>
+                            <div class="nui-button-container" style="margin-top: 1rem;">
+                                <button id="setDefaultBtn" type="button" class="nui-button">Set as Default
+                                    Player</button>
+                            </div>
+                            <div class="setting-description">
+                                Opens Windows Default Programs where you can set SoundApp as the default for all audio
+                                formats at once.
                             </div>
                         </section>
                     </div>

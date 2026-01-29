@@ -845,7 +845,7 @@ async function appStart(){
 	g.ctrl_btn_play = ut.el('.controls .button.play');
 	g.ctrl_btn_loop = ut.el('.controls .button.loop');
 	g.ctrl_btn_settings = ut.el('.controls .button.settings');
-	g.ctrl_btn_help = ut.el('.controls .button.help');
+	g.ctrl_btn_parameters = ut.el('.controls .button.parameters');
 	g.ctrl_volume = ut.el('.controls .volume');
 	g.ctrl_volume_bar = g.ctrl_volume ? g.ctrl_volume.el('.volume-bar') : null;
 	g.ctrl_volume_bar_inner = g.ctrl_volume ? g.ctrl_volume.el('.volume-bar-inner') : null;
@@ -935,7 +935,7 @@ async function appStart(){
 	g.ctrl_btn_play.addEventListener('click', playPause);
 	g.ctrl_btn_loop.addEventListener('click', toggleLoop);
 	g.ctrl_btn_settings.addEventListener('click', () => openWindow('settings'));
-	g.ctrl_btn_help.addEventListener('click', () => openWindow('help'));
+	g.ctrl_btn_parameters.addEventListener('click', () => openWindow('parameters'));
 	if(ut.dragSlider && g.ctrl_volume && g.ctrl_volume_bar){
 		g.ctrl_volume_slider = ut.dragSlider(g.ctrl_volume, volumeSlider, -1, g.ctrl_volume_bar);
 	}
@@ -2300,9 +2300,9 @@ async function onKey(e) {
 		shortcutAction = window.shortcuts.handleShortcut(e, 'stage');
 	}
 	
-	if (shortcutAction === 'toggle-help') {
-		openWindow('help');
-		flashButton(g.ctrl_btn_help);
+	if (shortcutAction === 'toggle-parameters') {
+		openWindow('parameters');
+		flashButton(g.ctrl_btn_parameters);
 	}
 	else if (shortcutAction === 'toggle-settings') {
 		openWindow('settings');
