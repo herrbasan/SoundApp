@@ -49,6 +49,22 @@ module.exports = {
           }
         }
 
+        // Copy Metronome samples
+        const metSrc = path.join(__dirname, 'bin', 'metronome');
+        const metDest = path.join(binDest, 'metronome');
+        if (fs.existsSync(metSrc)) {
+          fs.cpSync(metSrc, metDest, { recursive: true });
+          console.info('Copied metronome samples to resources');
+        }
+
+        // Copy MIDI player runtime
+        const midiSrc = path.join(__dirname, 'bin', 'midiplayer-runtime');
+        const midiDest = path.join(binDest, 'midiplayer-runtime');
+        if (fs.existsSync(midiSrc)) {
+          fs.cpSync(midiSrc, midiDest, { recursive: true });
+          console.info('Copied midiplayer-runtime to resources');
+        }
+
         // Copy Platform Binaries
         let binSrcFolder = '';
         if (platform === 'win32') {

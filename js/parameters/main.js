@@ -16,7 +16,8 @@ let audioMode = 'tape'; // 'tape' or 'pitchtime'
 const controls = {
     audio: {},
     tape: {},
-    midi: {}
+    midi: {},
+    tracker: {}
 };
 
 // Debounce timers for parameter changes (30ms prevents crackling)
@@ -25,6 +26,14 @@ let audioPitchTimeout = null;
 let audioTempoTimeout = null;
 let midiPitchTimeout = null;
 let midiTempoTimeout = null;
+let trackerPitchTimeout = null;
+let trackerTempoTimeout = null;
+let trackerStereoTimeout = null;
+
+// Tracker VU state
+let trackerVuBars = [];
+let trackerChannelCount = 0;
+let trackerSoloSet = new Set();  // Channels currently soloed (auditioned)
 
 // --- Initialization ---
 
@@ -49,6 +58,7 @@ async function init() {
     initTapeControls();
     initAudioControls();
     initMidiControls();
+    initTrackerControls();
     initAudioModeSections();
 
     // NOTE: Do NOT reset params when window is hidden
@@ -108,6 +118,12 @@ async function init() {
             }
         }
         
+        // Reset tracker solo state when a new file loads
+        if (data.mode === 'tracker' && data.params && data.params.reset) {
+            resetTrackerSoloState();
+            resetTrackerParams(false);  // Reset sliders UI (don't send to stage, it already reset)
+        }
+        
         // Display original BPM for MIDI mode
         if (data.mode === 'midi' && data.params && typeof data.params.originalBPM === 'number') {
             const origElem = document.getElementById('midi_original_bpm');
@@ -132,6 +148,12 @@ async function init() {
         } else {
             updateParams(currentMode, data);
         }
+    });
+
+    // Listen for tracker VU updates (high-frequency, from audio worklet)
+    bridge.on('tracker-vu', (data) => {
+        if (currentMode !== 'tracker' || !data.vu) return;
+        updateTrackerVu(data.vu, data.channels);
     });
     
     document.querySelector('main').classList.add('ready');
@@ -366,6 +388,30 @@ function updateParams(mode, params) {
                 }
             });
         }
+    } else if (mode === 'tracker') {
+        // Handle tracker params
+        if (typeof params.pitch !== 'undefined') {
+            // Convert pitch_factor back to semitones
+            const semitones = Math.round(12 * Math.log2(params.pitch));
+            if (controls.tracker.pitch) controls.tracker.pitch.update(semitones, true);
+            const pitchVal = document.getElementById('tracker_pitch_value');
+            if (pitchVal) pitchVal.textContent = (semitones >= 0 ? '+' : '') + semitones;
+        }
+        if (typeof params.tempo !== 'undefined') {
+            if (controls.tracker.tempo) controls.tracker.tempo.update(params.tempo, true);
+            const tempoVal = document.getElementById('tracker_tempo_value');
+            if (tempoVal) tempoVal.textContent = Math.round(params.tempo * 100);
+        }
+        if (typeof params.stereoSeparation !== 'undefined') {
+            if (controls.tracker.stereo) controls.tracker.stereo.update(params.stereoSeparation, true);
+            const stereoVal = document.getElementById('tracker_stereo_value');
+            if (stereoVal) stereoVal.textContent = Math.round(params.stereoSeparation);
+        }
+        // Initialize channel count if provided
+        if (typeof params.channels === 'number') {
+            trackerChannelCount = 0; // Force rebuild
+            updateTrackerVu(new Float32Array(params.channels), params.channels);
+        }
     }
 }
 
@@ -549,6 +595,188 @@ function initMidiControls() {
     document.getElementById('btn_open_fonts').addEventListener('click', () => {
         bridge.sendToStage('open-soundfonts-folder', {});
     });
+}
+
+function initTrackerControls() {
+    const pitchVal = document.getElementById('tracker_pitch_value');
+    // Pitch: -12 to +12 semitones, converted to pitch_factor (2^(semitones/12))
+    controls.tracker.pitch = createSlider('tracker_pitch_slider', -12, 12, 0, 0, (v) => {
+        const rounded = Math.round(v);
+        if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
+        if (trackerPitchTimeout) clearTimeout(trackerPitchTimeout);
+        trackerPitchTimeout = setTimeout(() => {
+            const pitchFactor = Math.pow(2, rounded / 12);
+            bridge.sendToStage('param-change', { mode: 'tracker', param: 'pitch', value: pitchFactor });
+        }, 30);
+    });
+
+    const tempoVal = document.getElementById('tracker_tempo_value');
+    // Tempo: 50% to 200%, converted to tempo_factor
+    controls.tracker.tempo = createSlider('tracker_tempo_slider', 0.5, 2.0, 1.0, 1.0, (v) => {
+        const pct = Math.round(v * 100);
+        if (tempoVal) tempoVal.textContent = pct;
+        if (trackerTempoTimeout) clearTimeout(trackerTempoTimeout);
+        trackerTempoTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'tracker', param: 'tempo', value: v });
+        }, 30);
+    });
+
+    const stereoVal = document.getElementById('tracker_stereo_value');
+    // Stereo separation: 0% to 200%
+    controls.tracker.stereo = createSlider('tracker_stereo_slider', 0, 200, 100, 100, (v) => {
+        const rounded = Math.round(v);
+        if (stereoVal) stereoVal.textContent = rounded;
+        if (trackerStereoTimeout) clearTimeout(trackerStereoTimeout);
+        trackerStereoTimeout = setTimeout(() => {
+            bridge.sendToStage('param-change', { mode: 'tracker', param: 'stereoSeparation', value: rounded });
+        }, 30);
+    });
+
+    // Reset button
+    const resetBtn = document.getElementById('btn_tracker_reset');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            resetTrackerParams(true);
+        });
+    }
+}
+
+function resetTrackerParams(sendStage = false) {
+    const pitchVal = document.getElementById('tracker_pitch_value');
+    const tempoVal = document.getElementById('tracker_tempo_value');
+    const stereoVal = document.getElementById('tracker_stereo_value');
+
+    if (controls.tracker.pitch) controls.tracker.pitch.update(0);
+    if (controls.tracker.tempo) controls.tracker.tempo.update(1.0);
+    if (controls.tracker.stereo) controls.tracker.stereo.update(100);
+
+    if (pitchVal) pitchVal.textContent = '+0';
+    if (tempoVal) tempoVal.textContent = '100';
+    if (stereoVal) stereoVal.textContent = '100';
+
+    if (sendStage && bridge && bridge.sendToStage) {
+        bridge.sendToStage('tracker-reset-params', {});
+    }
+}
+
+function updateTrackerVu(vuData, channelCount) {
+    const container = document.getElementById('tracker_channels_container');
+    const countLabel = document.getElementById('tracker_channel_count');
+    if (!container) return;
+
+    // Rebuild channel strips if channel count changed
+    if (channelCount !== trackerChannelCount) {
+        trackerChannelCount = channelCount;
+        trackerVuBars = [];
+        trackerSoloSet.clear();
+        container.innerHTML = '';
+        
+        for (let i = 0; i < channelCount; i++) {
+            const strip = document.createElement('div');
+            strip.className = 'tracker-channel-strip';
+            strip.dataset.channel = i;
+            
+            const vuBar = document.createElement('div');
+            vuBar.className = 'tracker-vu-bar';
+            vuBar.innerHTML = '<div class="vu-fill"></div>';
+            vuBar.title = `Channel ${i + 1} - Click: solo, Shift+Click: add to solo`;
+            
+            // Click: exclusive solo, Shift+click: add/remove from solo group
+            vuBar.addEventListener('click', (e) => {
+                handleTrackerSolo(i, e.shiftKey);
+            });
+            
+            const label = document.createElement('div');
+            label.className = 'channel-label';
+            label.textContent = (i + 1);
+            
+            strip.appendChild(vuBar);
+            strip.appendChild(label);
+            container.appendChild(strip);
+            trackerVuBars.push(vuBar.querySelector('.vu-fill'));
+        }
+        
+        if (countLabel) countLabel.textContent = channelCount + ' channels';
+    }
+
+    // Update VU levels
+    for (let i = 0; i < trackerVuBars.length && i < vuData.length; i++) {
+        const level = vuData[i] || 0;
+        const heightPct = Math.min(100, level * 100);
+        trackerVuBars[i].style.height = heightPct + '%';
+        
+        // Add active class for non-zero levels
+        const bar = trackerVuBars[i].parentElement;
+        if (level > 0.01) {
+            bar.classList.add('active');
+        } else {
+            bar.classList.remove('active');
+        }
+    }
+}
+
+function handleTrackerSolo(index, additive) {
+    if (additive) {
+        // Shift+click: toggle this channel in/out of solo group
+        if (trackerSoloSet.has(index)) {
+            trackerSoloSet.delete(index);
+        } else {
+            trackerSoloSet.add(index);
+        }
+    } else {
+        // Click: exclusive solo (or un-solo if clicking the only soloed track)
+        if (trackerSoloSet.size === 1 && trackerSoloSet.has(index)) {
+            // Clicking the only soloed track: clear solo (all play)
+            trackerSoloSet.clear();
+        } else {
+            // Solo only this track
+            trackerSoloSet.clear();
+            trackerSoloSet.add(index);
+        }
+    }
+    
+    applyTrackerSoloState();
+}
+
+function applyTrackerSoloState() {
+    const container = document.getElementById('tracker_channels_container');
+    if (!container) return;
+    
+    const strips = container.querySelectorAll('.tracker-channel-strip');
+    const hasSolo = trackerSoloSet.size > 0;
+    
+    for (let i = 0; i < trackerChannelCount; i++) {
+        const strip = strips[i];
+        if (!strip) continue;
+        
+        const isSoloed = trackerSoloSet.has(i);
+        // If any channel is soloed, mute those not in the solo set
+        const isMuted = hasSolo && !isSoloed;
+        
+        strip.classList.toggle('solo', isSoloed);
+        strip.classList.toggle('muted', isMuted);
+        
+        // Send mute state to worklet
+        bridge.sendToStage('param-change', {
+            mode: 'tracker',
+            param: 'channelMute',
+            value: { channel: i, mute: isMuted }
+        });
+    }
+}
+
+function resetTrackerSoloState() {
+    // Clear all solo selections and update UI
+    trackerSoloSet.clear();
+    
+    const container = document.getElementById('tracker_channels_container');
+    if (!container) return;
+    
+    const strips = container.querySelectorAll('.tracker-channel-strip');
+    for (let i = 0; i < strips.length; i++) {
+        strips[i].classList.remove('solo', 'muted');
+    }
+    // Note: don't send mute commands here - the worklet already reset on file load
 }
 
 async function initSoundfontSelector() {

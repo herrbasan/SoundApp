@@ -226,3 +226,93 @@
 	-webkit-user-select: none;
 	user-select: none;
 }
+
+/* Tracker Mode Styles */
+.tracker-channels-section {
+    padding: 1rem 1.5rem;
+}
+
+.tracker-channels-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.channel-count {
+    font-size: 0.85em;
+    color: rgb(var(--color-shade6));
+}
+
+.tracker-channels-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 50px;
+}
+
+.tracker-channel-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.tracker-vu-bar {
+    width: 24px;
+    height: 40px;
+    background: rgb(var(--color-shade3));
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgb(var(--color-shade4));
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.tracker-vu-bar:hover {
+    border-color: rgb(var(--color-shade6));
+}
+
+.tracker-vu-bar .vu-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #4a4;
+    transition: height 0.05s ease-out;
+}
+
+.tracker-vu-bar.active .vu-fill {
+    background: #5c5;
+}
+
+/* Muted channel: dimmed VU bar */
+.tracker-channel-strip.muted .tracker-vu-bar {
+    opacity: 0.3;
+}
+
+.tracker-channel-strip.muted .channel-label {
+    opacity: 0.4;
+}
+
+/* Solo channel: highlighted */
+.tracker-channel-strip.solo .tracker-vu-bar {
+    border-color: #4af;
+    box-shadow: 0 0 4px rgba(68, 170, 255, 0.5);
+}
+
+.tracker-channel-strip.solo .vu-fill {
+    background: #4af !important;
+}
+
+.channel-label {
+    font-size: 0.7em;
+    color: rgb(var(--color-shade6));
+    text-align: center;
+    min-width: 24px;
+}
+
+/* Smaller value display for less prominent controls */
+.value-display-small {
+    font-size: 1.4rem;
+}

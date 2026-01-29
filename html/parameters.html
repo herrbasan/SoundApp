@@ -191,10 +191,80 @@
 
                 <!-- Tracker Controls -->
                 <div id="tracker-controls" class="mode-container">
+                    <!-- Pitch/Tempo Section -->
                     <div class="section">
-                        <div style="text-align: center; color: rgb(var(--color-shade6)); padding: 2rem;">
-                            Tracker controls coming soon...
+                        <div class="param-group">
+                            <label>Pitch Shift</label>
+                            <div class="value-display">
+                                <span id="tracker_pitch_value">0</span>
+                                <span class="unit">semitones</span>
+                            </div>
+                            <div id="tracker_pitch_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>-12</span>
+                                <span>0</span>
+                                <span>+12</span>
+                            </div>
                         </div>
+
+                        <div class="param-group">
+                            <label>Tempo</label>
+                            <div class="value-display">
+                                <span id="tracker_tempo_value">100</span>
+                                <span class="unit">%</span>
+                            </div>
+                            <div id="tracker_tempo_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>50%</span>
+                                <span>100%</span>
+                                <span>200%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="controls-row" style="justify-content: flex-end;">
+                            <div id="btn_tracker_reset" class="btn-action">Reset</div>
+                        </div>
+                    </div>
+
+                    <!-- Channel Mixer Section -->
+                    <div class="section tracker-channels-section">
+                        <div class="tracker-channels-header">
+                            <span class="section-title">Channel Mixer</span>
+                            <span id="tracker_channel_count" class="channel-count"></span>
+                        </div>
+                        <div id="tracker_channels_container" class="tracker-channels-container">
+                            <!-- Channel strips will be inserted here dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Audio Settings Section -->
+                    <div class="section">
+                        <div class="param-group">
+                            <label>Stereo Separation</label>
+                            <div class="value-display value-display-small">
+                                <span id="tracker_stereo_value">100</span>
+                                <span class="unit">%</span>
+                            </div>
+                            <div id="tracker_stereo_slider" class="param-slider">
+                                <div class="track"></div>
+                                <div class="handle"></div>
+                                <div class="center-mark"></div>
+                            </div>
+                            <div class="range-labels">
+                                <span>0%</span>
+                                <span>100%</span>
+                                <span>200%</span>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 

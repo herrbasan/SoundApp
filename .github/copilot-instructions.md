@@ -210,6 +210,41 @@ The js-synthesizer worklet bundles are generated artifacts. To keep the metronom
 
 **Rule:** Do not edit the js-synthesizer submodule directly; keep it update-compatible and patch the generated bundles via the script.
 
+## libopenmpt WASM Build
+
+The tracker/module player uses libopenmpt compiled to WASM. The build is performed on Windows using native Emscripten.
+
+**Build Requirements:**
+- **Emscripten:** Installed at `C:\emsdk` (activate via `C:\emsdk\emsdk_env.ps1`)
+- **GNU Make:** Install via `choco install make` (required for libopenmpt Makefile)
+- **libopenmpt version:** 0.7.13+release
+
+**Build Command:**
+```powershell
+cd libs/chiptune
+.\build.ps1
+```
+
+**Output:**
+- `libs/chiptune/libopenmpt.worklet.js` (~1.49 MB)
+- Includes ext API functions: `_openmpt_module_ext_create`, `_openmpt_module_ext_get_interface` for advanced features like channel mute/solo
+
+**Emscripten 4.x Compatibility:**
+Starting with Emscripten 4.0.7, memory views (HEAP8, HEAPU32) must be in `EXPORTED_RUNTIME_METHODS` instead of `EXPORTED_FUNCTIONS`. The build script automatically patches `config-emscripten.mk`:
+```makefile
+-s EXPORTED_RUNTIME_METHODS="['stackAlloc','stackSave','stackRestore','UTF8ToString','HEAP8','HEAPU8','HEAPU32','HEAPF32']"
+```
+
+**Post-Build Patches:**
+The build script automatically applies patches to the generated JS file:
+1. **Polyfills:** Adds TextDecoder, TextEncoder, atob, performance, crypto for AudioWorkletGlobalScope
+2. **HEAP Exports:** Patches HEAPU8 and HEAPF32 to be exported on Module object (Emscripten doesn't do this by default even when in EXPORTED_RUNTIME_METHODS)
+
+**Build Script Notes:**
+- Checks for actual file content (config file), not just directory existence
+- Handles Windows directory locks gracefully (extracts into existing directory if needed)
+- Non-critical warnings about missing Unix tools (sed, grep, uname) are expected on Windows
+
 ## Controls Bar (Optional UI)
 
 The main window has an optional controls bar at the bottom, hidden by default (keyboard-first philosophy).
@@ -387,10 +422,11 @@ The script (`scripts/create-release.ps1`) handles:
 ### Parameters Window
 - **Audio Overlap Between Tracks** - When Parameters window is open (rubberband pipeline active), audio from the previous track bleeds into the start of the next track. The rubberband worklet accumulates audio in internal buffers with no built-in flush mechanism.
 - **Crackly when Parameters change** - Audio crackles when using the pitch or tempo sliders
+- **Memory Leak** - Rubberband pipeline has a serious memory leak. Need better cleanup/reset strategy when switching pipelines or changing tracks.
 
 ## Immediate Features
 
-- **Tracker Controls in Parameters Window** - Tracker-style parameter controls in Parameters window for MOD/tracker files.
+(none)
 
 ## Backlog / Future Features
 

@@ -87,8 +87,6 @@ async function init(){
 		const hq = !!(g.config && g.config.audio ? g.config.audio.hqMode : false);
 		const oldStereoSep = (oldConfig && oldConfig.tracker) ? oldConfig.tracker.stereoSeparation : undefined;
 		const stereoSep = (g.config && g.config.tracker) ? g.config.tracker.stereoSeparation : undefined;
-		const oldInterp = (oldConfig && oldConfig.tracker) ? oldConfig.tracker.interpolationFilter : undefined;
-		const interp = (g.config && g.config.tracker) ? g.config.tracker.interpolationFilter : undefined;
 
 		if(oldTheme !== theme){
 			if(theme === 'dark'){
@@ -131,11 +129,6 @@ async function init(){
 		if(oldStereoSep !== stereoSep){
 			if(player && g.currentAudio?.isMod){
 				player.setStereoSeparation(stereoSep);
-			}
-		}
-		if(oldInterp !== interp){
-			if(player && g.currentAudio?.isMod){
-				player.setInterpolationFilter(interp);
 			}
 		}
 
@@ -222,7 +215,7 @@ async function init(){
 		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-pm.js');
 		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
 		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
-		g.rubberband_worklet_path = path.resolve(fp + '/libs/rubberband/realtime-pitch-shift-processor.js');
+		g.rubberband_worklet_path = path.resolve(fp + '/bin/linux_bin/realtime-pitch-shift-processor.js');
 	}
 	else {
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
@@ -232,7 +225,7 @@ async function init(){
 		g.ffmpeg_worklet_pm_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-pm.js');
 		g.ffmpeg_player_sab_path = path.resolve(fp + '/bin/win_bin/player-sab.js');
 		g.ffmpeg_worklet_sab_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-sab.js');
-		g.rubberband_worklet_path = path.resolve(fp + '/libs/rubberband/realtime-pitch-shift-processor.js');
+		g.rubberband_worklet_path = path.resolve(fp + '/bin/win_bin/realtime-pitch-shift-processor.js');
 	}
 
 	g.maxSampleRate = await detectMaxSampleRate();
@@ -286,7 +279,6 @@ async function init(){
 	const modConfig = {
 		repeatCount: 0,
 		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
-		interpolationFilter: (g.config && g.config.tracker && g.config.tracker.interpolationFilter !== undefined) ? (g.config.tracker.interpolationFilter | 0) : 0,
 		context: g.audioContext
 	};
 	player = new window.chiptune(modConfig);
@@ -301,6 +293,10 @@ async function init(){
 	player.onProgress((e) => {
 		if(g.currentAudio){
 			g.currentAudio.currentTime = e.pos || 0;
+		}
+		// Forward VU data to Parameters window
+		if(e.vu && g.windows.parameters){
+			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 		}
 	});
 	player.onEnded(audioEnded);
@@ -610,6 +606,14 @@ async function init(){
 		}
 	});
 
+	ipcRenderer.on('tracker-reset-params', () => {
+		g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+
+		if (player && player.setPitch) player.setPitch(1.0);
+		if (player && player.setTempo) player.setTempo(1.0);
+		if (player && player.setStereoSeparation) player.setStereoSeparation(100);
+	});
+
 	ipcRenderer.on('param-change', async (e, data) => {
 		if(data.mode === 'midi'){
 			if(!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
@@ -704,6 +708,25 @@ async function init(){
 				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer && typeof g.rubberbandPlayer.setOptions === 'function'){
 					g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
 				}
+			}
+		}
+		else if(data.mode === 'tracker'){
+			if(!g.trackerParams) g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+			
+			if(data.param === 'pitch'){
+				g.trackerParams.pitch = data.value;
+				if(player && player.setPitch) player.setPitch(data.value);
+			}
+			else if(data.param === 'tempo'){
+				g.trackerParams.tempo = data.value;
+				if(player && player.setTempo) player.setTempo(data.value);
+			}
+			else if(data.param === 'stereoSeparation'){
+				g.trackerParams.stereoSeparation = data.value;
+				if(player && player.setStereoSeparation) player.setStereoSeparation(data.value);
+			}
+			else if(data.param === 'channelMute'){
+				if(player && player.setChannelMute) player.setChannelMute(data.value.channel, data.value.mute);
 			}
 		}
 	});
@@ -1276,7 +1299,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
 			
-			// Apply tape speed if locked and in tape mode
+			// Reset tracker params on new file (no lock feature for tracker)
+			g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+			
+			// Apply tape speed if locked and in tape mode (overrides tracker params)
 			const locked = g.audioParams && g.audioParams.locked;
 			if(locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0){
 				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
@@ -1284,7 +1310,13 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			}
 
 			if(g.windows.parameters){
-				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params: {} });
+				const params = {
+					pitch: 1.0,
+					tempo: 1.0,
+					stereoSeparation: 100,
+					reset: true  // Signal new file loaded
+				};
+				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
 			}
 			
 			if(n > 0){
@@ -2012,7 +2044,6 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const modConfig = {
 		repeatCount: 0,
 		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
-		interpolationFilter: (g.config && g.config.tracker && g.config.tracker.interpolationFilter !== undefined) ? (g.config.tracker.interpolationFilter | 0) : 0,
 		context: g.audioContext
 	};
 	player = new window.chiptune(modConfig);
@@ -2036,6 +2067,10 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	player.onProgress((e) => {
 		if(g.currentAudio){
 			g.currentAudio.currentTime = e.pos || 0;
+		}
+		// Forward VU data to Parameters window
+		if(e.vu && g.windows.parameters){
+			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 		}
 	});
 	player.onEnded(audioEnded);
