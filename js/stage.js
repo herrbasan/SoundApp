@@ -2663,6 +2663,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		x: x,
 		y: y,
 		backgroundColor: '#323232',
+		hasShadow: true,
 		init_data: init_data
 	});
 	

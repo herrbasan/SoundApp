@@ -202,12 +202,30 @@
 		</div>
 		<div class="nui-status-bar"></div>
 	</div>
-        <script type="module">
-            // Import centralized shortcuts
-            const shortcuts = require('../js/shortcuts.js');
-            window.shortcuts = shortcuts;
-        </script>
 	<script src="../js/window-loader.js"></script>
+	<script type="module">
+		// Import shortcuts only in Electron (uses require)
+		if (typeof require !== 'undefined') {
+			try {
+				const shortcuts = require('../js/shortcuts.js');
+				window.shortcuts = shortcuts;
+			} catch(e) {
+				console.log('Shortcuts module not available in browser preview');
+			}
+		}
+		
+		// Browser preview: keyboard shortcuts 1/2/3 to toggle modes
+		if (typeof process === 'undefined' || !process.versions || !process.versions.electron) {
+			document.addEventListener('keydown', (e) => {
+				const modes = ['audio', 'midi', 'tracker'];
+				const idx = e.key === '1' ? 0 : e.key === '2' ? 1 : e.key === '3' ? 2 : -1;
+				if (idx < 0) return;
+				document.querySelectorAll('.mode-container').forEach(el => el.classList.remove('active'));
+				const target = document.getElementById(modes[idx] + '-controls');
+				if (target) target.classList.add('active');
+			});
+		}
+	</script>
 	<script type="module" src="../js/parameters/main.js"></script>
 </body>
 </html>

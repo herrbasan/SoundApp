@@ -422,7 +422,7 @@ body.shuffle .top .content .shuffle::after{
 
 .time_controls .playtime {
 	display: grid;
-	grid-template-columns: 100px auto auto 100px;
+	grid-template-columns: 100px auto  100px;
 	height: 1.8rem; /* 2.5rem * 10/14 = 1.8rem */
 	
 }

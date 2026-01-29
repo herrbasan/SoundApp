@@ -44,8 +44,8 @@
 .param-group {
 	display: flex;
 	flex-direction: column;
-	gap: 0.75rem;
 	cursor: pointer;
+    margin-bottom: 1rem;
 }
 
 .param-group label {
@@ -59,6 +59,7 @@
 	font-size: 1.8rem;
 	font-weight: 500;
 	color: rgb(var(--color-accent1));
+    margin-bottom: 0.5rem;
 }
 
 .value-display .unit {
@@ -118,7 +119,6 @@
 
 /* Specific overrides or additions if needed */
 .controls-row {
-    margin-top: 15px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -161,9 +161,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 0.75rem;
-    margin-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
 .section-title {
@@ -194,6 +191,7 @@
 /* Disabled section state - clickable to activate */
 .audio-section.disabled {
     cursor: pointer;
+    opacity: 0.7;
 }
 
 .audio-section.disabled .section-content {

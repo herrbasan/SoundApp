@@ -305,6 +305,21 @@ function getMockInitData() {
 			playlist: {
 				paths: []
 			}
+		},
+		parameters: {
+			type: 'parameters',
+			mode: 'audio',
+			params: {
+				tapeSpeed: 0,
+				pitch: 0,
+				tempo: 100
+			},
+			soundfonts: [
+				{ name: 'Default SoundFont', path: '/soundfonts/default.sf2' },
+				{ name: 'Piano', path: '/soundfonts/piano.sf2' }
+			],
+			currentSoundfont: '/soundfonts/default.sf2',
+			config: { theme: 'dark' }
 		}
 	};
 	return mockData[pageName] || { type: pageName };

@@ -177,6 +177,12 @@ if (document.readyState === 'loading') {
 
 // --- Logic ---
 
+const modeTitles = {
+    audio: 'Parameters - Audio',
+    midi: 'Parameters - MIDI',
+    tracker: 'Parameters - Tracker (MOD)'
+};
+
 function setMode(mode) {
     currentMode = mode;
     document.querySelectorAll('.mode-container').forEach(el => el.classList.remove('active'));
@@ -185,6 +191,12 @@ function setMode(mode) {
     if (target) {
         target.classList.add('active');
     }
+    
+    // Update window title
+    const title = modeTitles[mode] || 'Parameters';
+    document.title = title;
+    const titleLabel = document.querySelector('.nui-title-bar .title .label');
+    if (titleLabel) titleLabel.textContent = title;
 }
 
 function shouldIgnoreKeyTarget(target) {

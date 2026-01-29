@@ -390,8 +390,7 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Immediate Features
 
-- **Tape-Style Pitch Control in Parameters Window** - Move tape-style tempo from main window into Parameters window as default section (no pipeline switch), with Pitch/Time controls as opt-in advanced mode (switches to rubberband). Remove confusing speed control from main window. See [docs/tape-style-parameters-refactor.md](docs/tape-style-parameters-refactor.md) for full plan.
-- **Dynamic Parameters Window Title** - Window title should reflect active content type: "Parameters - Audio", "Parameters - MIDI", or "Parameters - Tracker (MOD)" depending on current playback.
+- **Tracker Controls in Parameters Window** - Tracker-style parameter controls in Parameters window for MOD/tracker files.
 
 ## Backlog / Future Features
 
