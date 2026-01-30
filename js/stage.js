@@ -1,6 +1,6 @@
 'use strict';
 
-const { ipcRenderer, webUtils } = require( "electron" );
+const { ipcRenderer, webUtils } = require("electron");
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
@@ -12,6 +12,7 @@ const os = require('node:os');
 const registry = require('../js/registry.js');
 const shortcuts = require('../js/shortcuts.js');
 const RubberbandPipeline = require('./rubberband-pipeline.js');
+const waveformAnalyzer = require('./waveform_analyzer.js');
 
 let player;
 let midi;
@@ -23,9 +24,16 @@ g.rubberbandPlayer = null;
 g.ffmpegPlayer = null;
 g.activePipeline = 'normal';
 g.parametersOpen = false;
-g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null };
-g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false };
-g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false };
+g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null };
+g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
+g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
+g.monitoringLoop = null;
+g.monitoringAnalyserL = null;
+g.monitoringAnalyserR = null;
+g.monitoringSplitter = null;
+g.monitoringAnalyserL_RB = null;
+g.monitoringAnalyserR_RB = null;
+g.monitoringSplitter_RB = null;
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 g.music = [];
@@ -33,7 +41,7 @@ g.idx = 0;
 g.max = -1;
 
 g.midiSettings = { pitch: 0, speed: null };
-g.audioParams = { 
+g.audioParams = {
 	mode: 'tape',      // 'tape' or 'pitchtime'
 	tapeSpeed: 0,      // -12 to +12 semitones
 	pitch: 0,          // -12 to +12 semitones (for rubberband)
@@ -45,12 +53,12 @@ g.audioParams = {
 // Init
 // ###########################################################################
 
-async function detectMaxSampleRate(){
+async function detectMaxSampleRate() {
 	const rates = [192000, 176400, 96000, 88200, 48000, 44100];
-	for(let i=0; i<rates.length; i++){
+	for (let i = 0; i < rates.length; i++) {
 		const ctx = new AudioContext({ sampleRate: rates[i] });
 		console.log('Testing rate:', rates[i], '-> Got:', ctx.sampleRate);
-		if(ctx.sampleRate === rates[i]){
+		if (ctx.sampleRate === rates[i]) {
 			await ctx.close();
 			console.log('Max rate detected:', rates[i]);
 			return rates[i];
@@ -62,7 +70,7 @@ async function detectMaxSampleRate(){
 }
 
 init();
-async function init(){
+async function init() {
 	fb('Init Stage')
 	g.win = helper.window;
 	g.main_env = await helper.global.get('main_env');
@@ -88,8 +96,8 @@ async function init(){
 		const oldStereoSep = (oldConfig && oldConfig.tracker) ? oldConfig.tracker.stereoSeparation : undefined;
 		const stereoSep = (g.config && g.config.tracker) ? g.config.tracker.stereoSeparation : undefined;
 
-		if(oldTheme !== theme){
-			if(theme === 'dark'){
+		if (oldTheme !== theme) {
+			if (theme === 'dark') {
 				document.body.classList.add('dark');
 			}
 			else {
@@ -98,25 +106,25 @@ async function init(){
 			tools.sendToMain('command', { command: 'set-theme', theme: theme });
 		}
 
-		if(oldDeviceId !== deviceId){
+		if (oldDeviceId !== deviceId) {
 			const contexts = [g.audioContext, g.rubberbandContext].filter(ctx => ctx && typeof ctx.setSinkId === 'function');
-			for(const ctx of contexts){
+			for (const ctx of contexts) {
 				try {
-					if(deviceId){
+					if (deviceId) {
 						await ctx.setSinkId(deviceId);
 					}
 					else {
 						await ctx.setSinkId('');
 					}
 				}
-				catch(err){
+				catch (err) {
 					console.error('Failed to change output device for context:', err);
 				}
 			}
 			console.log(deviceId ? `Output device changed to: ${deviceId}` : 'Output device reset to system default');
 		}
 
-		if(oldHq !== hq){
+		if (oldHq !== hq) {
 			await toggleHQMode(hq, true);
 			if (g.windows.settings) {
 				tools.sendToId(g.windows.settings, 'sample-rate-updated', { currentSampleRate: g.audioContext?.sampleRate });
@@ -126,15 +134,15 @@ async function init(){
 			}
 		}
 
-		if(oldStereoSep !== stereoSep){
-			if(player && g.currentAudio?.isMod){
+		if (oldStereoSep !== stereoSep) {
+			if (player && g.currentAudio?.isMod) {
 				player.setStereoSeparation(stereoSep);
 			}
 		}
 
 		const oldShowControls = (oldConfig && oldConfig.ui) ? !!oldConfig.ui.showControls : false;
 		const showControls = (g.config && g.config.ui) ? !!g.config.ui.showControls : false;
-		if(oldShowControls !== showControls){
+		if (oldShowControls !== showControls) {
 			applyShowControls(showControls, true);
 		}
 
@@ -145,10 +153,10 @@ async function init(){
 				console.log('Streaming settings changed, resetting player...');
 				const pos = g.ffmpegPlayer.getCurrentTime();
 				const wasPlaying = g.ffmpegPlayer.isPlaying;
-				
+
 				g.ffmpegPlayer.prebufferSize = (newBuffer !== undefined) ? (newBuffer | 0) : 10;
 				g.ffmpegPlayer.threadCount = (newThreads !== undefined) ? (newThreads | 0) : 0;
-				
+
 				try {
 					await g.ffmpegPlayer.open(g.currentAudio.fp);
 					if (pos > 0) g.ffmpegPlayer.seek(pos);
@@ -164,16 +172,16 @@ async function init(){
 	});
 	g.config = g.config_obj.get();
 	let saveCnf = false;
-	if(!g.config || typeof g.config !== 'object') g.config = {};
-	if(!g.config.windows) g.config.windows = {};
-	if(!g.config.windows.main) g.config.windows.main = {};
+	if (!g.config || typeof g.config !== 'object') g.config = {};
+	if (!g.config.windows) g.config.windows = {};
+	if (!g.config.windows.main) g.config.windows.main = {};
 	let s = (g.config.windows.main.scale !== undefined) ? (g.config.windows.main.scale | 0) : 14;
-	if(s < 14) { s = 14; saveCnf = true; }
-	if((g.config.windows.main.scale|0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
-	if(saveCnf) { g.config_obj.set(g.config); }
+	if (s < 14) { s = 14; saveCnf = true; }
+	if ((g.config.windows.main.scale | 0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
+	if (saveCnf) { g.config_obj.set(g.config); }
 
 	const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
-	if(theme0 === 'dark') {
+	if (theme0 === 'dark') {
 		document.body.classList.add('dark');
 	} else {
 		document.body.classList.remove('dark');
@@ -182,32 +190,32 @@ async function init(){
 
 	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
 	applyShowControls(showControls0);
-	
+
 	ut.setCssVar('--space-base', s);
 
 	let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
-	if(b){
+	if (b) {
 		const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
 		const baseMinH = showControls0 ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
 		const scale0 = _getMainScale();
 		const minW = _scaledDim(MIN_WIDTH, scale0);
 		const minH = _scaledDim(baseMinH, scale0);
-		const nb = { width: b.width|0, height: b.height|0 };
-		if(b.x !== undefined && b.x !== null) nb.x = b.x|0;
-		if(b.y !== undefined && b.y !== null) nb.y = b.y|0;
-		if(nb.width < minW) nb.width = minW;
-		if(nb.height < minH) nb.height = minH;
+		const nb = { width: b.width | 0, height: b.height | 0 };
+		if (b.x !== undefined && b.x !== null) nb.x = b.x | 0;
+		if (b.y !== undefined && b.y !== null) nb.y = b.y | 0;
+		if (nb.width < minW) nb.width = minW;
+		if (nb.height < minH) nb.height = minH;
 		await g.win.setBounds(nb);
-		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s|0 };
+		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s | 0 };
 	}
 	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 	g.win.show();
-	if(!g.isPackaged) { g.win.toggleDevTools() }
-	
-	let fp = g.app_path;
-	if(g.isPackaged){fp = path.dirname(fp);}
+	if (!g.isPackaged) { g.win.toggleDevTools() }
 
-	if(os.platform() == 'linux'){
+	let fp = g.app_path;
+	if (g.isPackaged) { fp = path.dirname(fp); }
+
+	if (os.platform() == 'linux') {
 		g.ffmpeg_napi_path = path.resolve(fp + '/bin/linux_bin/ffmpeg_napi.node');
 		g.ffmpeg_player_path = path.resolve(fp + '/bin/linux_bin/player-sab.js');
 		g.ffmpeg_worklet_path = path.resolve(fp + '/bin/linux_bin/ffmpeg-worklet-sab.js');
@@ -230,14 +238,20 @@ async function init(){
 
 	g.maxSampleRate = await detectMaxSampleRate();
 	console.log('Max supported sample rate:', g.maxSampleRate);
-	
-	const targetRate = (g.config && g.config.audio && g.config.audio.hqMode) ? g.maxSampleRate : 48000;
-	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
-	console.log('Normal pipeline AudioContext sample rate:', g.audioContext.sampleRate);
-	
-	g.rubberbandContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-	console.log('Rubberband pipeline AudioContext sample rate:', g.rubberbandContext.sampleRate);
-	
+
+	// Contexts will be initialized or re-applied via toggleHQMode or lazy init
+	// We ensure it exists here if not already done by config handler
+	if (!g.audioContext || g.audioContext.state === 'closed') {
+		const targetRate = (g.config && g.config.audio && g.config.audio.hqMode) ? g.maxSampleRate : 48000;
+		g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
+		console.log('Normal pipeline AudioContext initialized:', g.audioContext.sampleRate, 'Hz');
+	}
+
+	if (!g.rubberbandContext || g.rubberbandContext.state === 'closed') {
+		g.rubberbandContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+		console.log('Rubberband pipeline AudioContext initialized (48kHz)');
+	}
+
 	const outDevId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
 	if (outDevId) {
 		try {
@@ -246,7 +260,7 @@ async function init(){
 			console.log('Output device set to:', outDevId);
 		} catch (err) {
 			console.error('Failed to set output device, using system default:', err);
-			if(g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
+			if (g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
 			g.config_obj.set(g.config);
 		}
 	}
@@ -254,64 +268,91 @@ async function init(){
 	const { FFmpegDecoder, getMetadata } = require(g.ffmpeg_napi_path);
 	g.getMetadata = getMetadata;
 	g.FFmpegDecoder = FFmpegDecoder;
-	
+
 	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
-	
-	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, threadCount, true);
-	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
-	try {
-		await g.ffmpegPlayer.init();
-	} catch (err) {
-		console.error('Failed to initialize FFmpeg player:', err);
+
+	if (!g.ffmpegPlayer) {
+		g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, threadCount, false);
+		try { g.ffmpegPlayer.reuseWorkletNode = true; } catch (e) { }
+		try {
+			await g.ffmpegPlayer.init();
+
+			// Setup monitoring tap
+			initMonitoring();
+
+			// Connect FFmpeg player to both destination and monitoring tap
+			g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
+			if (g.monitoringSplitter) {
+				g.ffmpegPlayer.gainNode.connect(g.monitoringSplitter);
+			}
+		} catch (err) {
+			console.error('Failed to initialize FFmpeg player:', err);
+		}
 	}
 
-	g.rubberbandPlayer = new RubberbandPipeline(g.rubberbandContext, g.FFmpegDecoder, g.ffmpeg_player_path, g.ffmpeg_worklet_path, g.rubberband_worklet_path, threadCount);
-	try {
-		await g.rubberbandPlayer.init(); 
-		console.log('Rubberband pipeline initialized (48kHz)');
-	} catch (err) {
-		console.error('Failed to initialize Rubberband player:', err);
-		g.rubberbandPlayer = null;
+	if (!g.rubberbandPlayer) {
+		g.rubberbandPlayer = new RubberbandPipeline(g.rubberbandContext, g.FFmpegDecoder, g.ffmpeg_player_path, g.ffmpeg_worklet_path, g.rubberband_worklet_path, threadCount);
+		try {
+			await g.rubberbandPlayer.init();
+			console.log('Rubberband pipeline initialized (48kHz)');
+
+			g.rubberbandPlayer.connect(g.rubberbandContext.destination);
+			if (g.monitoringSplitter_RB) {
+				g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
+			}
+		} catch (err) {
+			console.error('Failed to initialize Rubberband player:', err);
+			g.rubberbandPlayer = null;
+		}
 	}
 
-	const modConfig = {
-		repeatCount: 0,
-		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
-		context: g.audioContext
-	};
-	player = new window.chiptune(modConfig);
-	player.onMetadata(async (meta) => {
-		if(g.currentAudio){
-			g.currentAudio.duration = player.duration;
-			g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
-			await renderInfo(g.currentAudio.fp, meta);
-		}
-		g.blocky = false;
-	});
-	player.onProgress((e) => {
-		if(g.currentAudio){
-			g.currentAudio.currentTime = e.pos || 0;
-		}
-		// Forward VU data to Parameters window
-		if(e.vu && g.windows.parameters){
-			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
-		}
-	});
-	player.onEnded(audioEnded);
-	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false;});
-	player.onInitialized(() => {
-		console.log('Player Initialized');
-		player.gain.connect(g.audioContext.destination);
-		g.blocky = false;
+	if (!player) {
+		const modConfig = {
+			repeatCount: 0,
+			stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+			context: g.audioContext
+		};
+		player = new window.chiptune(modConfig);
+		player.onMetadata(async (meta) => {
+			if (g.currentAudio) {
+				g.currentAudio.duration = player.duration;
+				g.playremain.innerText = ut.playTime(g.currentAudio.duration * 1000).minsec;
+				await renderInfo(g.currentAudio.fp, meta);
+			}
+			g.blocky = false;
+		});
+		player.onProgress((e) => {
+			if (g.currentAudio) {
+				g.currentAudio.currentTime = e.pos || 0;
+			}
+			// Forward VU data to Parameters window
+			if (e.vu && g.windows.parameters) {
+				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+			}
+		});
+		player.onEnded(audioEnded);
+		player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+		player.onInitialized(() => {
+			console.log('Player Initialized');
+			// player.gain.connect(g.audioContext.destination); // Old direct connection
+			player.gain.connect(g.audioContext.destination);
+			if (g.monitoringSplitter) {
+				player.gain.connect(g.monitoringSplitter);
+			}
+			g.blocky = false;
+			appStart();
+		});
+	} else {
+		// Already initialized (likely by toggleHQMode), but we still need to trigger appStart
 		appStart();
-	});
+	}
 
 	await initMidiPlayer();
 
 	ipcRenderer.on('main', async (e, data) => {
-		if(data.length == 1){
+		if (data.length == 1) {
 			await playListFromSingle(data[0], false);
 		}
 		else {
@@ -324,95 +365,95 @@ async function init(){
 	ipcRenderer.on('log', (e, data) => {
 		console.log('%c' + data.context, 'color:#6058d6', data.data);
 	});
-	
+
 	ipcRenderer.on('window-closed', (e, data) => {
 		if (g.windows[data.type] === data.windowId) {
 			g.windows[data.type] = null;
 			g.windowsVisible[data.type] = false;
-			
-			if(data.type === 'midi'){
+
+			if (data.type === 'midi') {
 				g.midiSettings = { pitch: 0, speed: null };
-				if(midi){
-					if(midi.setPitchOffset) midi.setPitchOffset(0);
-					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-					if(midi.setMetronome) midi.setMetronome(false);
+				if (midi) {
+					if (midi.setPitchOffset) midi.setPitchOffset(0);
+					if (midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+					if (midi.setMetronome) midi.setMetronome(false);
 				}
 			}
-			
+
 
 		}
-		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+		if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
 		setTimeout(() => g.win.focus(), 50);
 	});
 
 	ipcRenderer.on('window-hidden', async (e, data) => {
 		g.windowsVisible[data.type] = false;
-		if(g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
-		
-		if(data.type === 'midi'){
+		if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+
+		if (data.type === 'midi') {
 			g.midiSettings = { pitch: 0, speed: null };
-			if(midi){
-				if(midi.setPitchOffset) midi.setPitchOffset(0);
-				if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-				if(midi.setMetronome) midi.setMetronome(false);
+			if (midi) {
+				if (midi.setPitchOffset) midi.setPitchOffset(0);
+				if (midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+				if (midi.setMetronome) midi.setMetronome(false);
 			}
 		}
 
-		if(data.type === 'parameters'){
+		if (data.type === 'parameters') {
 			g.parametersOpen = false;
-			
+
 			// Reset audio params to defaults
 			const wasTapeMode = g.audioParams.mode === 'tape';
 			const hadTapeSpeed = g.audioParams.tapeSpeed !== 0;
-			
+
 			g.audioParams.mode = 'tape';
 			g.audioParams.tapeSpeed = 0;
 			g.audioParams.pitch = 0;
 			g.audioParams.tempo = 1.0;
 			g.audioParams.formant = false;
 			// Note: locked is intentionally NOT reset here
-			
+
 			// Reset tape speed on current player if it was applied
-			if(hadTapeSpeed){
-				if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
+			if (hadTapeSpeed) {
+				if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 					g.currentAudio.player.setPlaybackRate(0);
 				}
-				if(g.currentAudio?.isMod && player){
+				if (g.currentAudio?.isMod && player) {
 					player.setTempo(1.0);
 				}
 			}
-		
-			if(g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband'){
+
+			if (g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband') {
 				try {
 					g.rubberbandPlayer.reset();
 					g.rubberbandPlayer.disconnect();
 					await switchPipeline('normal');
-				} catch(err){
+				} catch (err) {
 					console.error('Failed to switch to normal pipeline:', err);
 				}
-			} else if(g.rubberbandPlayer) {
+			} else if (g.rubberbandPlayer) {
 				g.rubberbandPlayer.reset();
 			}
-			
-			if(g.midiSettings){
+
+			if (g.midiSettings) {
 				g.midiSettings.pitch = 0;
 				g.midiSettings.speed = 1.0;
 				g.midiSettings.metronome = false;
-				
-				if(midi && g.currentAudio && g.currentAudio.isMidi){
-					if(midi.setTranspose) midi.setTranspose(0);
-					if(midi.setBPM){
+
+				if (midi && g.currentAudio && g.currentAudio.isMidi) {
+					if (midi.setTranspose) midi.setTranspose(0);
+					if (midi.setBPM) {
 						const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
 						midi.setBPM(orig);
 					}
-					if(midi.setMetronome) midi.setMetronome(false);
+					if (midi.setMetronome) midi.setMetronome(false);
 				}
 			}
 		}
 
 		g.win.focus();
 	});
-	
+
 	ipcRenderer.on('browse-directory', async (e, data) => {
 		const result = await helper.dialog.showOpenDialog({
 			properties: ['openDirectory']
@@ -468,7 +509,7 @@ async function init(){
 		const { openDefaultProgramsUI } = require('./registry.js');
 		openDefaultProgramsUI();
 	});
-	
+
 	ipcRenderer.on('shortcut', (e, data) => {
 		if (data.action === 'toggle-help') {
 			openWindow('help');
@@ -478,7 +519,7 @@ async function init(){
 		}
 		else if (data.action === 'toggle-mixer') {
 			const fp = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : ((g.music && g.music[g.idx]) ? g.music[g.idx] : null);
-			if(g.currentAudio && !g.currentAudio.paused){
+			if (g.currentAudio && !g.currentAudio.paused) {
 				g.currentAudio.pause();
 				checkState();
 			}
@@ -497,6 +538,9 @@ async function init(){
 				openWindow('pitchtime');
 			}
 		}
+		else if (data.action === 'toggle-monitoring') {
+			openWindow('monitoring');
+		}
 		else if (data.action === 'toggle-theme') {
 			tools.sendToMain('command', { command: 'toggle-theme' });
 		}
@@ -512,8 +556,8 @@ async function init(){
 			metaKey: !!data.metaKey,
 			code: data.code || '',
 			key: data.key || '',
-			preventDefault: () => {},
-			stopPropagation: () => {}
+			preventDefault: () => { },
+			stopPropagation: () => { }
 		};
 		onKey(ev);
 	});
@@ -524,17 +568,17 @@ async function init(){
 		} else {
 			document.body.classList.remove('dark');
 		}
-		if(!g.config.ui) g.config.ui = {};
+		if (!g.config.ui) g.config.ui = {};
 		g.config.ui.theme = data.dark ? 'dark' : 'light';
 		g.config_obj.set(g.config);
-		
+
 	});
 
 	ipcRenderer.on('open-soundfonts-folder', () => {
 		const fp = g.app_path;
 		const baseDir = g.isPackaged ? path.dirname(fp) : fp;
 		const soundfontPath = path.resolve(baseDir + '/bin/soundfonts/');
-		helper.shell.showItemInFolder(soundfontPath + '/README.md'); 
+		helper.shell.showItemInFolder(soundfontPath + '/README.md');
 	});
 
 	ipcRenderer.on('midi-soundfont-changed', async (e, soundfontFile) => {
@@ -543,26 +587,26 @@ async function init(){
 		const currentTime = g.currentAudio ? g.currentAudio.getCurrentTime() : 0;
 		const currentLoop = g.isLoop;
 		const isMIDI = currentFile && g.supportedMIDI && g.supportedMIDI.includes(path.extname(currentFile).toLowerCase());
-		
+
 		if (midi) {
 			midi.dispose();
 			midi = null;
 		}
-		
+
 		await initMidiPlayer();
-		
+
 		if (isMIDI && currentFile) {
 			try {
 				await playAudio(currentFile, currentTime, !wasPlaying);
-				
+
 				await new Promise(resolve => setTimeout(resolve, 100));
-				
+
 				if (g.currentAudio && wasPlaying) {
 					g.currentAudio.play();
 				}
-				
+
 				checkState();
-			} catch(err) {
+			} catch (err) {
 				console.error('Failed to reload MIDI file after soundfont change:', err);
 			}
 		}
@@ -577,7 +621,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-pitch-changed', (e, val) => {
-		if(!g.midiSettings) g.midiSettings = {};
+		if (!g.midiSettings) g.midiSettings = {};
 		g.midiSettings.pitch = val;
 		if (midi && midi.setPitchOffset) {
 			midi.setPitchOffset(val);
@@ -585,7 +629,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-speed-changed', (e, val) => {
-		if(!g.midiSettings) g.midiSettings = {};
+		if (!g.midiSettings) g.midiSettings = {};
 		g.midiSettings.speed = val;
 		if (midi && midi.setPlaybackSpeed) {
 			midi.setPlaybackSpeed(val);
@@ -593,7 +637,7 @@ async function init(){
 	});
 
 	ipcRenderer.on('midi-reset-params', () => {
-		if(!g.midiSettings) g.midiSettings = {};
+		if (!g.midiSettings) g.midiSettings = {};
 		g.midiSettings.pitch = 0;
 		g.midiSettings.speed = null;
 		g.midiSettings.metronome = false;
@@ -615,42 +659,42 @@ async function init(){
 	});
 
 	ipcRenderer.on('param-change', async (e, data) => {
-		if(data.mode === 'midi'){
-			if(!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
-			
-			if(data.param === 'transpose') {
+		if (data.mode === 'midi') {
+			if (!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
+
+			if (data.param === 'transpose') {
 				g.midiSettings.pitch = data.value;
-				if(midi && midi.setPitchOffset) midi.setPitchOffset(data.value);
+				if (midi && midi.setPitchOffset) midi.setPitchOffset(data.value);
 			}
-			else if(data.param === 'bpm') {
+			else if (data.param === 'bpm') {
 				const orig = (midi && midi.getOriginalBPM) ? midi.getOriginalBPM() : 120;
 				const safeOrig = orig > 0 ? orig : 120;
 				const ratio = data.value / safeOrig;
 				g.midiSettings.speed = ratio;
-				if(midi && midi.setPlaybackSpeed) midi.setPlaybackSpeed(ratio);
+				if (midi && midi.setPlaybackSpeed) midi.setPlaybackSpeed(ratio);
 			}
-			else if(data.param === 'metronome') {
+			else if (data.param === 'metronome') {
 				g.midiSettings.metronome = !!data.value;
-				if(midi && midi.setMetronome) midi.setMetronome(!!data.value);
+				if (midi && midi.setMetronome) midi.setMetronome(!!data.value);
 			}
-			else if(data.param === 'soundfont') {
+			else if (data.param === 'soundfont') {
 				console.log('[MIDI] Soundfont change requested:', data.value);
 				console.log('[MIDI] Current soundfont:', g.config?.midiSoundfont);
 				console.log('[MIDI] midi player exists:', !!midi);
 				console.log('[MIDI] midi.setSoundFont exists:', !!(midi && midi.setSoundFont));
-				if(g.config && g.config.midiSoundfont !== data.value){
-					if(g.config_obj) {
+				if (g.config && g.config.midiSoundfont !== data.value) {
+					if (g.config_obj) {
 						let c = g.config_obj.get();
 						c.midiSoundfont = data.value;
 						g.config_obj.set(c);
 						g.config = c;
 					}
-					if(midi && midi.setSoundFont) {
-					let fp = g.app_path;
-					if(g.isPackaged){fp = path.dirname(fp);}
-					const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
-					const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
-					console.log('[MIDI] Calling midi.setSoundFont with URL:', soundfontUrl);
+					if (midi && midi.setSoundFont) {
+						let fp = g.app_path;
+						if (g.isPackaged) { fp = path.dirname(fp); }
+						const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
+						const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
+						console.log('[MIDI] Calling midi.setSoundFont with URL:', soundfontUrl);
 						midi.setSoundFont(soundfontUrl);
 					}
 				} else {
@@ -658,130 +702,130 @@ async function init(){
 				}
 			}
 		}
-		else if(data.mode === 'audio'){
+		else if (data.mode === 'audio') {
 			console.log('[Stage] param-change audio:', data.param, '=', data.value);
-			if(data.param === 'audioMode'){
+			if (data.param === 'audioMode') {
 				const newMode = data.value; // 'tape' or 'pitchtime'
 				const oldMode = g.audioParams.mode;
 				console.log('[Stage] audioMode change:', oldMode, '→', newMode);
 				g.audioParams.mode = newMode;
-				
+
 				// Switch pipeline based on mode
-				if(newMode === 'pitchtime' && g.activePipeline !== 'rubberband'){
+				if (newMode === 'pitchtime' && g.activePipeline !== 'rubberband') {
 					console.log('[Stage] Switching to rubberband pipeline');
 					await switchPipeline('rubberband');
-				} else if(newMode === 'tape' && g.activePipeline === 'rubberband'){
+				} else if (newMode === 'tape' && g.activePipeline === 'rubberband') {
 					console.log('[Stage] Switching to normal pipeline');
 					await switchPipeline('normal');
 				}
 			}
-			else if(data.param === 'tapeSpeed'){
+			else if (data.param === 'tapeSpeed') {
 				console.log('[Stage] tapeSpeed:', data.value, 'currentAudio:', g.currentAudio?.isFFmpeg, g.currentAudio?.isMod);
 				g.audioParams.tapeSpeed = data.value;
 				applyTapeSpeed(data.value);
 			}
-			else if(data.param === 'locked'){
+			else if (data.param === 'locked') {
 				g.audioParams.locked = !!data.value;
 			}
-			else if(data.param === 'pipeline'){
+			else if (data.param === 'pipeline') {
 				switchPipeline(data.value);
 			}
-			else if(data.param === 'pitch'){
+			else if (data.param === 'pitch') {
 				g.audioParams.pitch = data.value;
-				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
+				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					const ratio = Math.pow(2, data.value / 12.0);
-					if(typeof g.rubberbandPlayer.setPitch === 'function'){
+					if (typeof g.rubberbandPlayer.setPitch === 'function') {
 						g.rubberbandPlayer.setPitch(ratio);
 					}
 				}
 			}
-			else if(data.param === 'tempo'){
+			else if (data.param === 'tempo') {
 				g.audioParams.tempo = data.value;
-				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
-					if(typeof g.rubberbandPlayer.setTempo === 'function'){
+				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
+					if (typeof g.rubberbandPlayer.setTempo === 'function') {
 						g.rubberbandPlayer.setTempo(data.value);
 					}
 				}
 			}
-			else if(data.param === 'formant'){
+			else if (data.param === 'formant') {
 				g.audioParams.formant = !!data.value;
-				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer){
+				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					// Options changes: use fade + stabilization pattern
 					// (rubberband internally recreates kernel, which needs settling time)
-					if(g.rubberbandPlayer.isPlaying && typeof g.rubberbandPlayer.fadeOut === 'function'){
+					if (g.rubberbandPlayer.isPlaying && typeof g.rubberbandPlayer.fadeOut === 'function') {
 						try {
 							await g.rubberbandPlayer.fadeOut();
-							
-							if(typeof g.rubberbandPlayer.setOptions === 'function'){
+
+							if (typeof g.rubberbandPlayer.setOptions === 'function') {
 								g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
 							}
-							
+
 							// 300ms stabilization for kernel recreation
 							await new Promise(resolve => setTimeout(resolve, 300));
-							
+
 							await g.rubberbandPlayer.fadeIn();
 							console.log('[Stage] Formant option changed with fade+stabilization');
-						} catch(err) {
+						} catch (err) {
 							console.error('[Stage] Error during formant change:', err);
 						}
 					} else {
 						// Not playing - just apply option directly
-						if(typeof g.rubberbandPlayer.setOptions === 'function'){
+						if (typeof g.rubberbandPlayer.setOptions === 'function') {
 							g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
 						}
 					}
 				}
 			}
 		}
-		else if(data.mode === 'tracker'){
-			if(!g.trackerParams) g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
-			
-			if(data.param === 'pitch'){
+		else if (data.mode === 'tracker') {
+			if (!g.trackerParams) g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+
+			if (data.param === 'pitch') {
 				g.trackerParams.pitch = data.value;
-				if(player && player.setPitch) player.setPitch(data.value);
+				if (player && player.setPitch) player.setPitch(data.value);
 			}
-			else if(data.param === 'tempo'){
+			else if (data.param === 'tempo') {
 				g.trackerParams.tempo = data.value;
-				if(player && player.setTempo) player.setTempo(data.value);
+				if (player && player.setTempo) player.setTempo(data.value);
 			}
-			else if(data.param === 'stereoSeparation'){
+			else if (data.param === 'stereoSeparation') {
 				g.trackerParams.stereoSeparation = data.value;
-				if(player && player.setStereoSeparation) player.setStereoSeparation(data.value);
+				if (player && player.setStereoSeparation) player.setStereoSeparation(data.value);
 			}
-			else if(data.param === 'channelMute'){
-				if(player && player.setChannelMute) player.setChannelMute(data.value.channel, data.value.mute);
+			else if (data.param === 'channelMute') {
+				if (player && player.setChannelMute) player.setChannelMute(data.value.channel, data.value.mute);
 			}
 		}
 	});
 
 	ipcRenderer.on('get-available-soundfonts', async (e, data) => {
 		let fp = g.app_path;
-		if(g.isPackaged){fp = path.dirname(fp);}
+		if (g.isPackaged) { fp = path.dirname(fp); }
 		const soundfontsDir = path.resolve(fp + '/bin/soundfonts/');
-		
+
 		try {
 			const files = await fs.readdir(soundfontsDir);
 			const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
-			
+
 			const availableFonts = soundfontFiles.map(filename => {
 				let label = filename.replace(/\.(sf2|sf3)$/i, '');
 				label = label.replace(/_/g, ' ');
 				return { filename, label };
 			});
-			
+
 			availableFonts.sort((a, b) => {
 				if (a.filename.startsWith('TimGM')) return -1;
 				if (b.filename.startsWith('TimGM')) return 1;
 				return a.label.localeCompare(b.label);
 			});
-			
+
 			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
 			tools.sendToId(targetWindow, 'available-soundfonts', { fonts: availableFonts });
-		} catch(err) {
+		} catch (err) {
 			console.error('[MIDI] Failed to read soundfonts directory:', err);
 			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
-			tools.sendToId(targetWindow, 'available-soundfonts', { 
-				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }] 
+			tools.sendToId(targetWindow, 'available-soundfonts', {
+				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }]
 			});
 		}
 	});
@@ -806,7 +850,7 @@ async function init(){
 			tools.sendToId(g.windows['midi'], 'theme-changed', data);
 		}
 	});
-	
+
 	ipcRenderer.on('toggle-theme', (e, data) => {
 		tools.sendToMain('command', { command: 'toggle-theme' });
 	});
@@ -814,12 +858,21 @@ async function init(){
 	ipcRenderer.on('mixer-state', (e, data) => {
 		g.mixerPlaying = !!(data && data.playing);
 	});
-	
+
+	ipcRenderer.on('monitoring-ready', (e, data) => {
+		console.log('[Monitoring] Window signaled ready (id:', data.windowId, ')');
+		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+		if (currentFile) {
+			console.log('[Monitoring] Sending initial waveform to ready window');
+			extractAndSendWaveform(currentFile);
+		}
+	});
+
 }
 
-async function appStart(){
+async function appStart() {
 	window.addEventListener("keydown", onKey);
-	window.addEventListener('wheel', onWheelVolume, {passive:false});
+	window.addEventListener('wheel', onWheelVolume, { passive: false });
 	g.scale = window.devicePixelRatio || 1;
 	g.body = document.body;
 	g.frame = ut.el('.frame');
@@ -854,23 +907,23 @@ async function appStart(){
 	g.text.innerHTML = '';
 	g.blocky = false;
 
-	
-	g.supportedMpt = ['.mptm', '.mod','.mo3','.s3m', '.xm', '.it', '.669', '.amf', '.ams', '.c67', '.dbm', '.digi', '.dmf', 
-	'.dsm', '.dsym', '.dtm', '.far', '.fmt', '.imf', '.ice', '.j2b', '.m15', '.mdl', '.med', '.mms', '.mt2', '.mtm', '.mus', 
-	'.nst', '.okt', '.plm', '.psm', '.pt36', '.ptm', '.sfx', '.sfx2', '.st26', '.stk', '.stm', '.stx', '.stp', '.symmod', 
-	'.ult', '.wow', '.gdm', '.mo3', '.oxm', '.umx', '.xpk', '.ppm', '.mmcmp'];
+
+	g.supportedMpt = ['.mptm', '.mod', '.mo3', '.s3m', '.xm', '.it', '.669', '.amf', '.ams', '.c67', '.dbm', '.digi', '.dmf',
+		'.dsm', '.dsym', '.dtm', '.far', '.fmt', '.imf', '.ice', '.j2b', '.m15', '.mdl', '.med', '.mms', '.mt2', '.mtm', '.mus',
+		'.nst', '.okt', '.plm', '.psm', '.pt36', '.ptm', '.sfx', '.sfx2', '.st26', '.stk', '.stm', '.stx', '.stp', '.symmod',
+		'.ult', '.wow', '.gdm', '.mo3', '.oxm', '.umx', '.xpk', '.ppm', '.mmcmp'];
 	g.supportedMIDI = ['.mid', '.midi', '.kar', '.rmi'];
-	g.supportedChrome = ['.mp3','.wav','.flac','.ogg', '.m4a', '.m4b', '.aac','.webm'];
-	g.supportedFFmpeg = ['.mpg','.mp2', '.aif', '.aiff','.aa', '.wma', '.asf', '.ape', '.wv', '.wvc', '.tta', '.mka', 
-	'.amr', '.3ga', '.ac3', '.eac3', '.dts', '.dtshd', '.caf', '.au', '.snd', '.voc', '.tak', '.mpc', '.mp+'];
+	g.supportedChrome = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.m4b', '.aac', '.webm'];
+	g.supportedFFmpeg = ['.mpg', '.mp2', '.aif', '.aiff', '.aa', '.wma', '.asf', '.ape', '.wv', '.wvc', '.tta', '.mka',
+		'.amr', '.3ga', '.ac3', '.eac3', '.dts', '.dtshd', '.caf', '.au', '.snd', '.voc', '.tak', '.mpc', '.mp+'];
 
 	g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedMpt, ...g.supportedMIDI]
 
-	function canFFmpegPlayFile(filePath){
+	function canFFmpegPlayFile(filePath) {
 		console.log('FFmpeg probe:', filePath);
 		const decoder = new g.FFmpegDecoder();
 		try {
-			if(decoder.open(filePath)){
+			if (decoder.open(filePath)) {
 				const duration = decoder.getDuration();
 				decoder.close();
 				console.log('  ✓ FFmpeg can play (duration:', duration, 's)');
@@ -879,8 +932,8 @@ async function appStart(){
 			decoder.close();
 			console.log('  ✗ FFmpeg open failed');
 			return false;
-		} catch(e){
-			try { decoder.close(); } catch(e2){}
+		} catch (e) {
+			try { decoder.close(); } catch (e2) { }
 			console.log('  ✗ FFmpeg error:', e.message);
 			return false;
 		}
@@ -890,15 +943,15 @@ async function appStart(){
 	g.music = [];
 	g.idx = 0;
 	g.isLoop = false;
-	
-	if(!g.config.audio) g.config.audio = {};
-	
+
+	if (!g.config.audio) g.config.audio = {};
+
 	setupWindow();
 	setupDragDrop();
 
-	let arg = g.start_vars[g.start_vars.length-1];
-	
-	if(arg != '.' && g.start_vars.length > 1 && arg != '--squirrel-firstrun'){
+	let arg = g.start_vars[g.start_vars.length - 1];
+
+	if (arg != '.' && g.start_vars.length > 1 && arg != '--squirrel-firstrun') {
 		await playListFromSingle(arg);
 	}
 	else {
@@ -907,18 +960,18 @@ async function appStart(){
 			await playListFromSingle(dir);
 		}
 	}
-	
-	if(g.music.length > 0){
-		
-		g.max = g.music.length-1;
+
+	if (g.music.length > 0) {
+
+		g.max = g.music.length - 1;
 		playAudio(g.music[g.idx])
 	}
 
 	g.top_close.addEventListener('click', () => {
 		const cfg = g.config_obj ? g.config_obj.get() : g.config;
 		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
-		if(keep){
-			if(g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
+		if (keep) {
+			if (g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
 			g.win.hide();
 		} else {
 			g.win.close();
@@ -936,34 +989,34 @@ async function appStart(){
 	g.ctrl_btn_loop.addEventListener('click', toggleLoop);
 	g.ctrl_btn_settings.addEventListener('click', () => openWindow('settings'));
 	g.ctrl_btn_parameters.addEventListener('click', () => openWindow('parameters'));
-	if(ut.dragSlider && g.ctrl_volume && g.ctrl_volume_bar){
+	if (ut.dragSlider && g.ctrl_volume && g.ctrl_volume_bar) {
 		g.ctrl_volume_slider = ut.dragSlider(g.ctrl_volume, volumeSlider, -1, g.ctrl_volume_bar);
 	}
-	if(ut.dragSlider && g.time_controls && g.playhead){
+	if (ut.dragSlider && g.time_controls && g.playhead) {
 		g.timeline_slider = ut.dragSlider(g.time_controls, timelineSlider, -1, g.playhead);
 	}
 
 	loop();
-	
+
 }
 
-function onWheelVolume(e){
-	if(e.ctrlKey || e.metaKey) return;
-	if(!e) return;
+function onWheelVolume(e) {
+	if (e.ctrlKey || e.metaKey) return;
+	if (!e) return;
 	const dy = +e.deltaY;
-	if(!isFinite(dy) || dy === 0) return;
-	if(!g.wheel_vol) g.wheel_vol = {acc:0, t:0};
+	if (!isFinite(dy) || dy === 0) return;
+	if (!g.wheel_vol) g.wheel_vol = { acc: 0, t: 0 };
 	const now = performance.now();
-	if(now - g.wheel_vol.t > 250) { g.wheel_vol.acc = 0; }
+	if (now - g.wheel_vol.t > 250) { g.wheel_vol.acc = 0; }
 	g.wheel_vol.t = now;
 	g.wheel_vol.acc += dy;
 
 	const step = 80;
-	while(g.wheel_vol.acc <= -step){
+	while (g.wheel_vol.acc <= -step) {
 		g.wheel_vol.acc += step;
 		volumeUp();
 	}
-	while(g.wheel_vol.acc >= step){
+	while (g.wheel_vol.acc >= step) {
 		g.wheel_vol.acc -= step;
 		volumeDown();
 	}
@@ -971,78 +1024,78 @@ function onWheelVolume(e){
 	e.preventDefault();
 }
 
-function _clamp01(v){
+function _clamp01(v) {
 	v = +v;
-	if(!(v >= 0)) return 0;
-	if(v > 1) return 1;
+	if (!(v >= 0)) return 0;
+	if (v > 1) return 1;
 	return v;
 }
 
-function setVolume(v, persist=false){
+function setVolume(v, persist = false) {
 	v = _clamp01(v);
-	if(!g.config.audio) g.config.audio = {};
+	if (!g.config.audio) g.config.audio = {};
 	g.config.audio.volume = v;
-	if(player) {
-		try { player.gain.gain.value = v; } catch(e) {}
+	if (player) {
+		try { player.gain.gain.value = v; } catch (e) { }
 	}
-	if(midi) {
-		try { midi.setVol(v); } catch(e) {}
+	if (midi) {
+		try { midi.setVol(v); } catch (e) { }
 	}
-	if(g.currentAudio?.isFFmpeg && g.currentAudio.player) {
+	if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 		g.currentAudio.player.volume = v;
 	}
-	if(g.playvolume) g.playvolume.innerText = (Math.round(v*100)) + '%';
-	if(g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (v*100) + '%';
-	if(persist && g.config_obj) g.config_obj.set(g.config);
+	if (g.playvolume) g.playvolume.innerText = (Math.round(v * 100)) + '%';
+	if (g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (v * 100) + '%';
+	if (persist && g.config_obj) g.config_obj.set(g.config);
 }
 
-function volumeSlider(e){
-	if(e.type == 'start' || e.type == 'move'){
+function volumeSlider(e) {
+	if (e.type == 'start' || e.type == 'move') {
 		setVolume(e.prozX, false);
 	}
-	else if(e.type == 'end'){
+	else if (e.type == 'end') {
 		setVolume(e.prozX, true);
 	}
 }
 
-function setupDragDrop(){
+function setupDragDrop() {
 	g.dropZone = window.nui_app.dropZone(
 		[
-			{ name:'drop_add', label:'Add to Playlist' }, 
-			{ name:'drop_replace', label:'Replace Playlist' },
-			{ name:'drop_mixer', label:'Multitrack<br>Preview' }
+			{ name: 'drop_add', label: 'Add to Playlist' },
+			{ name: 'drop_replace', label: 'Replace Playlist' },
+			{ name: 'drop_mixer', label: 'Multitrack<br>Preview' }
 		],
 		dropHandler,
 		document.body
 	);
-	async function dropHandler(e){
+	async function dropHandler(e) {
 		console.log(e);
 		e.preventDefault();
-		if(e.target.id == 'drop_add'){
+		if (e.target.id == 'drop_add') {
 			let files = fileListArray(e.dataTransfer.files);
 			const wasEmpty = g.music.length === 0;
 			await playListFromMulti(files, true, !e.ctrlKey);
-			if(wasEmpty) playAudio(g.music[g.idx], 0, false);
+			if (wasEmpty) playAudio(g.music[g.idx], 0, false);
 			g.win.focus();
 		}
-		if(e.target.id == 'drop_replace'){
+		if (e.target.id == 'drop_replace') {
 			let files = fileListArray(e.dataTransfer.files);
 			await playListFromMulti(files, false, !e.ctrlKey);
 			playAudio(g.music[g.idx], 0, false);
 			g.win.focus();
 		}
-		if(e.target.id == 'drop_mixer'){
+		if (e.target.id == 'drop_mixer') {
 			let files = fileListArray(e.dataTransfer.files);
-			
-			
-			
+
+
+
 			let pl = [];
-			for(let i=0; i<files.length; i++){
+			for (let i = 0; i < files.length; i++) {
 				let fp = files[i];
 				let stat = await fs.lstat(path.normalize(fp));
-				if(stat.isDirectory()){
+				if (stat.isDirectory()) {
 					let folder_files = [];
-					if(!e.ctrlKey){
+					if (!e.ctrlKey) {
 						folder_files = await tools.getFilesRecursive(fp, g.supportedFilter);
 					}
 					else {
@@ -1051,55 +1104,55 @@ function setupDragDrop(){
 					pl = pl.concat(folder_files);
 				}
 				else {
-					if(tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)){
+					if (tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)) {
 						pl.push(fp);
 					}
 				}
 			}
-			
-			if(g.currentAudio && !g.currentAudio.paused){
+
+			if (g.currentAudio && !g.currentAudio.paused) {
 				g.currentAudio.pause();
 				checkState();
 			}
-			
-			
-			
-			
+
+
+
+
 			openWindow('mixer', true, pl);
 			return;
 		}
 		renderTopInfo();
 	}
 
-	function fileListArray(fl){
+	function fileListArray(fl) {
 		let out = [];
-		for(let i=0; i<fl.length; i++){
+		for (let i = 0; i < fl.length; i++) {
 			out.push(webUtils.getPathForFile(fl[i]));
 		}
 		return out;
 	}
 }
 
-function setupWindow(){
+function setupWindow() {
 	g.win.hook_event('blur', handler);
 	g.win.hook_event('focus', handler);
 	g.win.hook_event('move', handler);
 	g.win.hook_event('resized', handler);
 	g.win.hook_event('resize', handler);
 
-	function handler(e, data){
-		if(data.type == 'blur'){
+	function handler(e, data) {
+		if (data.type == 'blur') {
 			g.frame.classList.remove('focus');
 		}
-		if(data.type == 'focus'){
+		if (data.type == 'focus') {
 			g.frame.classList.add('focus');
 		}
-		if(data.type == 'move' || data.type == 'resized' || data.type == 'resize'){
+		if (data.type == 'move' || data.type == 'resized' || data.type == 'resize') {
 			clearTimeout(g.window_move_timeout);
 			g.window_move_timeout = setTimeout(async () => {
 				let bounds = await g.win.getBounds();
-				if(!g.config.windows) g.config.windows = {};
-				if(!g.config.windows.main) g.config.windows.main = {};
+				if (!g.config.windows) g.config.windows = {};
+				if (!g.config.windows.main) g.config.windows.main = {};
 				const scale = (g.config.windows.main.scale !== undefined) ? (g.config.windows.main.scale | 0) : 14;
 				g.config.windows.main = {
 					...g.config.windows.main,
@@ -1115,27 +1168,27 @@ function setupWindow(){
 	}
 }
 
-function timelineSlider(e){
-	if(!g.currentAudio) return;
+function timelineSlider(e) {
+	if (!g.currentAudio) return;
 	let dur = g.currentAudio.duration;
-	if(!(dur > 0)){
-		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
-		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
-		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
+	if (!(dur > 0)) {
+		if (g.currentAudio.isMod && player && player.duration) dur = player.duration;
+		else if (g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
+		else if (g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
 	}
-	if(!(dur > 0)) return;
-	
+	if (!(dur > 0)) return;
+
 	const s = dur * e.prozX;
 	seekTo(s);
 }
 
-function playListFromSingle(fp, rec=true){
+function playListFromSingle(fp, rec = true) {
 	return new Promise(async (resolve, reject) => {
 		let pl = [];
 		let idx = 0;
 		let stat = await fs.lstat(path.normalize(fp));
-		if(stat.isDirectory()){
-			if(rec){
+		if (stat.isDirectory()) {
+			if (rec) {
 				pl = await tools.getFilesRecursive(fp, g.supportedFilter);
 			}
 			else {
@@ -1143,34 +1196,34 @@ function playListFromSingle(fp, rec=true){
 			}
 		}
 		else {
-			if(tools.checkFileType(fp, g.supportedFilter)){
+			if (tools.checkFileType(fp, g.supportedFilter)) {
 				let info = path.parse(fp);
 				pl = await tools.getFiles(info.dir, g.supportedFilter);
 				idx = pl.findIndex(item => item == path.join(info.dir, info.base));
-				if(idx == -1) { idx = 0};
+				if (idx == -1) { idx = 0 };
 			}
 			else {
 				console.log('Unsupported File Type')
 			}
 		}
-		if(pl.length > 0){
+		if (pl.length > 0) {
 			g.music = pl;
-			g.max = g.music.length-1;
+			g.max = g.music.length - 1;
 			g.idx = idx;
 		}
 		resolve();
 	})
 }
 
-function playListFromMulti(ar, add=false, rec=false){
+function playListFromMulti(ar, add = false, rec = false) {
 	return new Promise(async (resolve, reject) => {
 		let pl = [];
-		for(let i=0; i<ar.length; i++){
+		for (let i = 0; i < ar.length; i++) {
 			let fp = ar[i];
 			let stat = await fs.lstat(path.normalize(fp));
-			if(stat.isDirectory()){
+			if (stat.isDirectory()) {
 				let folder_files = [];
-				if(rec){
+				if (rec) {
 					folder_files = await tools.getFilesRecursive(fp, g.supportedFilter);
 				}
 				else {
@@ -1179,7 +1232,7 @@ function playListFromMulti(ar, add=false, rec=false){
 				pl = pl.concat(folder_files);
 			}
 			else {
-				if(tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)){
+				if (tools.checkFileType(fp, g.supportedFilter) || g.canFFmpegPlayFile(fp)) {
 					pl.push(fp);
 				}
 				else {
@@ -1187,56 +1240,56 @@ function playListFromMulti(ar, add=false, rec=false){
 				}
 			}
 		}
-		if(pl.length > 0){
-			if(add && g.music.length > 0){
+		if (pl.length > 0) {
+			if (add && g.music.length > 0) {
 				g.music = g.music.concat(pl);
-				g.max = g.music.length-1;
+				g.max = g.music.length - 1;
 			}
 			else {
 				g.idx = 0;
 				g.music = pl;
-				g.max = g.music.length-1;
+				g.max = g.music.length - 1;
 			}
 		}
 		resolve(pl);
 	})
 }
 
-async function playAudio(fp, n, startPaused = false, autoAdvance = false){
-	if(!g.blocky){
-		if(fp && g.music && g.music.length > 0){
+async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
+	if (!g.blocky) {
+		if (fp && g.music && g.music.length > 0) {
 			const idx = g.music.indexOf(fp);
-			if(idx >= 0 && g.idx !== idx){
+			if (idx >= 0 && g.idx !== idx) {
 				g.idx = idx;
-				try { renderTopInfo(); } catch(e) {}
-				if(g.info_win) {
-					tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
+				try { renderTopInfo(); } catch (e) { }
+				if (g.info_win) {
+					tools.sendToId(g.info_win, 'info', { list: g.music, idx: g.idx });
 				}
 			}
 		}
 		let parse = path.parse(fp);
 		let bench = performance.now();
-		
-		if(!autoAdvance && g.currentAudio && !g.currentAudio.paused){
-			if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function' && g.activePipeline !== 'rubberband'){
+
+		if (!autoAdvance && g.currentAudio && !g.currentAudio.paused) {
+			if (g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function' && g.activePipeline !== 'rubberband') {
 				await g.currentAudio.player.fadeOut();
 			}
 		}
-		
+
 		g.blocky = true;
 		clearAudio();
 
-		if(player) { player.stop(); }
-		if(midi) { midi.stop(); }
+		if (player) { player.stop(); }
+		if (midi) { midi.stop(); }
 
 		const ext = parse.ext.toLocaleLowerCase();
 		const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
 		const isTracker = g.supportedMpt.includes(ext);
 		console.log('[playAudio] File:', parse.base, 'Type:', isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg', 'parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
 
-		if(isMIDI){
+		if (isMIDI) {
 			console.log('[playAudio] Starting MIDI playback');
-			if(!midi){
+			if (!midi) {
 				g.text.innerHTML += (g.midiInitError || 'MIDI playback not initialized.') + '<br>';
 				g.blocky = false;
 				return false;
@@ -1251,7 +1304,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				get paused() { return midi ? midi.paused : true; },
 				duration: 0,
 				play: () => {
-					try { midi.setVol((g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol); } catch(e) {}
+					try { midi.setVol((g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol); } catch (e) { }
 					midi.play();
 				},
 				pause: () => { midi.pause(); },
@@ -1260,29 +1313,29 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			};
 			try {
 				await midi.load(tools.getFileURL(fp));
-				
+
 				if (!g.currentAudio.duration && midi.getDuration() > 0) {
 					g.currentAudio.duration = midi.getDuration();
 				}
-				
+
 				midi.setVol(initialVol);
 				midi.setLoop(g.isLoop);
-				if(n > 0){
+				if (n > 0) {
 					midi.seek(n);
 					g.currentAudio.currentTime = n;
 				}
-				if(startPaused){
-					try { midi.setVol(0); } catch(e) {}
+				if (startPaused) {
+					try { midi.setVol(0); } catch (e) { }
 					midi.pause();
 				} else {
 					midi.play();
 				}
-				
+
 				await renderInfo(fp, g.currentAudio.metadata);
 				g.blocky = false;
 				checkState();
 
-				if(g.windows.parameters){
+				if (g.windows.parameters) {
 					console.log('[playAudio] Updating parameters window for MIDI');
 					const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
 					const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
@@ -1291,48 +1344,53 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 						bpm: Math.round(orig * speed),
 						metronome: g.midiSettings ? g.midiSettings.metronome : false,
 						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2',
-					originalBPM: orig
+						originalBPM: orig
 					};
 					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
 				}
-			} catch(err) {
+			} catch (err) {
 				console.error('MIDI playback error:', err);
 				g.text.innerHTML += 'Error loading MIDI file!<br>';
 				g.blocky = false;
 				return false;
 			}
 		}
-		else if(isTracker){
+		else if (isTracker) {
 			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
-				isMod: true, 
-				fp: fp, 
-				bench: bench, 
+				isMod: true,
+				fp: fp,
+				bench: bench,
 				currentTime: 0,
-				paused: startPaused, 
+				paused: startPaused,
 				duration: 0,
-				play: () =>  {
+				play: () => {
 					g.currentAudio.paused = false;
-					try { player.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch(e) {}
+					try { player.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch (e) { }
 					player.unpause();
-				}, 
-				pause: () => { g.currentAudio.paused = true; player.pause() }
+				},
+				pause: () => { g.currentAudio.paused = true; player.pause() },
+				getCurrentTime: () => player.getCurrentTime(),
+				seek: (n) => player.seek(n)
 			};
+			if (g.windows.monitoring) {
+				extractAndSendWaveform(fp);
+			}
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
-			
+
 			// Reset tracker params on new file (no lock feature for tracker)
 			g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
-			
+
 			// Apply tape speed if locked and in tape mode (overrides tracker params)
 			const locked = g.audioParams && g.audioParams.locked;
-			if(locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0){
+			if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
 				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
 				player.setTempo(tempoFactor);
 			}
 
-			if(g.windows.parameters){
+			if (g.windows.parameters) {
 				const params = {
 					pitch: 1.0,
 					tempo: 1.0,
@@ -1341,44 +1399,44 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				};
 				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
 			}
-			
-			if(n > 0){
+
+			if (n > 0) {
 				const seekTime = n;
 				const seekFp = fp;
 				let attempts = 0;
 				const doSeek = () => {
-					if(!g.currentAudio || !g.currentAudio.isMod || g.currentAudio.fp !== seekFp) return;
-					if(!player || typeof player.seek !== 'function') return;
-					if(player.duration && player.duration > 0){
+					if (!g.currentAudio || !g.currentAudio.isMod || g.currentAudio.fp !== seekFp) return;
+					if (!player || typeof player.seek !== 'function') return;
+					if (player.duration && player.duration > 0) {
 						player.seek(seekTime);
 						g.currentAudio.currentTime = seekTime;
 						return;
 					}
 					attempts++;
-					if(attempts < 60){
+					if (attempts < 60) {
 						setTimeout(doSeek, 25);
 					}
 				};
 				setTimeout(doSeek, 25);
 			}
-			if(startPaused) {
-				try { player.gain.gain.value = 0; } catch(e) {}
-				try { player.pause(); } catch(e) {}
+			if (startPaused) {
+				try { player.gain.gain.value = 0; } catch (e) { }
+				try { player.pause(); } catch (e) { }
 				setTimeout(() => {
 					try {
-						if(g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused){
-							try { player.gain.gain.value = 0; } catch(e) {}
+						if (g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused) {
+							try { player.gain.gain.value = 0; } catch (e) { }
 							player.pause();
 						}
-					} catch(e) {}
+					} catch (e) { }
 				}, 30);
 				setTimeout(() => {
 					try {
-						if(g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused){
-							try { player.gain.gain.value = 0; } catch(e) {}
+						if (g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused) {
+							try { player.gain.gain.value = 0; } catch (e) { }
 							player.pause();
 						}
-					} catch(e) {}
+					} catch (e) { }
 				}, 250);
 			}
 			checkState();
@@ -1386,32 +1444,40 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 		else {
 			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
 			try {
-				if(g.parametersOpen && g.rubberbandPlayer && g.activePipeline !== 'rubberband'){
+				if (g.parametersOpen && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
 					console.log('[playAudio] Need to switch to rubberband - was:', g.activePipeline);
 					g.activePipeline = 'rubberband';
-					g.rubberbandPlayer.connect();
+					g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
 					console.log('[playAudio] Switched to rubberband pipeline');
-				} else if(!g.parametersOpen && g.activePipeline === 'rubberband'){
+				} else if (!g.parametersOpen && g.activePipeline === 'rubberband') {
 					console.log('[playAudio] Parameters closed but still on rubberband - switching to normal');
 					g.rubberbandPlayer.disconnect();
 					g.activePipeline = 'normal';
 				}
-				
+
 				const ffPlayer = (g.activePipeline === 'rubberband' && g.rubberbandPlayer) ? g.rubberbandPlayer : g.ffmpegPlayer;
 				console.log('[playAudio] Selected player:', g.activePipeline === 'rubberband' ? 'rubberbandPlayer' : 'ffmpegPlayer');
-				
-				if(g.activePipeline === 'rubberband' && g.rubberbandPlayer && !g.rubberbandPlayer.isConnected){
+
+				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && !g.rubberbandPlayer.isConnected) {
 					console.log('[playAudio] Reconnecting rubberband player (was disconnected by clearAudio)');
-					g.rubberbandPlayer.connect();
+					g.rubberbandPlayer.connect(); // destination
+					if (g.monitoringSplitter_RB) {
+						g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
+					}
 				}
-				
+
 				ffPlayer.onEnded(audioEnded);
-				
+
 				console.log('[playAudio] Opening file with', g.activePipeline, 'player...');
 				const metadata = await ffPlayer.open(fp);
+
+				if (g.windows.monitoring) {
+					extractAndSendWaveform(fp);
+				}
+
 				console.log('[playAudio] File opened, duration:', metadata?.duration, 'sampleRate:', metadata?.sampleRate);
 				ffPlayer.setLoop(g.isLoop);
-				
+
 				g.currentAudio = {
 					isFFmpeg: true,
 					pipeline: g.activePipeline,
@@ -1427,15 +1493,15 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 					seek: (time) => ffPlayer.seek(time),
 					getCurrentTime: () => ffPlayer.getCurrentTime()
 				};
-				
+
 				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
-				
-			// Apply tape speed if locked and in tape mode, otherwise no speed adjustment
-			const locked = g.audioParams && g.audioParams.locked;
-			if(locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0){
-				ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
-			}
-			
+
+				// Apply tape speed if locked and in tape mode, otherwise no speed adjustment
+				const locked = g.audioParams && g.audioParams.locked;
+				if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
+					ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
+				}
+
 				if (!startPaused) {
 					console.log('[playAudio] Starting playback...');
 					await ffPlayer.play();
@@ -1443,14 +1509,14 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 				}
 				else {
 					console.log('[playAudio] Pausing (startPaused=true)');
-					if(typeof ffPlayer.pause === 'function') await ffPlayer.pause();
+					if (typeof ffPlayer.pause === 'function') await ffPlayer.pause();
 				}
-				
+
 				checkState();
 				await renderInfo(fp);
 				g.blocky = false;
 
-				if(g.windows.parameters){
+				if (g.windows.parameters) {
 					// If locked, preserve all settings; otherwise reset to defaults
 					const locked = g.audioParams && g.audioParams.locked;
 					const params = locked ? {
@@ -1470,46 +1536,46 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 						locked: false,
 						reset: true
 					};
-					
+
 					// If not locked, also reset to tape mode and normal pipeline
-					if(!locked){
+					if (!locked) {
 						g.audioParams.mode = 'tape';
 						g.audioParams.tapeSpeed = 0;
 						g.audioParams.pitch = 0;
 						g.audioParams.tempo = 1.0;
-						if(g.activePipeline === 'rubberband'){
+						if (g.activePipeline === 'rubberband') {
 							await switchPipeline('normal');
 						}
 					} else {
 						// If locked, apply the appropriate settings for the current mode
-						if(g.audioParams.mode === 'tape'){
+						if (g.audioParams.mode === 'tape') {
 							// Tape mode: apply tape speed
-							if(g.audioParams.tapeSpeed !== 0){
+							if (g.audioParams.tapeSpeed !== 0) {
 								applyTapeSpeed(g.audioParams.tapeSpeed);
 							}
-						} else if(g.audioParams.mode === 'pitchtime'){
+						} else if (g.audioParams.mode === 'pitchtime') {
 							// Pitchtime mode: switch to rubberband and apply pitch/tempo
-							if(g.activePipeline !== 'rubberband'){
+							if (g.activePipeline !== 'rubberband') {
 								await switchPipeline('rubberband');
 							} else {
 								// Already on rubberband, just apply the settings
-								if(g.rubberbandPlayer){
-									if(typeof g.rubberbandPlayer.setPitch === 'function'){
+								if (g.rubberbandPlayer) {
+									if (typeof g.rubberbandPlayer.setPitch === 'function') {
 										const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
 										g.rubberbandPlayer.setPitch(pitchRatio);
 									}
-									if(typeof g.rubberbandPlayer.setTempo === 'function'){
+									if (typeof g.rubberbandPlayer.setTempo === 'function') {
 										g.rubberbandPlayer.setTempo(g.audioParams.tempo || 1.0);
 									}
 								}
 							}
 						}
 					}
-					
+
 					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
 				}
 			}
-			catch(err) {
+			catch (err) {
 				console.error('FFmpeg playback error:', err);
 				g.text.innerHTML += 'Error loading file!<br>';
 				g.blocky = false;
@@ -1517,17 +1583,17 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false){
 			}
 		}
 	}
-	if(g.info_win) {
-		tools.sendToId(g.info_win, 'info', {list:g.music, idx:g.idx});
+	if (g.info_win) {
+		tools.sendToId(g.info_win, 'info', { list: g.music, idx: g.idx });
 	}
 }
 
-function renderInfo(fp, metadata){
-	g.currentInfo = { duration:g.currentAudio.duration };
+function renderInfo(fp, metadata) {
+	g.currentInfo = { duration: g.currentAudio.duration };
 	return new Promise(async (resolve, reject) => {
 		let parse = path.parse(fp);
 		let parent = path.basename(parse.dir);
-		g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
+		g.playremain.innerText = ut.playTime(g.currentAudio.duration * 1000).minsec;
 		ut.killKids(g.text);
 		g.text.appendChild(renderInfoItem('Folder:', parent))
 		g.text.appendChild(renderInfoItem('File:', parse.base))
@@ -1537,43 +1603,43 @@ function renderInfo(fp, metadata){
 		g.type_band.innerText = ext_string;
 
 		let prevCovers = g.cover.els('img');
-		for(let i=0; i<prevCovers.length; i++){
+		for (let i = 0; i < prevCovers.length; i++) {
 			let el = prevCovers[i];
-			el.animate([{opacity: 1}, {opacity: 0}], {duration: 200, delay: 200, fill: 'forwards'})
+			el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, delay: 200, fill: 'forwards' })
 				.onfinish = () => ut.killMe(el);
 		}
-		renderTopInfo(); 
-		
-		if(g.currentAudio.isMod){
+		renderTopInfo();
+
+		if (g.currentAudio.isMod) {
 			g.currentInfo.metadata = metadata;
 			g.text.appendChild(renderInfoItem('Format:', metadata.tracker))
 			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
-			if(metadata){
-				if(metadata.artist) { g.text.appendChild(renderInfoItem('Artist:', metadata.artist)) }
-				if(metadata.title) { g.text.appendChild(renderInfoItem('Title:', metadata.title)) }
-				if(metadata.date) { g.text.appendChild(renderInfoItem('Date:', metadata.date)) }
+			if (metadata) {
+				if (metadata.artist) { g.text.appendChild(renderInfoItem('Artist:', metadata.artist)) }
+				if (metadata.title) { g.text.appendChild(renderInfoItem('Title:', metadata.title)) }
+				if (metadata.date) { g.text.appendChild(renderInfoItem('Date:', metadata.date)) }
 			}
 			resolve();
 		}
-		else if(g.currentAudio.isMidi){
+		else if (g.currentAudio.isMidi) {
 			const md = metadata || g.currentAudio.metadata || {};
 			g.currentInfo.metadata = md;
-			
-			if(md.duration && md.duration > 0){
+
+			if (md.duration && md.duration > 0) {
 				g.currentAudio.duration = md.duration;
-				g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
+				g.playremain.innerText = ut.playTime(g.currentAudio.duration * 1000).minsec;
 			}
 			g.text.appendChild(renderInfoItem('Format:', 'MIDI'))
 			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
-			
+
 			if (md.title) g.text.appendChild(renderInfoItem('Title:', md.title));
 			if (md.copyright) g.text.appendChild(renderInfoItem('Copyright:', md.copyright));
-			
+
 			const infoParts = [];
 			if (md.timeSignature) infoParts.push(md.timeSignature);
 			if (md.originalBPM) infoParts.push(Math.round(md.originalBPM) + ' BPM');
 			if (md.keySignature) infoParts.push('Key: ' + md.keySignature);
-			
+
 			if (infoParts.length > 0) {
 				g.text.appendChild(renderInfoItem('Info:', infoParts.join(' - ')));
 			}
@@ -1584,58 +1650,58 @@ function renderInfo(fp, metadata){
 			resolve();
 		}
 		else {
-			
+
 			let meta = await getFileInfo(fp);
 			g.currentInfo.file = meta;
 
-			if(meta.formatLongName && meta.formatLongName.includes('Tracker')){
+			if (meta.formatLongName && meta.formatLongName.includes('Tracker')) {
 				g.text.appendChild(renderInfoItem('Format:', 'Tracker Format'))
 			}
 			else {
 				g.text.appendChild(renderInfoItem('Format:', meta.codecLongName || meta.codec || 'Unknown'))
 			}
-			
-			let bitrateStr = meta.bitrate ? Math.round(meta.bitrate/1000) + ' kbps' : '';
+
+			let bitrateStr = meta.bitrate ? Math.round(meta.bitrate / 1000) + ' kbps' : '';
 			let channelStr = meta.channels == 2 ? 'stereo' : (meta.channels == 1 ? 'mono' : (meta.channels ? meta.channels + ' ch' : ''));
 			let sampleStr = meta.sampleRate ? meta.sampleRate + ' Hz' : '';
-			if(meta.bitsPerSample && sampleStr) sampleStr += ' @ ' + meta.bitsPerSample + ' Bit';
+			if (meta.bitsPerSample && sampleStr) sampleStr += ' @ ' + meta.bitsPerSample + ' Bit';
 			let infoLine = [bitrateStr, channelStr, sampleStr].filter(s => s).join(' / ');
-			if(infoLine) g.text.appendChild(renderInfoItem(' ', infoLine))
-			
-			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
-			
-			if(meta.artist) { g.text.appendChild(renderInfoItem('Artist:', meta.artist)) }
-			if(meta.album) { g.text.appendChild(renderInfoItem('Album:', meta.album)) }
-			if(meta.title) { g.text.appendChild(renderInfoItem('Title:', meta.title)) }
-			
+			if (infoLine) g.text.appendChild(renderInfoItem(' ', infoLine))
 
-			
+			g.text.appendChild(ut.htmlObject(`<div class="space"></div>`))
+
+			if (meta.artist) { g.text.appendChild(renderInfoItem('Artist:', meta.artist)) }
+			if (meta.album) { g.text.appendChild(renderInfoItem('Album:', meta.album)) }
+			if (meta.title) { g.text.appendChild(renderInfoItem('Title:', meta.title)) }
+
+
+
 			let cover;
 			let id3_cover = await getCoverArt(meta);
-			if(id3_cover){
+			if (id3_cover) {
 				cover = id3_cover;
 			}
 			else {
-				let images = await tools.getFiles(parse.dir, ['.jpg','.jpeg','.png','.gif']);
-				if(images.length > 0){
-					cover = await tools.loadImage(images[images.length-1])
+				let images = await tools.getFiles(parse.dir, ['.jpg', '.jpeg', '.png', '.gif']);
+				if (images.length > 0) {
+					cover = await tools.loadImage(images[images.length - 1])
 				}
 			}
 
-			if(cover){
+			if (cover) {
 				g.cover.appendChild(cover)
 				cover.style.opacity = '0';
-				cover.animate([{opacity: 0}, {opacity: 1}], {duration: 200, fill: 'forwards'});
+				cover.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: 'forwards' });
 				g.currentInfo.cover_src = cover.src;
 			}
-			
+
 			resolve();
 		}
 	})
 }
 
-function renderInfoItem(label, text){
-	let el = ut.htmlObject(  `
+function renderInfoItem(label, text) {
+	let el = ut.htmlObject(`
 		<div id="#item_folder" class="item">
 			<div class="label">${label}</div>
 			<div class="content">${text}</div>
@@ -1643,32 +1709,32 @@ function renderInfoItem(label, text){
 	return el;
 }
 
-function renderTopInfo(){
-	g.top_num.innerText = (g.idx+1) + ' of ' + (g.max+1); 
+function renderTopInfo() {
+	g.top_num.innerText = (g.idx + 1) + ' of ' + (g.max + 1);
 }
 
-async function switchPipeline(newMode){
-	if(g.activePipeline === newMode) return;
-	if(!g.currentAudio || !g.currentAudio.isFFmpeg) return;
+async function switchPipeline(newMode) {
+	if (g.activePipeline === newMode) return;
+	if (!g.currentAudio || !g.currentAudio.isFFmpeg) return;
 
 	console.log('Switching pipeline:', g.activePipeline, '->', newMode);
 
 	const wasPlaying = g.currentAudio.player ? g.currentAudio.player.isPlaying : false;
 	const currentTime = g.currentAudio.getCurrentTime ? g.currentAudio.getCurrentTime() : 0;
-	
-	if(g.currentAudio.player){
-		try { await g.currentAudio.player.stop(true); } catch(e){}
+
+	if (g.currentAudio.player) {
+		try { await g.currentAudio.player.stop(true); } catch (e) { }
 	}
 
 	g.activePipeline = newMode;
 	const newPlayer = (newMode === 'rubberband') ? g.rubberbandPlayer : g.ffmpegPlayer;
-	
-	if(newPlayer){
+
+	if (newPlayer) {
 		try {
 			await newPlayer.open(g.currentAudio.fp);
-			
+
 			g.currentAudio.player = newPlayer;
-			
+
 			g.currentAudio.play = () => { g.currentAudio.paused = false; newPlayer.play(); };
 			g.currentAudio.pause = () => { g.currentAudio.paused = true; newPlayer.pause(); };
 			g.currentAudio.seek = (t) => newPlayer.seek(t);
@@ -1677,90 +1743,98 @@ async function switchPipeline(newMode){
 			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			newPlayer.volume = vol;
 			newPlayer.setLoop(g.isLoop);
-			
+
 			// Apply stored audio params when switching to rubberband
-			if(newMode === 'rubberband' && g.audioParams){
-				// Connect rubberband to audio destination
-				if(typeof newPlayer.connect === 'function'){
-					newPlayer.connect();
-					console.log('[switchPipeline] Connected rubberband player');
+			if (newMode === 'rubberband' && g.audioParams) {
+				// Ensure monitoring taps are correctly initialized for this context
+				initMonitoring();
+
+				// Connect rubberband to both audio destination and monitoring tap (T-junction)
+				if (typeof newPlayer.connect === 'function') {
+					newPlayer.connect(); // Connects to destination by default
+					if (g.monitoringSplitter_RB) {
+						newPlayer.connect(g.monitoringSplitter_RB);
+						console.log('[switchPipeline] Connected rubberband player to destination and monitor');
+					} else {
+						console.log('[switchPipeline] Connected rubberband player to destination only (monitor tap missing)');
+					}
 				}
-				if(typeof newPlayer.setPitch === 'function'){
+				if (typeof newPlayer.setPitch === 'function') {
 					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
 					newPlayer.setPitch(pitchRatio);
 					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
 				}
-				if(typeof newPlayer.setTempo === 'function'){
+				if (typeof newPlayer.setTempo === 'function') {
 					newPlayer.setTempo(g.audioParams.tempo || 1.0);
 					console.log('[switchPipeline] Applied tempo:', g.audioParams.tempo || 1.0);
 				}
-				if(typeof newPlayer.setOptions === 'function'){
+				if (typeof newPlayer.setOptions === 'function') {
 					newPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
 				}
 			}
-			
+
 			// Apply tape speed when switching to normal
-			if(newMode === 'normal'){
+			if (newMode === 'normal') {
 				// Disconnect rubberband when switching away from it
-				if(g.rubberbandPlayer && typeof g.rubberbandPlayer.disconnect === 'function'){
+				if (g.rubberbandPlayer && typeof g.rubberbandPlayer.disconnect === 'function') {
 					g.rubberbandPlayer.disconnect();
 					console.log('[switchPipeline] Disconnected rubberband player');
 				}
-				if(g.audioParams && g.audioParams.tapeSpeed !== undefined){
+				if (g.audioParams && g.audioParams.tapeSpeed !== undefined) {
 					applyTapeSpeed(g.audioParams.tapeSpeed);
 					console.log('[switchPipeline] Applied tapeSpeed:', g.audioParams.tapeSpeed);
 				}
 			}
 
-			if(currentTime > 0) newPlayer.seek(currentTime);
-			
-			if(wasPlaying) {
+			if (currentTime > 0) newPlayer.seek(currentTime);
+
+			if (wasPlaying) {
 				g.currentAudio.paused = false;
 				await newPlayer.play();
 			} else {
 				g.currentAudio.paused = true;
 			}
-		} catch(err){
+		} catch (err) {
 			console.error('Pipeline switch failed:', err);
 		}
 	}
 }
 
-function clearAudio(){
+function clearAudio() {
 	console.log('[clearAudio] Stopping current audio, pipeline:', g.activePipeline);
-	if(g.ffmpegPlayer) {
-		if(typeof g.ffmpegPlayer.clearBuffer === 'function') g.ffmpegPlayer.clearBuffer();
+	if (g.ffmpegPlayer) {
+		if (typeof g.ffmpegPlayer.clearBuffer === 'function') g.ffmpegPlayer.clearBuffer();
 		g.ffmpegPlayer.stop(true);
 		console.log('[clearAudio] Stopped ffmpegPlayer');
 	}
-	if(g.rubberbandPlayer) {
+	if (g.rubberbandPlayer) {
 		g.rubberbandPlayer.disconnect();
-		
+
 		// Dispose worklet to flush internal buffers and prevent audio bleed
-		if(typeof g.rubberbandPlayer.disposeWorklet === 'function'){
+		if (typeof g.rubberbandPlayer.disposeWorklet === 'function') {
 			g.rubberbandPlayer.disposeWorklet().catch(e => {
 				console.error('[clearAudio] Failed to dispose rubberband worklet:', e);
 			});
 		}
-		
+
 		g.rubberbandPlayer.reset();
-		if(g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function'){
+		if (g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function') {
 			g.rubberbandPlayer.player.clearBuffer();
 		}
 		g.rubberbandPlayer.stop(false);
 		console.log('[clearAudio] Stopped, reset, and disposed rubberband worklet');
 		g.activePipeline = 'normal';
 	}
-	if(g.currentAudio){
-		if(g.currentAudio.isMod) player.stop();
-		if(g.currentAudio.isMidi && midi) midi.stop();
+	if (g.currentAudio) {
+		if (g.currentAudio.isMod) player.stop();
+		if (g.currentAudio.isMidi && midi) midi.stop();
 		console.log('[clearAudio] Cleared currentAudio, was:', g.currentAudio.isMidi ? 'MIDI' : g.currentAudio.isMod ? 'Tracker' : g.currentAudio.isFFmpeg ? 'FFmpeg' : 'Unknown');
 		g.currentAudio = undefined;
 	}
 }
 
-function audioEnded(e){
-	if((g.currentAudio?.isMod || g.currentAudio?.isMidi) && g.isLoop){
+function audioEnded(e) {
+	if ((g.currentAudio?.isMod || g.currentAudio?.isMidi) && g.isLoop) {
 		playAudio(g.music[g.idx], 0, false, true);
 	}
 	else {
@@ -1768,15 +1842,15 @@ function audioEnded(e){
 	}
 }
 
-function checkState(){
-	if(g.currentAudio){
-		if(g.isLoop){
+function checkState() {
+	if (g.currentAudio) {
+		if (g.isLoop) {
 			g.body.addClass('loop')
 		}
 		else {
 			g.body.removeClass('loop')
 		}
-		if(g.currentAudio.paused){
+		if (g.currentAudio.paused) {
 			g.body.addClass('pause')
 		}
 		else {
@@ -1785,43 +1859,43 @@ function checkState(){
 	}
 }
 
-function flashButton(btn){
-	if(!btn) return;
+function flashButton(btn) {
+	if (!btn) return;
 	btn.classList.add('flash');
 	setTimeout(() => { btn.classList.remove('flash'); }, 50);
 }
 
-function shufflePlaylist(){
+function shufflePlaylist() {
 	ut.shuffleArray(g.music);
 	g.idx = 0;
 	playAudio(g.music[g.idx]);
 }
 
-function playNext(e, autoAdvance = false){
-	if(!g.blocky){
-		if(g.idx == g.max){ g.idx = -1; }
+function playNext(e, autoAdvance = false) {
+	if (!g.blocky) {
+		if (g.idx == g.max) { g.idx = -1; }
 		g.idx++;
 		playAudio(g.music[g.idx], 0, false, autoAdvance)
 	}
 }
 
-function playPrev(e){
-	if(!g.blocky){
-		if(g.idx == 0){ g.idx = g.max+1; }
+function playPrev(e) {
+	if (!g.blocky) {
+		if (g.idx == 0) { g.idx = g.max + 1; }
 		g.idx--;
 		playAudio(g.music[g.idx])
 	}
 }
 
-function playPause(){
-	if(!g.currentAudio){
-		if(g.music && g.music.length > 0){
+function playPause() {
+	if (!g.currentAudio) {
+		if (g.music && g.music.length > 0) {
 			playAudio(g.music[g.idx]);
 		}
 		return;
 	}
 
-	if(g.currentAudio.paused){
+	if (g.currentAudio.paused) {
 		g.currentAudio.play();
 	}
 	else {
@@ -1830,19 +1904,19 @@ function playPause(){
 	checkState();
 }
 
-function toggleLoop(){
+function toggleLoop() {
 	g.isLoop = !g.isLoop;
-	if(g.currentAudio && g.currentAudio.isFFmpeg && g.currentAudio.player){
+	if (g.currentAudio && g.currentAudio.isFFmpeg && g.currentAudio.player) {
 		g.currentAudio.player.setLoop(g.isLoop);
 	}
-	if(g.currentAudio && g.currentAudio.isMidi && midi){
+	if (g.currentAudio && g.currentAudio.isMidi && midi) {
 		midi.setLoop(g.isLoop);
 	}
 	checkState();
 }
 
-function toggleControls(){
-	if(!g.config.ui) g.config.ui = {};
+function toggleControls() {
+	if (!g.config.ui) g.config.ui = {};
 	const current = !!g.config.ui.showControls;
 	const next = !current;
 	g.config.ui.showControls = next;
@@ -1850,111 +1924,116 @@ function toggleControls(){
 	applyShowControls(next, true);
 }
 
-function _getMainScale(){
+function _getMainScale() {
 	let s = 14;
-	if(g.config && g.config.windows && g.config.windows.main && g.config.windows.main.scale !== undefined){
+	if (g.config && g.config.windows && g.config.windows.main && g.config.windows.main.scale !== undefined) {
 		s = g.config.windows.main.scale | 0;
 	}
-	if(s < 14) s = 14;
+	if (s < 14) s = 14;
 	return s;
 }
 
-function _scaledDim(base, scale){
+function _scaledDim(base, scale) {
 	const v = Math.round((base / 14) * scale);
 	return (v > base) ? v : base;
 }
 
-function applyShowControls(show, resetSize = false){
+function applyShowControls(show, resetSize = false) {
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
 	const minH = show ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
 	const scale = _getMainScale();
 	const scaledMinW = _scaledDim(MIN_WIDTH, scale);
 	const scaledMinH = _scaledDim(minH, scale);
-	if(show){
+	if (show) {
 		document.body.classList.add('show-controls');
 	} else {
 		document.body.classList.remove('show-controls');
 	}
 	tools.sendToMain('command', { command: 'set-min-height', minHeight: scaledMinH, minWidth: scaledMinW });
-	if(resetSize){
+	if (resetSize) {
 		g.win.setBounds({ width: scaledMinW, height: scaledMinH });
 	}
 }
 
-async function initMidiPlayer(){
-	if(!window.midi || !g.audioContext) return;
+async function initMidiPlayer() {
+	if (!window.midi || !g.audioContext) return;
 	let fp = g.app_path;
-	if(g.isPackaged){fp = path.dirname(fp);}
+	if (g.isPackaged) { fp = path.dirname(fp); }
 	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
 	const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
-	
+
 	try {
 		await fs.access(soundfontPath);
-	} catch(e) {
+	} catch (e) {
 		console.warn('[MIDI] SoundFont not found:', soundfontFile, '- falling back to default.sf2');
 		const defaultPath = path.resolve(fp + '/bin/soundfonts/default.sf2');
 		const soundfontUrl = tools.getFileURL(defaultPath);
 		await initMidiWithSoundfont(soundfontUrl, defaultPath);
 		return;
 	}
-	
+
 	const soundfontUrl = tools.getFileURL(soundfontPath);
 	await initMidiWithSoundfont(soundfontUrl, soundfontPath);
 }
 
 async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
+	if (!g.audioContext) return;
+	const context = g.audioContext; // Capture stable context reference
+
 	const midiConfig = {
-		context: g.audioContext,
+		context: context,
 		soundfontUrl: soundfontUrl,
 		soundfontPath: soundfontPath
 	};
+
+	let tempMidi;
 	try {
-		midi = new window.midi(midiConfig);
-	} catch(e) {
+		tempMidi = new window.midi(midiConfig);
+	} catch (e) {
 		console.error('MIDI init failed:', e);
 		g.midiInitError = 'MIDI init failed: ' + e.message;
-		midi = null;
 		return;
 	}
-	midi.onMetadata((meta) => {
+
+	tempMidi.onMetadata((meta) => {
 		console.log('[Stage] Received MIDI Metadata:', meta);
-		if(g.currentAudio && g.currentAudio.isMidi){
-			const dur = (meta && meta.duration) ? meta.duration : midi.getDuration();
-			if(dur > 0){
+		if (g.currentAudio && g.currentAudio.isMidi) {
+			const dur = (meta && meta.duration) ? meta.duration : tempMidi.getDuration();
+			if (dur > 0) {
 				g.currentAudio.duration = dur;
-				g.playremain.innerText = ut.playTime(dur*1000).minsec;
+				g.playremain.innerText = ut.playTime(dur * 1000).minsec;
 			}
-			
-			if(meta) {
+
+			if (meta) {
 				g.currentAudio.metadata = meta;
 			}
 
-			
+
 			let keepMetronome = false;
 			if (g.midiSettings && g.midiSettings.metronome !== undefined) {
 				keepMetronome = !!g.midiSettings.metronome;
-			} else if (midi) {
-				keepMetronome = !!midi.metronomeEnabled;
+			} else if (tempMidi) {
+				keepMetronome = !!tempMidi.metronomeEnabled;
 				if (keepMetronome) {
-					if(!g.midiSettings) g.midiSettings = {};
+					if (!g.midiSettings) g.midiSettings = {};
 					g.midiSettings.metronome = true;
 				}
 			}
 
 			if (!g.midiSettings) g.midiSettings = {};
-			
+
 			g.midiSettings.pitch = 0;
 			g.midiSettings.speed = null;
-			
-			if (midi && midi.setMetronome) {
-				midi.setMetronome(keepMetronome);
-			}
-			
-			if(midi && midi.setPitchOffset) midi.setPitchOffset(0);
-			if(midi && midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
 
-			if(g.windows.parameters){
-				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+			if (tempMidi && tempMidi.setMetronome) {
+				tempMidi.setMetronome(keepMetronome);
+			}
+
+			if (tempMidi && tempMidi.setPitchOffset) tempMidi.setPitchOffset(0);
+			if (tempMidi && tempMidi.resetPlaybackSpeed) tempMidi.resetPlaybackSpeed();
+
+			if (g.windows.parameters) {
+				const originalBPM = (tempMidi.getOriginalBPM && typeof tempMidi.getOriginalBPM === 'function') ? tempMidi.getOriginalBPM() : 120;
 				const params = {
 					transpose: 0,
 					bpm: Math.round(originalBPM),
@@ -1966,8 +2045,8 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 				tools.sendToId(g.windows.parameters, 'update-params', { mode: 'midi', params });
 			}
 
-			if(g.windows['midi']){
-				const originalBPM = (midi.getOriginalBPM && typeof midi.getOriginalBPM === 'function') ? midi.getOriginalBPM() : 120;
+			if (g.windows['midi']) {
+				const originalBPM = (tempMidi.getOriginalBPM && typeof tempMidi.getOriginalBPM === 'function') ? tempMidi.getOriginalBPM() : 120;
 				let currentBPM = originalBPM;
 
 				tools.sendToId(g.windows['midi'], 'update-ui', {
@@ -1979,39 +2058,55 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 			}
 		}
 	});
-	midi.onProgress((e) => {
-		if(g.currentAudio && g.currentAudio.isMidi){
+	tempMidi.onProgress((e) => {
+		if (g.currentAudio && g.currentAudio.isMidi) {
 			g.currentAudio.currentTime = e.pos || 0;
 		}
 	});
-	midi.onEnded(audioEnded);
-	midi.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
-	
+	tempMidi.onEnded(audioEnded);
+	tempMidi.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+
 	try {
-		await midi.init();
-	} catch(e) {
+		await tempMidi.init();
+
+		// Ensure monitoring taps are correctly initialized for this context
+		initMonitoring();
+
+		// MIDI library internally connects to context.destination (via resampling if needed).
+		// We only need to handle the monitoring bridge here.
+		// If resampling is active, the node in the main context is resamplerSource.
+		if (g.monitoringSplitter && g.monitoringSplitter.context === context) {
+			const sourceNode = tempMidi.needsResampling ? tempMidi.resamplerSource : tempMidi.gain;
+			if (sourceNode) {
+				sourceNode.connect(g.monitoringSplitter);
+				console.log('[MIDI] Connected to monitoring tap' + (tempMidi.needsResampling ? ' (via resampler)' : ''));
+			}
+		}
+
+		// Sync to global as last step
+		midi = tempMidi;
+	} catch (e) {
 		console.error('[MIDI] Failed to initialize MIDI player:', e);
 		g.midiInitError = 'MIDI init failed: ' + e.message;
-		midi = null;
 	}
 }
 
-async function toggleHQMode(desiredState, skipPersist=false){
-	if(!g.config.audio) g.config.audio = {};
+async function toggleHQMode(desiredState, skipPersist = false) {
+	if (!g.config.audio) g.config.audio = {};
 	let next = !!g.config.audio.hqMode;
-	if(typeof desiredState === 'boolean') { next = desiredState; }
+	if (typeof desiredState === 'boolean') { next = desiredState; }
 	else { next = !g.config.audio.hqMode; }
-	if(!!g.config.audio.hqMode !== next){
+	if (!!g.config.audio.hqMode !== next) {
 		g.config.audio.hqMode = next;
-		if(!skipPersist) { g.config_obj.set(g.config); }
+		if (!skipPersist) { g.config_obj.set(g.config); }
 	}
-	
+
 	const targetRate = g.config.audio.hqMode ? g.maxSampleRate : 48000;
 	console.log('Switching to', g.config.audio.hqMode ? 'Max output sample rate' : 'Standard mode', '(' + targetRate + 'Hz)');
-	
+
 	let wasPlaying = false;
-	if(g.currentAudio){
-		if(g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.isPlaying !== 'undefined'){
+	if (g.currentAudio) {
+		if (g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.isPlaying !== 'undefined') {
 			wasPlaying = !!g.currentAudio.player.isPlaying;
 		}
 		else {
@@ -2023,30 +2118,30 @@ async function toggleHQMode(desiredState, skipPersist=false){
 	const wasMod = g.currentAudio?.isMod;
 	const wasMidi = g.currentAudio?.isMidi;
 	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (wasMidi ? (midi?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0));
-	
-	if(g.currentAudio){
-		if(g.currentAudio.isMod){
+
+	if (g.currentAudio) {
+		if (g.currentAudio.isMod) {
 			player.stop();
-		} else if(g.currentAudio.isMidi && midi){
+		} else if (g.currentAudio.isMidi && midi) {
 			midi.stop();
-		} else if(g.currentAudio.player){
-			if(typeof g.currentAudio.player.stop === 'function'){
+		} else if (g.currentAudio.player) {
+			if (typeof g.currentAudio.player.stop === 'function') {
 				g.currentAudio.player.stop();
 			}
-			if(typeof g.currentAudio.player.close === 'function'){
+			if (typeof g.currentAudio.player.close === 'function') {
 				await g.currentAudio.player.close();
 			}
 		}
 		g.currentAudio = null;
 	}
-	
-	if(g.audioContext && g.audioContext.state !== 'closed'){
+
+	if (g.audioContext && g.audioContext.state !== 'closed') {
 		await g.audioContext.close();
 	}
-	
+
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
-	
+
 	const devId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
 	if (devId) {
 		try {
@@ -2054,131 +2149,144 @@ async function toggleHQMode(desiredState, skipPersist=false){
 			console.log('Output device re-applied:', devId);
 		} catch (err) {
 			console.error('Failed to re-apply output device, using system default:', err);
-			if(g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
-			if(!skipPersist) { g.config_obj.set(g.config); }
+			if (g.config && g.config.audio && g.config.audio.output) g.config.audio.output.deviceId = '';
+			if (!skipPersist) { g.config_obj.set(g.config); }
 		}
 	}
-	
+
 	if (g.ffmpegPlayer) {
-		try { g.ffmpegPlayer.dispose(); } catch(e) { console.warn('ffmpegPlayer dispose error:', e); }
+		try { g.ffmpegPlayer.dispose(); } catch (e) { console.warn('ffmpegPlayer dispose error:', e); }
 		g.ffmpegPlayer = null;
 	}
-	
+
 	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
 	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
 	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
 	const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
-	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, threadCount, true);
-	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch(e) {}
+	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, threadCount, false); // Internal connect off
+	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch (e) { }
 	await g.ffmpegPlayer.init();
-	
+
+	// Ensure monitoring taps are correctly initialized for this context
+	initMonitoring();
+
+	// Connect to both destination and monitor (T-junction)
+	g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
+	if (g.monitoringSplitter) {
+		g.ffmpegPlayer.gainNode.connect(g.monitoringSplitter);
+	}
+
 	const modConfig = {
 		repeatCount: 0,
 		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
 		context: g.audioContext
 	};
 	player = new window.chiptune(modConfig);
-	
+
 	await new Promise((resolve) => {
 		player.onInitialized(() => {
 			console.log('Player Initialized after HQ toggle');
+			initMonitoring();
 			player.gain.connect(g.audioContext.destination);
+			if (g.monitoringSplitter) {
+				player.gain.connect(g.monitoringSplitter);
+			}
 			resolve();
 		});
 	});
-	
+
 	player.onMetadata(async (meta) => {
-		if(g.currentAudio){
+		if (g.currentAudio) {
 			g.currentAudio.duration = player.duration;
-			g.playremain.innerText = ut.playTime(g.currentAudio.duration*1000).minsec;
+			g.playremain.innerText = ut.playTime(g.currentAudio.duration * 1000).minsec;
 			await renderInfo(g.currentAudio.fp, meta);
 		}
 		g.blocky = false;
 	});
 	player.onProgress((e) => {
-		if(g.currentAudio){
+		if (g.currentAudio) {
 			g.currentAudio.currentTime = e.pos || 0;
 		}
 		// Forward VU data to Parameters window
-		if(e.vu && g.windows.parameters){
+		if (e.vu && g.windows.parameters) {
 			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 		}
 	});
 	player.onEnded(audioEnded);
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
 	await initMidiPlayer();
-	
-	if(currentFile){
-		if(currentIdx >= 0) {
+
+	if (currentFile) {
+		if (currentIdx >= 0) {
 			g.idx = currentIdx;
 		}
 		await playAudio(currentFile, currentTime, !wasPlaying);
 
-		if(wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play){
+		if (wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play) {
 			g.currentAudio.play();
 		}
 	}
-	
+
 	checkState();
 }
 
-function volumeUp(){
+function volumeUp() {
 	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 0.55;
 	setVolume(v, true);
 }
 
-function volumeDown(){
+function volumeDown() {
 	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume - 0.05) : 0.45;
 	setVolume(v, true);
 }
 
-function applyTapeSpeed(semitones){
+function applyTapeSpeed(semitones) {
 	semitones = Math.max(-12, Math.min(12, semitones | 0));
 	console.log('[Stage] applyTapeSpeed:', semitones);
 	console.log('[Stage] currentAudio:', g.currentAudio ? { isFFmpeg: g.currentAudio.isFFmpeg, isMod: g.currentAudio.isMod, hasPlayer: !!g.currentAudio.player } : null);
 	g.audioParams.tapeSpeed = semitones;
-	
-	if(g.currentAudio?.isFFmpeg && g.currentAudio.player){
+
+	if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 		console.log('[Stage] Calling ffPlayer.setPlaybackRate(' + semitones + ')');
 		g.currentAudio.player.setPlaybackRate(semitones);
 	}
-	
-	if(g.currentAudio?.isMod && player){
+
+	if (g.currentAudio?.isMod && player) {
 		const tempoFactor = Math.pow(2, semitones / 12.0);
 		console.log('[Stage] Calling player.setTempo(' + tempoFactor + ')');
 		player.setTempo(tempoFactor);
 	}
-	
+
 	// Note: MIDI has its own tempo controls, tape speed does not apply
 }
 
-function seek(mx){
-	if(!g.currentAudio) return;
+function seek(mx) {
+	if (!g.currentAudio) return;
 	let dur = g.currentAudio.duration;
-	if(!(dur > 0)){
-		if(g.currentAudio.isMod && player && player.duration) dur = player.duration;
-		else if(g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
-		else if(g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
+	if (!(dur > 0)) {
+		if (g.currentAudio.isMod && player && player.duration) dur = player.duration;
+		else if (g.currentAudio.isFFmpeg && g.currentAudio.player && g.currentAudio.player.duration) dur = g.currentAudio.player.duration;
+		else if (g.currentAudio.isMidi && midi && midi.duration) dur = midi.duration;
 	}
-	if(!(dur > 0)) return;
+	if (!(dur > 0)) return;
 	let max = g.time_controls.offsetWidth;
 	let x = mx - ut.offset(g.time_controls).left;
-	if(x < 0) { x = 0; }
-	if(x > max) { x = max; }
+	if (x < 0) { x = 0; }
+	if (x > max) { x = max; }
 	let proz = x / max;
 	let s = dur * proz;
-	if(s < 0) s = 0;
-	if(s > dur) s = dur;
+	if (s < 0) s = 0;
+	if (s > dur) s = dur;
 	seekTo(s);
 }
 
-function seekTo(s){
-	if(g.currentAudio){
-		if(g.currentAudio.isMod){
+function seekTo(s) {
+	if (g.currentAudio) {
+		if (g.currentAudio.isMod) {
 			player.seek(s);
 			g.currentAudio.currentTime = s;
 		}
-		else if(g.currentAudio.isMidi){
+		else if (g.currentAudio.isMidi) {
 			g.currentAudio.seek(s);
 			g.currentAudio.currentTime = s;
 		}
@@ -2188,17 +2296,17 @@ function seekTo(s){
 	}
 }
 
-function seekFore(){
-	if(g.currentAudio){
-		if(g.currentAudio.currentTime + 10 < g.currentAudio.duration){
+function seekFore() {
+	if (g.currentAudio) {
+		if (g.currentAudio.currentTime + 10 < g.currentAudio.duration) {
 			seekTo(g.currentAudio.currentTime + 10)
 		}
 	}
 }
 
-function seekBack(){
-	if(g.currentAudio){
-		if(g.currentAudio.currentTime - 10 > 0){
+function seekBack() {
+	if (g.currentAudio) {
+		if (g.currentAudio.currentTime - 10 > 0) {
 			seekTo(g.currentAudio.currentTime - 10)
 		}
 		else {
@@ -2207,19 +2315,154 @@ function seekBack(){
 	}
 }
 
-function loadImage(url){
+function loadImage(url) {
 	return new Promise((resolve, reject) => {
 		let image = new Image();
 		image.src = url;
 		image.addEventListener('load', done);
-		function done(e){
+		function done(e) {
 			image.removeEventListener('load', done);
 			resolve(image);
 		}
 	})
 }
 
-function getFileInfo(fp){
+function initMonitoring() {
+	if (!g.audioContext) return;
+
+	// Reset standard monitoring if context changed (e.g. HQ toggle)
+	if (g.monitoringSplitter && g.monitoringSplitter.context !== g.audioContext) {
+		console.log('[Monitoring] Standard context changed, re-initializing taps');
+		g.monitoringSplitter = null;
+		g.monitoringAnalyserL = null;
+		g.monitoringAnalyserR = null;
+	}
+
+	if (!g.monitoringSplitter) {
+		g.monitoringSplitter = g.audioContext.createChannelSplitter(2);
+		g.monitoringAnalyserL = g.audioContext.createAnalyser();
+		g.monitoringAnalyserR = g.audioContext.createAnalyser();
+
+		// Use larger FFT for high sample rates to maintain frequency resolution
+		const fftSize = g.audioContext.sampleRate > 48000 ? 8192 : 2048;
+		g.monitoringAnalyserL.fftSize = fftSize;
+		g.monitoringAnalyserR.fftSize = fftSize;
+
+		g.monitoringSplitter.connect(g.monitoringAnalyserL, 0);
+		g.monitoringSplitter.connect(g.monitoringAnalyserR, 1);
+		// Tap only - do not connect to destination here!
+	}
+
+	// Context 2 (Rubberband) - Always 48kHz
+	if (g.rubberbandContext) {
+		if (g.monitoringSplitter_RB && g.monitoringSplitter_RB.context !== g.rubberbandContext) {
+			console.log('[Monitoring] Rubberband context changed, re-initializing taps');
+			g.monitoringSplitter_RB = null;
+			g.monitoringAnalyserL_RB = null;
+			g.monitoringAnalyserR_RB = null;
+		}
+
+		if (!g.monitoringSplitter_RB) {
+			g.monitoringSplitter_RB = g.rubberbandContext.createChannelSplitter(2);
+			g.monitoringAnalyserL_RB = g.rubberbandContext.createAnalyser();
+			g.monitoringAnalyserR_RB = g.rubberbandContext.createAnalyser();
+
+			g.monitoringAnalyserL_RB.fftSize = 2048;
+			g.monitoringAnalyserR_RB.fftSize = 2048;
+
+			g.monitoringSplitter_RB.connect(g.monitoringAnalyserL_RB, 0);
+			g.monitoringSplitter_RB.connect(g.monitoringAnalyserR_RB, 1);
+			// Tap only - do not connect to destination here!
+		}
+	}
+
+	console.log('[Monitoring] Stereo Analyser taps ready');
+
+	if (!g.monitoringLoop) {
+		g.monitoringLoop = setInterval(updateMonitoring, 1000 / 60);
+	}
+}
+
+function updateMonitoring() {
+	if (!g.windows.monitoring || !g.windowsVisible.monitoring) return;
+
+	// Determine which analysers to use
+	let aL = g.monitoringAnalyserL;
+	let aR = g.monitoringAnalyserR;
+
+	if (g.activePipeline === 'rubberband' && g.monitoringAnalyserL_RB) {
+		aL = g.monitoringAnalyserL_RB;
+		aR = g.monitoringAnalyserR_RB;
+	}
+
+	if (!aL || !aR) return;
+
+	const freqL = new Uint8Array(aL.frequencyBinCount);
+	const freqR = new Uint8Array(aR.frequencyBinCount);
+	const timeL = new Uint8Array(aL.fftSize);
+	const timeR = new Uint8Array(aR.fftSize);
+
+	aL.getByteFrequencyData(freqL);
+	aR.getByteFrequencyData(freqR);
+	aL.getByteTimeDomainData(timeL);
+	aR.getByteTimeDomainData(timeR);
+
+	const pos = (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') ? g.currentAudio.getCurrentTime() : 0;
+	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
+
+	tools.sendToId(g.windows.monitoring, 'ana-data', {
+		freqL: Array.from(freqL),
+		freqR: Array.from(freqR),
+		timeL: Array.from(timeL),
+		timeR: Array.from(timeR),
+		pos,
+		duration: dur,
+		sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
+	});
+}
+
+async function extractAndSendWaveform(fp) {
+	if (!g.windows.monitoring) return;
+
+	// Clear existing waveform immediately to avoid visual persistence
+	tools.sendToId(g.windows.monitoring, 'clear-waveform');
+
+	console.log('[Monitoring] Requesting async waveform for:', path.basename(fp));
+
+	try {
+		const workerPath = path.join(g.app_path, 'js', 'monitoring', 'waveform_worker.js');
+
+		// Use Main process to handle the worker - avoid V8 platform limitations in renderer
+		const peaks = await ipcRenderer.invoke('extract-waveform', {
+			filePath: fp,
+			binPath: g.ffmpeg_napi_path,
+			numPoints: 300, // Increased from 100 for better detail as requested
+			workerPath: workerPath
+		});
+
+		if (peaks && peaks.error) {
+			console.error('[Monitoring] Waveform worker error:', peaks.error);
+			return;
+		}
+
+		if (!peaks) {
+			console.warn('[Monitoring] Waveform worker returned no data');
+			return;
+		}
+
+		const hasData = peaks.peaksL && peaks.peaksL.some(p => p > 0);
+		console.log('[Monitoring] Waveform received. Points:', peaks.points, 'hasData:', hasData, 'duration:', peaks.duration);
+
+		tools.sendToId(g.windows.monitoring, 'waveform-data', {
+			...peaks,
+			filePath: path.basename(fp)
+		});
+	} catch (err) {
+		console.error('[Monitoring] Waveform extraction IPC failed:', err);
+	}
+}
+
+function getFileInfo(fp) {
 	return new Promise((resolve, reject) => {
 		setTimeout(() => {
 			let meta = g.getMetadata(fp);
@@ -2228,18 +2471,18 @@ function getFileInfo(fp){
 	})
 }
 
-function getCoverArt(meta){
+function getCoverArt(meta) {
 	return new Promise((resolve, reject) => {
-		if(meta && meta.coverArt && meta.coverArt.length > 0){
+		if (meta && meta.coverArt && meta.coverArt.length > 0) {
 			let img = new Image();
 			let mime = meta.coverArtMimeType || 'image/jpeg';
 			img.src = 'data:' + mime + ';base64,' + meta.coverArt.toString('base64');
 			img.addEventListener('load', () => {
 				resolve(img);
-			}, {once:true});
+			}, { once: true });
 			img.addEventListener('error', () => {
 				resolve();
-			}, {once:true});
+			}, { once: true });
 		}
 		else {
 			resolve();
@@ -2247,59 +2490,59 @@ function getCoverArt(meta){
 	})
 }
 
-function loop(){
-	if(g.currentAudio && !g.currentAudio.paused){
+function loop() {
+	if (g.currentAudio && !g.currentAudio.paused) {
 		renderBar();
 	}
 	requestAnimationFrame(loop);
 }
 
-function renderBar(){
+function renderBar() {
 	let proz = 0;
 	let time = 0;
-	if(g.currentAudio){
-		if(g.currentAudio.isFFmpeg && g.currentAudio.player){
+	if (g.currentAudio) {
+		if (g.currentAudio.isFFmpeg && g.currentAudio.player) {
 			g.currentAudio.currentTime = g.currentAudio.player.getCurrentTime();
 		}
-		else if(g.currentAudio.isMidi && g.currentAudio.getCurrentTime){
+		else if (g.currentAudio.isMidi && g.currentAudio.getCurrentTime) {
 			g.currentAudio.currentTime = g.currentAudio.getCurrentTime();
 		}
-		
-		if(g.currentAudio.lastTime != g.currentAudio.currentTime){
+
+		if (g.currentAudio.lastTime != g.currentAudio.currentTime) {
 			g.currentAudio.lastTime = g.currentAudio.currentTime;
 			time = g.currentAudio.currentTime;
-			if(g.currentAudio.duration > 0){
+			if (g.currentAudio.duration > 0) {
 				proz = time / g.currentAudio.duration;
 			}
-			g.prog.style.width = (proz*100) + '%';
-			let minsec = ut.playTime(time*1000).minsec;
-			if(g.lastMinsec !=  minsec){
+			g.prog.style.width = (proz * 100) + '%';
+			let minsec = ut.playTime(time * 1000).minsec;
+			if (g.lastMinsec != minsec) {
 				g.playtime.innerText = minsec;
 				g.lastMinsec = minsec;
 			}
 		}
 	}
-	
-	
+
+
 	const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
-	if(g.last_vol != vol){
-		g.playvolume.innerText = (Math.round(vol*100)) + '%';
-		if(g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (vol*100) + '%';
+	if (g.last_vol != vol) {
+		g.playvolume.innerText = (Math.round(vol * 100)) + '%';
+		if (g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (vol * 100) + '%';
 		g.last_vol = vol;
 	}
-	
+
 }
 
 // ###########################################################################
 
 async function onKey(e) {
 	let shortcutAction = null;
-	if(shortcuts && shortcuts.handleShortcut){
+	if (shortcuts && shortcuts.handleShortcut) {
 		shortcutAction = shortcuts.handleShortcut(e, 'stage');
-	} else if(window.shortcuts && window.shortcuts.handleShortcut){
+	} else if (window.shortcuts && window.shortcuts.handleShortcut) {
 		shortcutAction = window.shortcuts.handleShortcut(e, 'stage');
 	}
-	
+
 	if (shortcutAction === 'toggle-parameters') {
 		openWindow('parameters');
 		flashButton(g.ctrl_btn_parameters);
@@ -2321,14 +2564,17 @@ async function onKey(e) {
 	else if (shortcutAction === 'toggle-controls') {
 		toggleControls();
 	}
+	else if (shortcutAction === 'toggle-monitoring') {
+		openWindow('monitoring');
+	}
 	else if (e.keyCode == 70 || e.keyCode == 102) {
 		console.log(g.currentAudio.src)
 	}
-	
+
 	if (e.keyCode == 123) {
 		g.win.toggleDevTools();
 	}
-	else if(e.keyCode == 76){
+	else if (e.keyCode == 76) {
 		toggleLoop();
 		flashButton(g.ctrl_btn_loop);
 	}
@@ -2337,18 +2583,18 @@ async function onKey(e) {
 		g.config_obj.set(g.config);
 		const cfg = g.config_obj ? g.config_obj.get() : g.config;
 		const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
-		if(keep){
-			if(g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
+		if (keep) {
+			if (g.currentAudio && !g.currentAudio.paused) g.currentAudio.pause();
 			g.win.hide();
 		} else {
 			g.win.close();
 		}
 	}
 	if (e.keyCode == 39) {
-		if(e.ctrlKey){ seekFore()}
-		else { 
+		if (e.ctrlKey) { seekFore() }
+		else {
 			let now = Date.now();
-			if(now - g.lastNavTime >= 100){
+			if (now - g.lastNavTime >= 100) {
 				g.lastNavTime = now;
 				playNext();
 				flashButton(g.ctrl_btn_next);
@@ -2356,10 +2602,10 @@ async function onKey(e) {
 		}
 	}
 	if (e.keyCode == 37) {
-		if(e.ctrlKey){ seekBack()}
-		else { 
+		if (e.ctrlKey) { seekBack() }
+		else {
 			let now = Date.now();
-			if(now - g.lastNavTime >= 100){
+			if (now - g.lastNavTime >= 100) {
 				g.lastNavTime = now;
 				playPrev();
 				flashButton(g.ctrl_btn_prev);
@@ -2372,35 +2618,35 @@ async function onKey(e) {
 	if (e.keyCode == 40) {
 		volumeDown();
 	}
-	
-	
+
+
 
 	if (e.keyCode == 82) {
 		shufflePlaylist();
 		flashButton(g.ctrl_btn_shuffle);
 	}
-	if (e.keyCode == 73){
+	if (e.keyCode == 73) {
 		helper.shell.showItemInFolder(g.music[g.idx]);
 	}
-	
-	if(e.keyCode == 32){
+
+	if (e.keyCode == 32) {
 		playPause();
 		flashButton(g.ctrl_btn_play);
 	}
-	
+
 	// Ctrl+/- for window scaling only (speed control moved to Parameters window)
-	if(e.keyCode == 189 || e.keyCode == 109 || e.keyCode == 173){
+	if (e.keyCode == 189 || e.keyCode == 109 || e.keyCode == 173) {
 		if (e.ctrlKey) {
 			console.log('Scaling down');
 			let val = ut.getCssVar('--space-base').value;
-			scaleWindow(val-1)
+			scaleWindow(val - 1)
 		}
 	}
-	if(e.keyCode == 187 || e.keyCode == 107 || e.keyCode == 61){
+	if (e.keyCode == 187 || e.keyCode == 107 || e.keyCode == 61) {
 		if (e.ctrlKey) {
 			console.log('Scaling up');
 			let val = ut.getCssVar('--space-base').value;
-			scaleWindow(val+1)
+			scaleWindow(val + 1)
 		}
 	}
 }
@@ -2418,11 +2664,11 @@ async function getMixerPlaylist(contextFile = null) {
 		try {
 			const dir = path.dirname(fp);
 			const files = await tools.getFiles(dir, g.supportedFilter);
-			
+
 			const currentPath = path.normalize(fp);
 			let idx = files.findIndex(f => path.normalize(f) === currentPath);
 			if (idx === -1) idx = 0;
-			
+
 			return { paths: files, idx: idx };
 		} catch (e) {
 			console.error('Error getting siblings for mixer:', e);
@@ -2434,18 +2680,18 @@ async function getMixerPlaylist(contextFile = null) {
 
 async function openWindow(type, forceShow = false, contextFile = null) {
 	console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'exists:', !!g.windows[type]);
-	async function waitForWindowClosed(t, id, timeoutMs = 2000){
+	async function waitForWindowClosed(t, id, timeoutMs = 2000) {
 		return await new Promise((resolve) => {
 			let done = false;
 			const to = setTimeout(() => {
-				if(done) return;
+				if (done) return;
 				done = true;
 				ipcRenderer.removeListener('window-closed', onClosed);
 				resolve(false);
-			}, timeoutMs|0);
-			function onClosed(e, data){
-				if(done) return;
-				if(!data || data.type !== t || data.windowId !== id) return;
+			}, timeoutMs | 0);
+			function onClosed(e, data) {
+				if (done) return;
+				if (!data || data.type !== t || data.windowId !== id) return;
 				done = true;
 				clearTimeout(to);
 				ipcRenderer.removeListener('window-closed', onClosed);
@@ -2455,12 +2701,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		});
 	}
 
-	if(g.windows[type] && g.windowsClosing[type]){
+	if (g.windows[type] && g.windowsClosing[type]) {
 		await waitForWindowClosed(type, g.windows[type], 2000);
 	}
 
 	if (g.windows[type]) {
-		if(type === 'midi' && g.midiSettings){
+		if (type === 'midi' && g.midiSettings) {
 			tools.sendToId(g.windows[type], 'update-ui', {
 				pitch: g.midiSettings.pitch,
 				speed: g.midiSettings.speed,
@@ -2468,9 +2714,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			});
 		}
 
-		if(forceShow){
-			if(type === 'mixer'){
-				if(g.currentAudio && !g.currentAudio.paused){
+		if (forceShow) {
+			if (type === 'mixer') {
+				if (g.currentAudio && !g.currentAudio.paused) {
 					g.currentAudio.pause();
 					checkState();
 				}
@@ -2479,7 +2725,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 					paths: playlist.paths.slice(0, 20),
 					idx: playlist.idx
 				});
-				if(!g.windowsVisible[type]){
+				if (!g.windowsVisible[type]) {
 					tools.sendToId(g.windows[type], 'show-window');
 					g.windowsVisible[type] = true;
 				} else {
@@ -2487,38 +2733,38 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				}
 				return;
 			} else {
-				if(!g.windowsVisible[type]){
+				if (!g.windowsVisible[type]) {
 					tools.sendToId(g.windows[type], 'show-window');
 					g.windowsVisible[type] = true;
 				} else {
 					tools.sendToId(g.windows[type], 'show-window');
 				}
-				if(type === 'pitchtime'){
+				if (type === 'pitchtime') {
 					const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 					const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
-					if(currentFile){
-						if(g.currentAudio && !g.currentAudio.paused){
+					if (currentFile) {
+						if (g.currentAudio && !g.currentAudio.paused) {
 							g.currentAudio.pause();
 							checkState();
 						}
 						const ext = path.extname(currentFile).toLowerCase();
-						if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+						if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
 							tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
 						} else {
 							tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
 						}
 					}
 				}
-				if(type === 'parameters'){
+				if (type === 'parameters') {
 					g.parametersOpen = true;
 					// Only switch to rubberband if pitchtime mode is active
-					if(g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
-						if(g.activePipeline !== 'rubberband'){
+					if (g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
+						if (g.activePipeline !== 'rubberband') {
 							try {
 								await switchPipeline('rubberband');
 								g.rubberbandPlayer.connect();
 								console.log('[Parameters] Switched to rubberband pipeline (existing window)');
-							} catch(err){
+							} catch (err) {
 								console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
 							}
 						}
@@ -2531,23 +2777,23 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		if (g.windowsVisible[type]) {
 			tools.sendToId(g.windows[type], 'hide-window');
 			g.windowsVisible[type] = false;
-			
-			if(type === 'midi'){
+
+			if (type === 'midi') {
 				g.midiSettings = { pitch: 0, speed: null };
-				if(midi){
-					if(midi.setPitchOffset) midi.setPitchOffset(0);
-					if(midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-					if(midi.setMetronome) midi.setMetronome(false);
+				if (midi) {
+					if (midi.setPitchOffset) midi.setPitchOffset(0);
+					if (midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
+					if (midi.setMetronome) midi.setMetronome(false);
 				}
 			}
 
 			g.win.focus();
-			
+
 		} else {
 			tools.sendToId(g.windows[type], 'show-window');
 			g.windowsVisible[type] = true;
-			if(type === 'mixer'){
-				if(g.currentAudio && !g.currentAudio.paused){
+			if (type === 'mixer') {
+				if (g.currentAudio && !g.currentAudio.paused) {
 					g.currentAudio.pause();
 					checkState();
 				}
@@ -2557,38 +2803,38 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 					idx: playlist.idx
 				});
 			}
-			if(type === 'midi' && g.midiSettings){
+			if (type === 'midi' && g.midiSettings) {
 				tools.sendToId(g.windows[type], 'update-ui', {
 					pitch: g.midiSettings.pitch,
 					speed: g.midiSettings.speed,
 					metronome: !!g.midiSettings.metronome
 				});
 			}
-			if(type === 'pitchtime'){
+			if (type === 'pitchtime') {
 				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 				const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
-				if(currentFile){
-					if(g.currentAudio && !g.currentAudio.paused){
+				if (currentFile) {
+					if (g.currentAudio && !g.currentAudio.paused) {
 						g.currentAudio.pause();
 						checkState();
 					}
 					const ext = path.extname(currentFile).toLowerCase();
-					if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+					if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
 						tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
 					} else {
 						tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
 					}
 				}
 			}
-			if(type === 'parameters'){
+			if (type === 'parameters') {
 				g.parametersOpen = true;
-				if(g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
-					if(g.activePipeline !== 'rubberband'){
+				if (g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
+					if (g.activePipeline !== 'rubberband') {
 						try {
 							await switchPipeline('rubberband');
 							g.rubberbandPlayer.connect();
 							console.log('[Parameters] Switched to rubberband pipeline (toggled visible)');
-						} catch(err){
+						} catch (err) {
 							console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
 						}
 					}
@@ -2597,30 +2843,30 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 		return;
 	}
-	
+
 	let stageBounds = await g.win.getBounds();
 	let displays = await helper.screen.getAllDisplays();
-	let targetDisplay = displays.find(d => 
-		stageBounds.x >= d.bounds.x && 
+	let targetDisplay = displays.find(d =>
+		stageBounds.x >= d.bounds.x &&
 		stageBounds.x < d.bounds.x + d.bounds.width &&
-		stageBounds.y >= d.bounds.y && 
+		stageBounds.y >= d.bounds.y &&
 		stageBounds.y < d.bounds.y + d.bounds.height
 	) || displays[0];
-	
+
 	const configDefaults = require('./config-defaults.js');
 	const defaultWinSettings = (configDefaults && configDefaults.windows && configDefaults.windows[type]) || {};
 	const userWinSettings = (g.config.windows && g.config.windows[type]) || {};
 	const winSettings = { ...defaultWinSettings, ...userWinSettings };
-	
+
 	let windowWidth = winSettings.width || 960;
 	let windowHeight = winSettings.height || 800;
-	
+
 	let x = targetDisplay.workArea.x + Math.round((targetDisplay.workArea.width - windowWidth) / 2);
 	let y = targetDisplay.workArea.y + Math.round((targetDisplay.workArea.height - windowHeight) / 2);
-	
-	if(winSettings.x !== null && winSettings.x !== undefined) x = winSettings.x;
-	if(winSettings.y !== null && winSettings.y !== undefined) y = winSettings.y;
-	
+
+	if (winSettings.x !== null && winSettings.x !== undefined) x = winSettings.x;
+	if (winSettings.y !== null && winSettings.y !== undefined) y = winSettings.y;
+
 	const init_data = {
 		type: type,
 		stageId: await g.win.getId(),
@@ -2633,12 +2879,12 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		ffmpeg_worklet_path: g.ffmpeg_worklet_path
 	};
 
-	if(type === 'parameters'){
+	if (type === 'parameters') {
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		let mode = 'audio';
-		if(currentFile){
+		if (currentFile) {
 			const ext = path.extname(currentFile).toLowerCase();
-			if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+			if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
 				mode = 'midi';
 			} else if (g.currentAudio && g.currentAudio.isMod) {
 				mode = 'tracker';
@@ -2646,8 +2892,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 		init_data.mode = mode;
 		init_data.params = {};
-		
-		if(mode === 'midi'){
+
+		if (mode === 'midi') {
 			init_data.params = {
 				transpose: g.midiSettings ? g.midiSettings.pitch : 0,
 				metronome: g.midiSettings ? !!g.midiSettings.metronome : false,
@@ -2659,7 +2905,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			init_data.params.originalBPM = orig;
 			init_data.originalBPM = orig;
 		}
-		else if(mode === 'audio'){
+		else if (mode === 'audio') {
 			init_data.params = {
 				audioMode: g.audioParams ? g.audioParams.mode : 'tape',
 				tapeSpeed: g.audioParams ? g.audioParams.tapeSpeed : 0,
@@ -2672,8 +2918,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		}
 	}
 
-	if(type === 'mixer'){
-		if(g.currentAudio && !g.currentAudio.paused){
+	if (type === 'mixer') {
+		if (g.currentAudio && !g.currentAudio.paused) {
 			g.currentAudio.pause();
 			checkState();
 		}
@@ -2684,17 +2930,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		};
 	}
 
-	if(type === 'pitchtime'){
+	if (type === 'pitchtime') {
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
 		const currentVolume = (g.config && g.config.audio && typeof g.config.audio.volume === 'number') ? g.config.audio.volume : 1.0;
-		if(currentFile){
-			if(g.currentAudio && !g.currentAudio.paused){
+		if (currentFile) {
+			if (g.currentAudio && !g.currentAudio.paused) {
 				g.currentAudio.pause();
 				checkState();
 			}
 			const ext = path.extname(currentFile).toLowerCase();
-			if(g.supportedMIDI && g.supportedMIDI.includes(ext)){
+			if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
 				init_data.pitchtimeError = 'MIDI files are not supported in Pitch/Time.';
 			} else {
 				init_data.currentFile = currentFile;
@@ -2704,10 +2950,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		init_data.currentVolume = currentVolume;
 	}
 
-	if(type === 'midi'){
+	if (type === 'midi') {
 		init_data.metronome = g.midiSettings ? !!g.midiSettings.metronome : false;
 		init_data.midiPitch = g.midiSettings ? g.midiSettings.pitch : 0;
-		
+
 		if (midi && midi.getOriginalBPM) {
 			init_data.originalBPM = midi.getOriginalBPM();
 		} else {
@@ -2718,6 +2964,14 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			init_data.midiSpeed = g.midiSettings.speed;
 		} else {
 			init_data.midiSpeed = init_data.originalBPM || 120;
+		}
+	}
+
+	if (type === 'monitoring') {
+		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+		init_data.filePath = currentFile ? path.basename(currentFile) : '';
+		if (currentFile) {
+			extractAndSendWaveform(currentFile);
 		}
 	}
 
@@ -2732,61 +2986,61 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		hasShadow: true,
 		init_data: init_data
 	});
-	
+
 	console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
-	
+
 	g.windowsVisible[type] = true;
-	
-	if(type === 'parameters'){
+
+	if (type === 'parameters') {
 		g.parametersOpen = true;
 		// Only switch to rubberband if pitchtime mode is active
-		if(g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer){
-			if(g.activePipeline !== 'rubberband'){
+		if (g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
+			if (g.activePipeline !== 'rubberband') {
 				try {
 					await switchPipeline('rubberband');
-					g.rubberbandPlayer.connect();
+					g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
 					console.log('[Parameters] Switched to rubberband pipeline');
-				} catch(err){
+				} catch (err) {
 					console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
 				}
 			}
 		}
 	}
-	
+
 	setTimeout(() => {
 		tools.sendToId(g.windows[type], 'show-window');
 	}, 100);
 }
 
-async function scaleWindow(val){
+async function scaleWindow(val) {
 	const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
 	const showControls = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
 	const MIN_H = showControls ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
 	let w_scale = MIN_WIDTH / 14;
 	let h_scale = MIN_H / 14;
-	if(!g.config.windows) g.config.windows = {};
-	if(!g.config.windows.main) g.config.windows.main = {};
+	if (!g.config.windows) g.config.windows = {};
+	if (!g.config.windows.main) g.config.windows.main = {};
 	let curBounds = await g.win.getBounds();
-	if(!curBounds) curBounds = { x: 0, y: 0, width: MIN_WIDTH, height: MIN_H };
+	if (!curBounds) curBounds = { x: 0, y: 0, width: MIN_WIDTH, height: MIN_H };
 	let nb = {
 		x: curBounds.x,
 		y: curBounds.y,
 		width: parseInt(w_scale * val),
 		height: parseInt(h_scale * val)
 	};
-	if(nb.width < MIN_WIDTH) { nb.width = MIN_WIDTH; val = 14 };
-	if(nb.height < MIN_H) { nb.height = MIN_H; val = 14 };
+	if (nb.width < MIN_WIDTH) { nb.width = MIN_WIDTH; val = 14 };
+	if (nb.height < MIN_H) { nb.height = MIN_H; val = 14 };
 	await g.win.setBounds(nb);
-	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val|0 };
+	g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: val | 0 };
 	ut.setCssVar('--space-base', val);
 	g.config_obj.set(g.config);
-	const scaledMinW = _scaledDim(MIN_WIDTH, val|0);
-	const scaledMinH = _scaledDim(MIN_H, val|0);
+	const scaledMinW = _scaledDim(MIN_WIDTH, val | 0);
+	const scaledMinH = _scaledDim(MIN_H, val | 0);
 	tools.sendToMain('command', { command: 'set-min-height', minHeight: scaledMinH, minWidth: scaledMinW });
 }
 
-function fb(o){
-    console.log(o);
+function fb(o) {
+	console.log(o);
 }
 
 module.exports.init = init;

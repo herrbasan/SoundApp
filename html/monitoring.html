@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Monitoring - SoundApp</title>
+    <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+    <link rel="stylesheet" href="../css/window.css">
+    <link rel="stylesheet" href="../css/monitoring.css">
+</head>
+
+<body class="dark no-select monitoring-window">
+    <div class="nui-app">
+        <div class="nui-title-bar window-chrome">
+            <div class="title">
+                <div class="nui-icon-container">
+                    <i>visibility</i>
+                </div>
+                <div class="label">Monitor</div>
+            </div>
+            <div class="controls">
+                <div class="nui-icon-container close"><i>close</i></div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="monitoring-layout">
+                <!-- Static Waveform -->
+                <section class="panel waveform-panel">
+                    <div class="panel-header">OVERVIEW</div>
+                    <div class="canvas-container">
+                        <canvas id="waveformCanvas"></canvas>
+                        <div id="playhead" class="playhead"></div>
+                    </div>
+                </section>
+
+                <div class="bottom-grid">
+                    <!-- Spectrum Analyzer & Live Wave -->
+                    <section class="panel spectrum-panel">
+                        <div class="panel-header">SPECTRUM</div>
+                        <div class="canvas-container">
+                            <canvas id="spectrumCanvas"></canvas>
+                        </div>
+                        <div class="panel-header">LIVE WAVE</div>
+                        <div class="canvas-container">
+                            <canvas id="liveWaveCanvas"></canvas>
+                        </div>
+                    </section>
+
+                    <!-- Loudness Meter -->
+                    <section class="panel loudness-panel">
+                        <div class="panel-header">LOUDNESS</div>
+                        <div class="canvas-container">
+                            <div class="loudness-meter condensed">
+                                <div class="meter-bar-container pro-meter">
+                                    <div id="lufsBarS" class="meter-bar short-term"></div>
+                                    <div id="lufsBarM" class="meter-bar momentary-cap"></div>
+                                    <div id="lufsBarI" class="meter-bar integrated-line"></div>
+                                    <div id="targetMarker" class="target-marker"></div>
+                                </div>
+                                <div class="meter-scale">
+                                    <span>0</span>
+                                    <span>-6</span>
+                                    <span>-9</span>
+                                    <span>-14</span>
+                                    <span>-18</span>
+                                    <span>-23</span>
+                                    <span>-36</span>
+                                    <span>-48</span>
+                                </div>
+                            </div>
+                            <div class="target-selector">
+                                <span class="label">TARGET:</span>
+                                <select id="targetPreset">
+                                    <option value="-14">Streaming (-14)</option>
+                                    <option value="-23">EBU R128 (-23)</option>
+                                    <option value="-9">CD/Club (-9)</option>
+                                    <option value="-18">Podcast (-18)</option>
+                                </select>
+                            </div>
+                            <div class="loudness-readouts detail">
+                                <div class="readout-row main">
+                                    <div class="readout">
+                                        <div class="label">SHORT TERM</div>
+                                        <div id="valS" class="value">---</div>
+                                    </div>
+                                    <div class="readout highlight">
+                                        <div class="label">INTEGRATED</div>
+                                        <div id="valI" class="value">---</div>
+                                    </div>
+                                </div>
+                                <div class="readout-grid">
+                                    <div class="readout small">
+                                        <div class="label">LRA</div>
+                                        <div id="valLRA" class="value">0.0</div>
+                                    </div>
+                                    <div class="readout small">
+                                        <div class="label">PLR</div>
+                                        <div id="valPLR" class="value">0.0</div>
+                                    </div>
+                                    <div class="readout small">
+                                        <div class="label">M MAX</div>
+                                        <div id="valMMax" class="value">---</div>
+                                    </div>
+                                    <div class="readout small">
+                                        <div class="label">PEAK MAX</div>
+                                        <div id="valPMax" class="value">---</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Goniometer & Correlation -->
+                    <div class="phase-group">
+                        <section class="panel goniometer-panel">
+                            <div class="panel-header">VECTORSCOPE</div>
+                            <div class="canvas-container">
+                                <canvas id="gonioCanvas"></canvas>
+                            </div>
+                        </section>
+                        <section class="panel correlation-panel">
+                            <div class="panel-header">CORRELATION</div>
+                            <div class="canvas-container">
+                                <canvas id="corrCanvas"></canvas>
+                                <div class="labels">
+                                    <span>-1</span>
+                                    <span>0</span>
+                                    <span>+1</span>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="nui-status-bar window-chrome">
+            <div id="file-info" class="file-info">Ready</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import ut from '../libs/nui/nui_ut.js';
+        import nui from '../libs/nui/nui.js';
+        window.ut = ut;
+        window.nui = nui;
+        const shortcuts = require('../js/shortcuts.js');
+        window.shortcuts = shortcuts;
+    </script>
+    <script src="../js/window-loader.js"></script>
+    <script type="module" src="../js/monitoring/main.js"></script>
+</body>
+
+</html>

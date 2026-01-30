@@ -1,0 +1,6 @@
+name: MCP Orchestrator
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: MCP Orchestrator
+    url: http://192.168.0.100:3100/mcp

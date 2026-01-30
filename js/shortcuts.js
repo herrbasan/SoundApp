@@ -7,7 +7,8 @@ const shortcuts = {
 	M: { key: 77, action: 'toggle-mixer', description: 'Toggle Mixer Window' },
 	P: { key: 80, action: 'toggle-pitchtime', description: 'Toggle Pitch/Time or MIDI Settings' },
 	X: { key: 88, action: 'toggle-theme', description: 'Toggle Theme' },
-	C: { key: 67, action: 'toggle-controls', description: 'Toggle Controls Bar' }
+	C: { key: 67, action: 'toggle-controls', description: 'Toggle Controls Bar' },
+	N: { key: 78, action: 'toggle-monitoring', description: 'Toggle Monitoring Window' }
 };
 
 function handleShortcut(e, windowType = 'stage') {
@@ -22,7 +23,7 @@ function handleShortcut(e, windowType = 'stage') {
 
 	// Prevent default to avoid key propagation
 	e.preventDefault();
-	
+
 	// Send command to appropriate handler based on window type
 	if (windowType !== 'stage') {
 		// Help/Settings windows forward to stage via bridge
@@ -33,7 +34,7 @@ function handleShortcut(e, windowType = 'stage') {
 		// Stage window handles directly
 		return shortcut.action;
 	}
-	
+
 	return true;
 }
 

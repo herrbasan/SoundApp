@@ -90,7 +90,7 @@ scripts/
 - `libs/` - Third-party audio libraries (NUI, electron_helper, chiptune, etc.)
 - `docs/` - Architecture documentation
 
-## MIDI Player Integration (Current)
+## MIDI Player Integration
 - **Package:** js-synthesizer v1.11.0 from npm (easy updates)
 - **Player:** `js/midi/midi.js` wraps js-synthesizer and is initialized by `js/stage.js`
 - **Worklets:** `js/midi/midi.worklet.js` (MIDI hook) and `js/midi/metronome.worklet.js` (metronome) are loaded via `audioWorklet.addModule()`
@@ -119,7 +119,7 @@ async function openWindow(type) {
 }
 ```
 
-**Mixer Window Integration (Current State):**
+**Mixer Window Integration:**
 - Shortcut: `M` opens the mixer window.
 - Playlist handover: Stage sends `init_data.playlist.paths = g.music.slice(0, 20)`.
 - Stage stops playback when opening mixer (mixer operates independently).
@@ -281,6 +281,59 @@ Keyboard shortcuts trigger a subtle flash on corresponding control buttons:
 - Transition only on `:not(.flash)` - snaps on, fades off
 - Cannot get stuck visible
 
+## Monitoring Window (Real-Time Audio Analysis) (Current)
+
+The Monitoring window provides professional-grade audio analysis and visualization tools for the currently playing track.
+
+**Toggle:** `N` key opens/closes the monitoring window
+
+**Features:**
+- **Overview Waveform** - Static waveform with playhead tracking for navigation
+- **Live Waveform** - Real-time oscilloscope view of the audio signal
+- **Spectrum Analyzer** - 31-band ISO 266 frequency analysis with peak hold
+- **Goniometer** - Stereo phase visualization (Mid-Side XY display)
+- **Correlation Meter** - Real-time stereo phase correlation (-1 to +1)
+- **BS.1770-4 Loudness Metering** - Professional broadcast loudness measurement:
+  - Short-term LUFS (3s sliding window)
+  - Integrated LUFS (gated, full-track measurement)
+  - LRA (Loudness Range)
+  - PLR (Peak-to-Loudness Ratio)
+  - True Peak detection
+  - Configurable target presets: Streaming (-14), EBU R128 (-23), CD/Club (-9), Podcast (-18)
+
+**Architecture:**
+- **Tap Points:** `initMonitoring()` creates non-invasive stereo AnalyserNode taps on both standard and Rubberband audio pipelines
+- **Dual Context:** Monitoring automatically switches between main AudioContext and rubberbandContext based on active pipeline
+- **60 FPS Updates:** `updateMonitoring()` runs at 60Hz, sending frequency/time-domain data to the window via IPC
+- **Worker-Based Waveform:** Overview waveform extraction runs in a Node.js Worker Thread to avoid blocking
+- **K-Weighting Filters:** Two-stage K-weighting filters (ITU-R BS.1770) for accurate loudness measurement
+- **Gating Algorithm:** Absolute and relative gating per BS.1770-4 spec for integrated LUFS
+
+**Files:**
+- [html/monitoring.html](html/monitoring.html) - NUI-based window structure with canvas containers
+- [css/monitoring.css](css/monitoring.css) - Professional meter styling and layout
+- [js/monitoring/main.js](js/monitoring/main.js) - Window initialization, IPC handlers, UI coordination
+- [js/monitoring/visualizers.js](js/monitoring/visualizers.js) - Canvas rendering, BS.1770-4 LUFS engine, spectrum analysis
+- [js/monitoring/waveform_worker.js](js/monitoring/waveform_worker.js) - Worker thread for async waveform peak extraction
+- [js/stage.js](js/stage.js) - `initMonitoring()`, `updateMonitoring()`, `extractAndSendWaveform()` functions
+
+**IPC Protocol:**
+- `monitoring-ready` - Window signals ready state, triggers initial waveform extraction
+- `clear-waveform` - Stage clears waveform before track change
+- `waveform-data` - Stage sends peak data: `{ peaksL, peaksR, points, duration, filePath }`
+- `ana-data` - Stage sends real-time analysis (60Hz): `{ freqL, freqR, timeL, timeR, pos, duration, sampleRate }`
+
+**Sample Rate Handling:**
+- Monitoring adapts to AudioContext sample rate (44.1kHz to 192kHz)
+- Larger FFT sizes used at high sample rates (8192 vs 2048) to maintain frequency resolution
+- K-weighting filters recalculate coefficients when sample rate changes
+- Waveform extraction always resamples to 44.1kHz for consistent peak analysis
+
+**Performance Notes:**
+- AnalyserNode taps are lightweight (~0.5% CPU overhead)
+- Waveform extraction is async (Worker Thread) - no UI blocking
+- Canvas rendering is throttled to 60 FPS
+- Monitoring loop auto-stops when window is hidden
 
 ## Coding Philosophy & Style
 
