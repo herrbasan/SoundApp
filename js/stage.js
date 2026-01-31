@@ -2433,7 +2433,18 @@ function initMonitoring() {
 
 	console.log('[Monitoring] Stereo Analyser taps ready');
 
+	// Pre-allocate reusable buffers for monitoring data
+	if (!g.monitoringBuffers) {
+		g.monitoringBuffers = {
+			freqL: null,
+			freqR: null,
+			timeL: null,
+			timeR: null
+		};
+	}
+
 	if (!g.monitoringLoop) {
+		// Use setInterval for reliable timing (RAF pauses when window not visible)
 		g.monitoringLoop = setInterval(updateMonitoring, 1000 / 60);
 	}
 }
@@ -2450,33 +2461,40 @@ function updateMonitoring() {
 		aR = g.monitoringAnalyserR_RB;
 	}
 
-	if (!aL || !aR) return;
+	if (!aL || !aR) {
+		console.log('[Monitoring] No analysers available');
+		return;
+	}
 
-	const freqL = new Uint8Array(aL.frequencyBinCount);
-	const freqR = new Uint8Array(aR.frequencyBinCount);
-	const timeL = new Uint8Array(aL.fftSize);
-	const timeR = new Uint8Array(aR.fftSize);
+	// Reuse buffers if size matches, otherwise recreate
+	const buf = g.monitoringBuffers;
+	if (!buf.freqL || buf.freqL.length !== aL.frequencyBinCount) {
+		buf.freqL = new Uint8Array(aL.frequencyBinCount);
+		buf.freqR = new Uint8Array(aR.frequencyBinCount);
+		buf.timeL = new Uint8Array(aL.fftSize);
+		buf.timeR = new Uint8Array(aR.fftSize);
+	}
 
-	aL.getByteFrequencyData(freqL);
-	aR.getByteFrequencyData(freqR);
-	aL.getByteTimeDomainData(timeL);
-	aR.getByteTimeDomainData(timeR);
+	aL.getByteFrequencyData(buf.freqL);
+	aR.getByteFrequencyData(buf.freqR);
+	aL.getByteTimeDomainData(buf.timeL);
+	aR.getByteTimeDomainData(buf.timeR);
 
 	const pos = (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') ? g.currentAudio.getCurrentTime() : 0;
 	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
 
 	try {
 		tools.sendToId(g.windows.monitoring, 'ana-data', {
-			freqL: Array.from(freqL),
-			freqR: Array.from(freqR),
-			timeL: Array.from(timeL),
-			timeR: Array.from(timeR),
+			freqL: Array.from(buf.freqL),
+			freqR: Array.from(buf.freqR),
+			timeL: Array.from(buf.timeL),
+			timeR: Array.from(buf.timeR),
 			pos,
 			duration: dur,
 			sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
 		});
 	} catch (err) {
-		// Silently ignore - window may be closing, and this runs at 60 FPS
+		// Silently ignore - window may be closing
 	}
 }
 
@@ -2823,6 +2841,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				} else {
 					tools.sendToId(g.windows[type], 'show-window');
 				}
+				if (type === 'monitoring') {
+					g.monitoringReady = true;
+				}
 				if (type === 'pitchtime') {
 					const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 					const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
@@ -2876,6 +2897,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 		} else {
 			tools.sendToId(g.windows[type], 'show-window');
 			g.windowsVisible[type] = true;
+			if (type === 'monitoring') {
+				g.monitoringReady = true;
+			}
 			if (type === 'mixer') {
 				if (g.currentAudio && !g.currentAudio.paused) {
 					g.currentAudio.pause();

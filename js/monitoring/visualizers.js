@@ -70,12 +70,26 @@ export class Visualizers {
         this.smoothS = 0;
         this.smoothI = 0;
 
-        // Spectrum State (31 bands, ISO 266)
-        this.spectrumBands = [
-            20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-        ];
-        this.bandLevels = new Array(31).fill(0);
-        this.bandPeaks = new Array(31).fill(0);
+        // Spectrum State (64 bands, log-spaced 20Hz-20kHz)
+        this.spectrumBands = this.generateLogBands(20, 20000, 64);
+        this.bandLevels = new Array(64).fill(0);
+        this.bandPeaks = new Array(64).fill(0);
+
+        // Temporal smoothing for live waveform
+        this.smoothedL = null;
+        this.smoothedR = null;
+        this.waveSmoothing = 0.7; // 0 = no smoothing, 0.9 = very smooth
+    }
+
+    generateLogBands(minFreq, maxFreq, numBands) {
+        const bands = [];
+        const logMin = Math.log10(minFreq);
+        const logMax = Math.log10(maxFreq);
+        const step = (logMax - logMin) / (numBands - 1);
+        for (let i = 0; i < numBands; i++) {
+            bands.push(Math.pow(10, logMin + i * step));
+        }
+        return bands;
     }
 
     updateColors() {
@@ -193,6 +207,12 @@ export class Visualizers {
         this.stats.lra = 0;
         this.smoothS = 0;
         this.smoothI = 0;
+
+        // Reset Level meters
+        this.levelPeakHoldL = 0;
+        this.levelPeakHoldR = 0;
+        this.levelPeakDecayL = 0;
+        this.levelPeakDecayR = 0;
     }
 
     drawWaveform() {
@@ -243,8 +263,9 @@ export class Visualizers {
         ctx.clearRect(0, 0, w, h);
         if (!this.anaData || !this.anaData.freqL) return;
 
-        const data = this.anaData.freqL;
-        const len = data.length;
+        const dataL = this.anaData.freqL;
+        const dataR = this.anaData.freqR;
+        const len = dataL.length;
         const sr = this.lastSampleRate;
 
         // AnalyserNode.frequencyBinCount is N/2
@@ -277,25 +298,27 @@ export class Visualizers {
             let sum = 0;
             let count = 0;
 
-            // Average current band energy
+            // Average current band energy (mono sum of L+R)
             for (let j = startIdx; j <= endIdx; j++) {
-                sum += data[j] / 255;
+                const monoVal = dataR ? (dataL[j] + dataR[j]) / 2 : dataL[j];
+                sum += monoVal / 255;
                 count++;
             }
 
             // Ensure we catch energy even if the band is narrow
             if (count === 0 && startIdx < len) {
-                sum = data[startIdx] / 255;
+                const monoVal = dataR ? (dataL[startIdx] + dataR[startIdx]) / 2 : dataL[startIdx];
+                sum = monoVal / 255;
                 count = 1;
             }
 
             let val = count > 0 ? sum / count : 0;
 
-            // Attack/Release ballistics (fast attack, slow release)
+            // Attack/Release ballistics (nearly instant attack, fast release)
             if (val > this.bandLevels[i]) {
-                this.bandLevels[i] += (val - this.bandLevels[i]) * 0.85; // Fast attack
+                this.bandLevels[i] = val; // Instant attack
             } else {
-                this.bandLevels[i] += (val - this.bandLevels[i]) * 0.25; // Slow release
+                this.bandLevels[i] += (val - this.bandLevels[i]) * 0.6; // Fast release
             }
 
             const barHeight = this.bandLevels[i] * (h - padding * 2) * 0.9;
@@ -333,34 +356,39 @@ export class Visualizers {
         const mid = h / 2;
         const padding = (this.layout && this.layout.padding) || 0;
         const innerW = w - (padding * 2);
+        const smooth = this.waveSmoothing;
 
-        ctx.lineWidth = (this.layout && this.layout.liveWidth !== undefined) ? this.layout.liveWidth : 1.2;
+        // Initialize smoothing buffer on first run or size change
+        if (!this.smoothedMono || this.smoothedMono.length !== len) {
+            this.smoothedMono = new Float32Array(len);
+            for (let i = 0; i < len; i++) {
+                const mono = tR ? (tL[i] + tR[i]) / 2 : tL[i];
+                this.smoothedMono[i] = mono;
+            }
+        }
 
-        // Draw Left (Cyan)
+        // Apply temporal smoothing: blend previous frame with current (mono mix)
+        for (let i = 0; i < len; i++) {
+            const mono = tR ? (tL[i] + tR[i]) / 2 : tL[i];
+            this.smoothedMono[i] = this.smoothedMono[i] * smooth + mono * (1 - smooth);
+        }
+
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+
+        // Draw mono waveform
         ctx.beginPath();
         ctx.strokeStyle = this.colors.liveWave;
         for (let i = 0; i < len; i++) {
             const x = padding + ((i / len) * innerW);
-            const y = mid + ((tL[i] - 128) / 128) * (mid - padding) * 0.9;
+            const y = mid + ((this.smoothedMono[i] - 128) / 128) * mid * 2.5;
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Draw Right (Purple)
-        if (tR) {
-            ctx.beginPath();
-            ctx.strokeStyle = 'rgba(64, 168, 59, 0.5)';
-            for (let i = 0; i < len; i++) {
-                const x = padding + ((i / len) * innerW);
-                const y = mid + ((tR[i] - 128) / 128) * (mid - padding) * 0.9;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-        }
-
         // Midline
+        ctx.lineWidth = 1;
         ctx.strokeStyle = this.colors.grid || 'rgba(255, 255, 255, 0.05)';
         ctx.beginPath();
         ctx.moveTo(padding, mid);
@@ -470,6 +498,7 @@ export class Visualizers {
 
         // 1. K-Weighting & Peak Tracking
         let peakChunk = 0;
+        let peakL = 0, peakR = 0;
         let meanSquareSumL = 0;
         let meanSquareSumR = 0;
 
@@ -477,7 +506,13 @@ export class Visualizers {
             let l = (tL[i] - 128) / 128;
             let r = (tR[i] - 128) / 128;
 
-            peakChunk = Math.max(peakChunk, Math.abs(l), Math.abs(r));
+            // Track peak per channel for level meters
+            const absL = Math.abs(l);
+            const absR = Math.abs(r);
+            if (absL > peakL) peakL = absL;
+            if (absR > peakR) peakR = absR;
+
+            peakChunk = Math.max(peakChunk, absL, absR);
 
             l = this.filtersL[1].process(this.filtersL[0].process(l, sr, 1), sr, 2);
             r = this.filtersR[1].process(this.filtersR[0].process(r, sr, 1), sr, 2);
@@ -557,6 +592,34 @@ export class Visualizers {
         if (this.meters.barS) this.meters.barS.style.height = `${this.smoothS}%`;
         if (this.meters.barM) this.meters.barM.style.bottom = `${perM}%`;
         if (this.meters.barI) this.meters.barI.style.bottom = `${this.smoothI}%`;
+
+        // 6. Level Meters (Peak-based, L/R channels, instant response)
+        const peakDbL = 20 * Math.log10(Math.max(peakL, 1e-5));
+        const peakDbR = 20 * Math.log10(Math.max(peakR, 1e-5));
+
+        // Map dB to percent: -48dB = 0%, 0dB = 100%
+        const mapLevel = (db) => Math.max(0, Math.min(100, ((db + 48) / 48) * 100));
+
+        const lvlL = mapLevel(peakDbL);
+        const lvlR = mapLevel(peakDbR);
+
+        // Update Level DOM bars (no smoothing - instant like spectrum)
+        if (this.meters.levelBarL) this.meters.levelBarL.style.height = `${lvlL}%`;
+        if (this.meters.levelBarR) this.meters.levelBarR.style.height = `${lvlR}%`;
+
+        // Peak hold with decay
+        if (!this.levelPeakHoldL) { this.levelPeakHoldL = 0; this.levelPeakHoldR = 0; this.levelPeakDecayL = 0; this.levelPeakDecayR = 0; }
+
+        if (lvlL >= this.levelPeakHoldL) { this.levelPeakHoldL = lvlL; this.levelPeakDecayL = 20; }
+        else if (this.levelPeakDecayL > 0) { this.levelPeakDecayL--; }
+        else { this.levelPeakHoldL = Math.max(0, this.levelPeakHoldL - 2); }
+
+        if (lvlR >= this.levelPeakHoldR) { this.levelPeakHoldR = lvlR; this.levelPeakDecayR = 20; }
+        else if (this.levelPeakDecayR > 0) { this.levelPeakDecayR--; }
+        else { this.levelPeakHoldR = Math.max(0, this.levelPeakHoldR - 2); }
+
+        if (this.meters.levelPeakL) this.meters.levelPeakL.style.bottom = `${this.levelPeakHoldL}%`;
+        if (this.meters.levelPeakR) this.meters.levelPeakR.style.bottom = `${this.levelPeakHoldR}%`;
 
         // Update Readouts
         const setVal = (el, val, precision = 1) => {

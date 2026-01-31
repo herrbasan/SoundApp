@@ -29,6 +29,10 @@ export const main = {
                 barM: document.getElementById('lufsBarM'),
                 barI: document.getElementById('lufsBarI'),
                 markerT: document.getElementById('targetMarker'),
+                levelBarL: document.getElementById('levelBarL'),
+                levelBarR: document.getElementById('levelBarR'),
+                levelPeakL: document.getElementById('levelPeakL'),
+                levelPeakR: document.getElementById('levelPeakR'),
                 valS: document.getElementById('valS'),
                 valI: document.getElementById('valI'),
                 valLRA: document.getElementById('valLRA'),
@@ -61,7 +65,6 @@ export const main = {
         }
 
         // Send ready signal to Stage to trigger initial data push (like overview waveform)
-        // Send ready signal to Stage to trigger initial data push (like overview waveform)
         if (window.bridge && window.bridge.isElectron) {
             window.bridge.sendToStage('monitoring-ready', { windowId: window.bridge.windowId });
 
@@ -78,6 +81,7 @@ export const main = {
 
     setupIPC() {
         if (!window.bridge) return;
+        const self = this;
 
         // Theme Sync
         window.bridge.on('theme-changed', (data) => {
@@ -113,11 +117,20 @@ export const main = {
             }
         });
 
-        // Real-time analysis data
+        // Real-time analysis data - coalesce updates within RAF frames
+        let pendingData = null;
+        let rafId = 0;
         window.bridge.on('ana-data', (data) => {
-            // data: { freqL, freqR, timeL, timeR, pos, duration }
-            this.visualizers.update(data);
-            this.updatePlayhead(data.pos, data.duration);
+            pendingData = data;
+            if (!rafId) {
+                rafId = requestAnimationFrame(() => {
+                    rafId = 0;
+                    if (pendingData) {
+                        self.visualizers.update(pendingData);
+                        self.updatePlayhead(pendingData.pos, pendingData.duration);
+                    }
+                });
+            }
         });
     },
 

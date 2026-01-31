@@ -1,6 +1,6 @@
 /* Light Mode Defaults */
 :root {
-    --panel-bg: rgba(255, 255, 255, 0.6);
+    --panel-bg: rgb(var(--color-shade2));
     --border-color: rgba(0, 0, 0, 0.1);
     --accent-color: rgb(40, 140, 35);
     --waveform-color: rgb(50, 50, 50);
@@ -9,10 +9,12 @@
     --spectrum-gap: 3px;
     --spectrum-color: rgb(40, 140, 35);
     --grid-color: rgba(0, 0, 0, 0.1);
-    --gonio-bg: rgba(255, 255, 255, 0.6);
+    --gonio-bg: rgb(var(--color-shade2));
     --live-width: 1.5px;
     --canvas-padding: 1rem;
     --label-color: #666;
+    --section-gap: 10px;
+    --vectorscope-size: 30vh;
 }
 
 body.monitoring-window {
@@ -23,7 +25,7 @@ body.monitoring-window {
 
 /* Dark Mode Overrides */
 body.dark {
-    --panel-bg: rgba(30, 30, 30, 0.6);
+    --panel-bg: rgb(var(--color-shade2));
     --border-color: rgba(255, 255, 255, 0.1);
     --accent-color: rgb(64, 168, 59);
     --waveform-color: rgb(145, 145, 145);
@@ -44,14 +46,14 @@ body.monitoring-window.dark {
     flex-direction: column;
     height: 100%;
     padding: 10px;
-    gap: 10px;
+    gap: var(--section-gap);
     box-sizing: border-box;
 }
 
 .panel {
     background: var(--panel-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border: thin solid var(--border-color);
+    border-radius: 0.3rem;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -59,11 +61,11 @@ body.monitoring-window.dark {
 }
 
 .panel-header {
-    font-size: 10px;
+    font-size: 0.7rem;
     font-weight: bold;
     color: var(--label-color);
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.2);
+    padding: 0.6rem;
+    background: rgb(var(--color-shade1));
     letter-spacing: 1px;
 }
 
@@ -81,185 +83,238 @@ canvas {
 
 /* Waveform overview */
 .waveform-panel {
-    height: 120px;
+    height: 150px;
 }
 
 .playhead {
     position: absolute;
     top: 0;
-    left: 0;
+    bottom: 0;
     width: 2px;
-    height: 100%;
     background: #fff;
-    box-shadow: 0 0 10px #fff;
     pointer-events: none;
     z-index: 10;
-    transform: translateX(-50%);
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
 }
 
-/* Bottom Grid */
+/* Bottom Grid - Two Columns */
 .bottom-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 180px 220px;
-    gap: 10px;
+    grid-template-columns: 1fr 180px;
+    gap: var(--section-gap);
     min-height: 0;
 }
 
-.phase-group {
+/* Left Column: Spectrum + Wave/Scope Row */
+.left-column {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--section-gap);
+    min-height: 0;
+    min-width: 0;
+}
+
+.spectrum-panel {
+    flex: 1;
+    min-height: 150px;
+    min-width: 0;
+}
+
+.wave-scope-row {
+    display: grid;
+    grid-template-columns: 1fr var(--vectorscope-size);
+    gap: var(--section-gap);
+    height: var(--vectorscope-size);
+}
+
+.livewave-panel {
+    min-height: 0;
+    min-width: 0;
 }
 
 .goniometer-panel {
-    aspect-ratio: 1/1;
+    width: var(--vectorscope-size);
+    height: var(--vectorscope-size);
 }
 
-.correlation-panel {
-    height: 60px;
-}
-
-.correlation-panel .labels {
-    position: absolute;
-    bottom: 4px;
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 10px;
-    box-sizing: border-box;
-    font-size: 9px;
-    color: var(--label-color);
-    pointer-events: none;
-}
-
-/* Loudness Meter */
-.loudness-meter {
-    display: flex;
-    min-height: 0;
-    padding: 10px 5px;
-    gap: 4px;
-    box-sizing: border-box;
-    position: relative;
-}
-
-.loudness-panel .canvas-container {
+/* Right Column: Meters + Readouts + Correlation */
+.right-column {
     display: flex;
     flex-direction: column;
+    gap: var(--section-gap);
+    min-height: 0;
+    background: var(--panel-bg);
+    border: thin solid var(--border-color);
+    border-radius: 0.3rem;
+    overflow: hidden;
+}
+
+/* Meters Section */
+.meters-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.meters-section .panel-header {
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: var(--label-color);
+    padding: 0.6rem;
+    background: rgb(var(--color-shade1));
+    letter-spacing: 1px;
+}
+
+.meters-container {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    padding-right: 35px;
+    position: relative;
+    min-height: 0;
+}
+
+.meter-group {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.meter-group.lufs-group {
+    flex: 2;
+}
+
+.meter-group.level-group {
+    flex: 1;
+}
+
+.meter-label {
+    font-size: 9px;
+    color: var(--label-color);
+    text-align: center;
+    padding-top: 4px;
 }
 
 .meter-bar-container {
     flex: 1;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 2px;
     position: relative;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    margin-bottom: 12px;
+    min-height: 0;
 }
 
 .meter-bar {
     width: 100%;
-    height: 0%;
-    transition: height 0.1s ease-out;
-}
-
-.loudness-meter.condensed {
-    flex: 1;
-    padding-right: 25px;
-    /* Space for scale */
-}
-
-.pro-meter {
-    margin-bottom: 0px;
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    position: absolute;
+    bottom: 0;
+    transition: height 0.08s ease-out;
 }
 
 .meter-bar.short-term {
     background: var(--accent-color);
     opacity: 0.8;
-    position: absolute;
-    bottom: 0;
 }
 
 .meter-bar.momentary-cap {
     background: #fff;
-    height: 3px;
-    position: absolute;
-    bottom: 0;
+    height: 2px;
     z-index: 5;
-    box-shadow: 0 0 10px #fff;
+    box-shadow: 0 0 6px #fff;
 }
 
 .meter-bar.integrated-line {
     background: #ffa500;
-    height: 1px;
-    position: absolute;
-    bottom: 0;
+    height: 2px;
     z-index: 4;
-    opacity: 0.7;
+}
+
+.meter-bar.level-bar {
+    background: var(--accent-color);
+    opacity: 0.85;
+}
+
+.meter-bar.level-peak {
+    background: #fff;
+    height: 2px;
+    z-index: 5;
+    box-shadow: 0 0 4px #fff;
 }
 
 .target-marker {
     position: absolute;
-    right: 0px;
+    right: -8px;
     width: 0;
     height: 0;
     border-top: 4px solid transparent;
     border-bottom: 4px solid transparent;
     border-right: 6px solid #fff;
     z-index: 10;
-    margin-bottom: -4px;
-    /* Center on line */
 }
 
-.target-selector {
-    padding: 2px 10px;
-    background: rgba(0, 0, 0, 0.3);
-    border-top: 1px solid var(--border-color);
+.meter-scale {
+    position: absolute;
+    right: 8px;
+    top: 10px;
+    bottom: 25px;
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 8px;
+    color: var(--label-color);
+    text-align: right;
+    pointer-events: none;
 }
 
-.target-selector .label {
-    font-size: 8px;
+/* Target Selector with nui-select */
+.target-selector {
+    padding: 0px 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.target-selector .nui-select.compact {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.target-selector .nui-select.compact label {
+    font-size: 0.65rem;
+    padding-bottom: 0.3rem;
     color: var(--label-color);
 }
 
-.target-selector select {
-    background: transparent;
-    border: none;
-    color: #fff;
-    font-size: 10px;
-    outline: none;
+.target-selector .nui-select.compact select {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    background: rgb(var(--color-shade1));
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius0);
+    color: rgb(var(--color-shadeX));
     cursor: pointer;
 }
 
-.target-selector select option {
-    background: #222;
-}
-
-.loudness-readouts.detail {
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+/* Readouts */
+.loudness-readouts {
+    padding: 8px 10px;
     background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--border-color);
 }
 
 .readout-row.main {
     display: flex;
-    gap: 10px;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .readout-row.main .readout {
     flex: 1;
     background: rgba(255, 255, 255, 0.03);
-    padding: 8px;
+    padding: 6px 8px;
     border-radius: 4px;
     display: flex;
     flex-direction: column;
@@ -274,49 +329,7 @@ canvas {
 .readout-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
-}
-
-.readout.small {
-    flex-direction: row;
-    justify-content: space-between;
-    padding: 2px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.readout.small .label {
-    font-size: 8px;
-}
-
-.readout.small .value {
-    font-size: 10px;
-}
-
-.value.danger {
-    color: #ff4d4d !important;
-}
-
-.meter-scale {
-    position: absolute;
-    right: 2px;
-    height: calc(100% - 20px);
-    top: 5px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    font-size: 8px;
-    color: var(--label-color);
-    text-align: right;
-    pointer-events: none;
-}
-
-.loudness-readouts {
-    padding: 5px;
-    border-top: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    background: rgba(0, 0, 0, 0.4);
+    gap: 4px 8px;
 }
 
 .readout {
@@ -327,7 +340,7 @@ canvas {
 }
 
 .readout .label {
-    font-size: 9px;
+    font-size: 8px;
     color: var(--label-color);
 }
 
@@ -337,10 +350,37 @@ canvas {
     font-weight: bold;
 }
 
-.readout.momentary .value {
-    color: var(--accent-color);
+.readout.small {
+    padding: 2px 0;
 }
 
-.readout.integrated .value {
-    color: #fff;
+.readout.small .label {
+    font-size: 7px;
+}
+
+.readout.small .value {
+    font-size: 9px;
+}
+
+.value.danger {
+    color: #ff4d4d !important;
+}
+
+/* Correlation Panel */
+.correlation-panel {
+    height: 80px;
+    flex-shrink: 0;
+}
+
+.correlation-panel .labels {
+    position: absolute;
+    bottom: 2px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 8px;
+    box-sizing: border-box;
+    font-size: 8px;
+    color: var(--label-color);
+    pointer-events: none;
 }

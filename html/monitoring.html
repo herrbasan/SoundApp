@@ -37,90 +37,119 @@
                 </section>
 
                 <div class="bottom-grid">
-                    <!-- Spectrum Analyzer & Live Wave -->
-                    <section class="panel spectrum-panel">
-                        <div class="panel-header">SPECTRUM</div>
-                        <div class="canvas-container">
-                            <canvas id="spectrumCanvas"></canvas>
-                        </div>
-                        <div class="panel-header">LIVE WAVE</div>
-                        <div class="canvas-container">
-                            <canvas id="liveWaveCanvas"></canvas>
-                        </div>
-                    </section>
-
-                    <!-- Loudness Meter -->
-                    <section class="panel loudness-panel">
-                        <div class="panel-header">LOUDNESS</div>
-                        <div class="canvas-container">
-                            <div class="loudness-meter condensed">
-                                <div class="meter-bar-container pro-meter">
-                                    <div id="lufsBarS" class="meter-bar short-term"></div>
-                                    <div id="lufsBarM" class="meter-bar momentary-cap"></div>
-                                    <div id="lufsBarI" class="meter-bar integrated-line"></div>
-                                    <div id="targetMarker" class="target-marker"></div>
+                    <!-- Left Column: Spectrum + Live Wave / Vectorscope -->
+                    <div class="left-column">
+                        <section class="panel spectrum-panel">
+                            <div class="panel-header">SPECTRUM</div>
+                            <div class="canvas-container">
+                                <canvas id="spectrumCanvas"></canvas>
+                            </div>
+                        </section>
+                        <div class="wave-scope-row">
+                            <section class="panel livewave-panel">
+                                <div class="panel-header">LIVE WAVE</div>
+                                <div class="canvas-container">
+                                    <canvas id="liveWaveCanvas"></canvas>
                                 </div>
+                            </section>
+                            <section class="panel goniometer-panel">
+                                <div class="panel-header">VECTORSCOPE</div>
+                                <div class="canvas-container">
+                                    <canvas id="gonioCanvas"></canvas>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Meters + Readouts + Correlation -->
+                    <div class="right-column">
+                        <!-- Meters Section -->
+                        <div class="meters-section">
+                            <div class="panel-header">LOUDNESS</div>
+                            <div class="meters-container">
+                                <!-- LUFS Meter -->
+                                <div class="meter-group lufs-group">
+                                    <div class="meter-bar-container pro-meter">
+                                        <div id="lufsBarS" class="meter-bar short-term"></div>
+                                        <div id="lufsBarM" class="meter-bar momentary-cap"></div>
+                                        <div id="lufsBarI" class="meter-bar integrated-line"></div>
+                                        <div id="targetMarker" class="target-marker"></div>
+                                    </div>
+                                    <div class="meter-label">LUFS</div>
+                                </div>
+                                <!-- L/R Level Meters -->
+                                <div class="meter-group level-group">
+                                    <div class="meter-bar-container level-meter">
+                                        <div id="levelBarL" class="meter-bar level-bar"></div>
+                                        <div id="levelPeakL" class="meter-bar level-peak"></div>
+                                    </div>
+                                    <div class="meter-label">L</div>
+                                </div>
+                                <div class="meter-group level-group">
+                                    <div class="meter-bar-container level-meter">
+                                        <div id="levelBarR" class="meter-bar level-bar"></div>
+                                        <div id="levelPeakR" class="meter-bar level-peak"></div>
+                                    </div>
+                                    <div class="meter-label">R</div>
+                                </div>
+                                <!-- Scale -->
                                 <div class="meter-scale">
                                     <span>0</span>
                                     <span>-6</span>
-                                    <span>-9</span>
-                                    <span>-14</span>
+                                    <span>-12</span>
                                     <span>-18</span>
-                                    <span>-23</span>
+                                    <span>-24</span>
                                     <span>-36</span>
                                     <span>-48</span>
                                 </div>
                             </div>
-                            <div class="target-selector">
-                                <span class="label">TARGET:</span>
-                                <select id="targetPreset">
-                                    <option value="-14">Streaming (-14)</option>
-                                    <option value="-23">EBU R128 (-23)</option>
-                                    <option value="-9">CD/Club (-9)</option>
-                                    <option value="-18">Podcast (-18)</option>
+                        </div>
+
+                        <!-- Target Selector -->
+                        <div class="target-selector">
+                            <div class="nui-select compact">
+                                <select id="targetPreset" class="nui-select">
+                                    <option value="-14">Streaming (-14 LUFS)</option>
+                                    <option value="-23">EBU R128 (-23 LUFS)</option>
+                                    <option value="-9">CD/Club (-9 LUFS)</option>
+                                    <option value="-18">Podcast (-18 LUFS)</option>
                                 </select>
                             </div>
-                            <div class="loudness-readouts detail">
-                                <div class="readout-row main">
-                                    <div class="readout">
-                                        <div class="label">SHORT TERM</div>
-                                        <div id="valS" class="value">---</div>
-                                    </div>
-                                    <div class="readout highlight">
-                                        <div class="label">INTEGRATED</div>
-                                        <div id="valI" class="value">---</div>
-                                    </div>
+                        </div>
+
+                        <!-- Readouts -->
+                        <div class="loudness-readouts">
+                            <div class="readout-row main">
+                                <div class="readout">
+                                    <div class="label">SHORT</div>
+                                    <div id="valS" class="value">---</div>
                                 </div>
-                                <div class="readout-grid">
-                                    <div class="readout small">
-                                        <div class="label">LRA</div>
-                                        <div id="valLRA" class="value">0.0</div>
-                                    </div>
-                                    <div class="readout small">
-                                        <div class="label">PLR</div>
-                                        <div id="valPLR" class="value">0.0</div>
-                                    </div>
-                                    <div class="readout small">
-                                        <div class="label">M MAX</div>
-                                        <div id="valMMax" class="value">---</div>
-                                    </div>
-                                    <div class="readout small">
-                                        <div class="label">PEAK MAX</div>
-                                        <div id="valPMax" class="value">---</div>
-                                    </div>
+                                <div class="readout highlight">
+                                    <div class="label">INT</div>
+                                    <div id="valI" class="value">---</div>
+                                </div>
+                            </div>
+                            <div class="readout-grid">
+                                <div class="readout small">
+                                    <div class="label">LRA</div>
+                                    <div id="valLRA" class="value">0.0</div>
+                                </div>
+                                <div class="readout small">
+                                    <div class="label">PLR</div>
+                                    <div id="valPLR" class="value">0.0</div>
+                                </div>
+                                <div class="readout small">
+                                    <div class="label">M MAX</div>
+                                    <div id="valMMax" class="value">---</div>
+                                </div>
+                                <div class="readout small">
+                                    <div class="label">PEAK</div>
+                                    <div id="valPMax" class="value">---</div>
                                 </div>
                             </div>
                         </div>
-                    </section>
 
-                    <!-- Goniometer & Correlation -->
-                    <div class="phase-group">
-                        <section class="panel goniometer-panel">
-                            <div class="panel-header">VECTORSCOPE</div>
-                            <div class="canvas-container">
-                                <canvas id="gonioCanvas"></canvas>
-                            </div>
-                        </section>
+                        <!-- Correlation -->
                         <section class="panel correlation-panel">
                             <div class="panel-header">CORRELATION</div>
                             <div class="canvas-container">
