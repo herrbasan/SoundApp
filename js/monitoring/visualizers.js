@@ -169,6 +169,11 @@ export class Visualizers {
     update(data) {
         this.anaData = data;
 
+        // Store duration for seeking (needed even when waveform is cleared for MIDI)
+        if (data.duration !== undefined) {
+            this.currentDuration = data.duration;
+        }
+
         // Handle Sample Rate changes for Filters
         if (data.sampleRate && data.sampleRate !== this.lastSampleRate) {
             this.lastSampleRate = data.sampleRate;

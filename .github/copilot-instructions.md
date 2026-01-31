@@ -562,19 +562,19 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Current Bugs
 
-- **dragSlider seek behavior** - Both the monitoring window overview waveform and the main player timeline bar should only trigger seek on `mousemove` (during drag) and `mouseup`/`touchend` (final position). Currently triggers on `mousedown`/`touchstart` which causes unwanted immediate seeks when user is just trying to start a drag.
+(none)
 
-- **Parameters window reset on hide** - When the parameters window is hidden (closed), it should reset all settings including lock settings, and update the UI controls to reflect the reset state (default values, lock checkbox unchecked). Currently settings may persist in the UI even after the window closes.
-
-- **Monitoring window keyboard shortcuts** - When monitoring window is focused and user presses "P", audio stops and main window gets focused instead of opening the parameters window. Keyboard shortcuts should not propagate from secondary windows to main window, or monitoring window needs its own shortcut handling.
-
-- **Tape speed persistence bug** - When parameters window is open with tape speed active and a tempo is applied, the setting remains active when files switch even though the UI resets. The applied tempo should reset to default when switching files unless lock settings is enabled.
-
-- **Monitoring window framerate throttling** - Monitoring window framerate is sometimes strongly reduced (15fps instead of 60fps). May be automatic browser throttling or timing conflicts in the renderer. Consider consolidating all canvas drawing (overview waveform, live waveform, spectrum, goniometer, meters) into a single requestAnimationFrame loop instead of multiple RAF/setInterval timers.
 
 ## Immediate Features
 
-(none)
+- **MIDI Channel Activity Visualization (Monitoring Window)** - Replace blank waveform canvas with MIDI activity visualization when playing MIDI files
+   - All 16 MIDI channels displayed as horizontal lanes stacked vertically
+   - Events rendered as horizontal bars within each channel lane
+   - Continuous activity (notes/events without gaps) combined into single bar
+   - Bar breaks when no events occur for a threshold duration (~2 seconds)
+   - Minimum bar length (~1 second) ensures short events remain visible
+   - Next activity after gap starts a new bar
+   - Time-aligned with playhead position for visual feedback during playback
 
 ## Backlog / Future Features
 

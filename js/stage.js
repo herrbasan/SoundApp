@@ -420,7 +420,7 @@ async function init() {
 			g.audioParams.pitch = 0;
 			g.audioParams.tempo = 1.0;
 			g.audioParams.formant = false;
-			// Note: locked is intentionally NOT reset here
+			g.audioParams.locked = false; // Reset lock state
 
 			// Reset tape speed on current player if it was applied
 			if (hadTapeSpeed) {
@@ -535,17 +535,7 @@ async function init() {
 			openWindow('mixer', false, fp);
 		}
 		else if (data.action === 'toggle-pitchtime') {
-			const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-			if (currentFile) {
-				const ext = path.extname(currentFile).toLowerCase();
-				if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
-					openWindow('midi');
-				} else {
-					openWindow('pitchtime');
-				}
-			} else {
-				openWindow('pitchtime');
-			}
+			openWindow('parameters');
 		}
 		else if (data.action === 'toggle-monitoring') {
 			openWindow('monitoring');
@@ -1199,6 +1189,15 @@ function setupWindow() {
 }
 
 function timelineSlider(e) {
+	console.log('[Timeline] dragSlider event:', e.type, 'prozX:', e.prozX);
+	
+	// Ignore end event - it causes duplicate seeks after start/move
+	// Seek on start (immediate feedback) and move (drag updates)
+	if (e.type === 'end') {
+		console.log('[Timeline] Ignoring end event to prevent duplicate seek');
+		return;
+	}
+	
 	if (!g.currentAudio) return;
 	let dur = g.currentAudio.duration;
 	if (!(dur > 0)) {
@@ -1209,6 +1208,7 @@ function timelineSlider(e) {
 	if (!(dur > 0)) return;
 
 	const s = dur * e.prozX;
+	console.log('[Timeline] Seeking to:', s);
 	seekTo(s);
 }
 

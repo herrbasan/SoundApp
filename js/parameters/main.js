@@ -156,6 +156,30 @@ async function init() {
         updateTrackerVu(data.vu, data.channels);
     });
     
+    // Reset UI when window is hidden/closed
+    if (window.bridge && window.bridge.isElectron) {
+        const {ipcRenderer} = require('electron');
+        ipcRenderer.on('hide-window', () => {
+            console.log('[Parameters] Window hidden - resetting all params');
+            // Reset all controls and send to stage immediately
+            resetAudioParams(true);
+            resetMidiParams(true);
+            resetTapeParams(true);
+            resetTrackerParams(true);
+            resetTrackerSoloState();
+            // Reset audio mode to tape and send to stage
+            audioMode = 'tape';
+            const tapeSection = document.getElementById('tape-section');
+            const pitchtimeSection = document.getElementById('pitchtime-section');
+            if (tapeSection) tapeSection.classList.remove('disabled');
+            if (pitchtimeSection) pitchtimeSection.classList.add('disabled');
+            bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: 'tape' });
+            // Uncheck lock checkbox
+            const lockCheckbox = document.getElementById('audio_lock_settings');
+            if (lockCheckbox) lockCheckbox.checked = false;
+        });
+    }
+    
     document.querySelector('main').classList.add('ready');
 }
 
@@ -435,6 +459,8 @@ function createSlider(containerId, min, max, initial, defaultVal, onChange) {
     if (ut && ut.dragSlider) {
         const target = container.closest('.param-group') || container;
         ut.dragSlider(target, (e) => {
+            // Ignore end event to prevent duplicate updates
+            if (e.type === 'end') return;
             update(min + e.prozX * (max - min));
         }, -1, track);
     }
@@ -611,8 +637,8 @@ function initTrackerControls() {
     });
 
     const tempoVal = document.getElementById('tracker_tempo_value');
-    // Tempo: 50% to 200%, converted to tempo_factor
-    controls.tracker.tempo = createSlider('tracker_tempo_slider', 0.5, 2.0, 1.0, 1.0, (v) => {
+    // Tempo: 50% to 150%, converted to tempo_factor
+    controls.tracker.tempo = createSlider('tracker_tempo_slider', 0.5, 1.5, 1.0, 1.0, (v) => {
         const pct = Math.round(v * 100);
         if (tempoVal) tempoVal.textContent = pct;
         if (trackerTempoTimeout) clearTimeout(trackerTempoTimeout);

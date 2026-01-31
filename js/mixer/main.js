@@ -833,7 +833,11 @@ async function init(initData){
 		});
 	}
 
-	ut.dragSlider(g.transport, (e) => { seekProz(e.prozX) }, 120);
+	ut.dragSlider(g.transport, (e) => { 
+		// Ignore end event to prevent duplicate seeks
+		if (e.type === 'end') return;
+		seekProz(e.prozX);
+	}, 120);
 	ut.dragSlider(g.master_vol || g.master_slider, (e) => {
 		engine.setMasterGain(e.prozX);
 		g.master_bar.style.width = (e.prozX * 100) + '%';

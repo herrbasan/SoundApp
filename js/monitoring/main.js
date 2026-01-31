@@ -184,8 +184,12 @@ export const main = {
         if (!container) return;
 
         ut.dragSlider(container, (e) => {
-            const waveData = this.visualizers.waveformData;
-            if (!waveData || !waveData.duration) return;
+            // Ignore end event - it causes duplicate seeks after start/move
+            if (e.type === 'end') return;
+            
+            // Use stored duration (available even for MIDI files without waveform)
+            const duration = this.visualizers.currentDuration;
+            if (!duration) return;
 
             // Account for canvas padding (waveform is drawn with padding on both sides)
             const padding = (this.visualizers.layout && this.visualizers.layout.padding) || 0;
@@ -195,7 +199,7 @@ export const main = {
             // Convert click position from container space to inner waveform space
             const clickX = e.x - padding;
             const normalizedX = Math.max(0, Math.min(1, clickX / innerWidth));
-            const seekTime = normalizedX * waveData.duration;
+            const seekTime = normalizedX * duration;
             
             console.log('[Monitoring] Seeking to:', seekTime.toFixed(2));
             window.bridge.sendToStage('player-seek', { time: seekTime });
