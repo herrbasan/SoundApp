@@ -230,14 +230,14 @@ export class Visualizers {
         const step = innerW / peaks.length;
         const mid = h / 2;
 
-        ctx.beginPath();
         ctx.strokeStyle = this.colors.waveform;
 
         // Dynamic width with small gap
         const gap = (this.layout && this.layout.waveGap !== undefined) ? this.layout.waveGap : 0;
         const minW = (this.layout && this.layout.waveMin !== undefined) ? this.layout.waveMin : 1;
-
-        const barWidth = Math.max(minW, step - gap);
+        
+        // When gap is 0, make lines overlap slightly to close subpixel gaps
+        const barWidth = gap === 0 ? step + 1 : Math.max(minW, step - gap);
         ctx.lineWidth = barWidth;
 
         // Use "butt" cap for precise gap rendering
@@ -247,10 +247,14 @@ export class Visualizers {
             // Draw in the center of the "step" slot, offset by padding
             const x = padding + (i * step) + (step / 2);
             const amp = peaks[i] * (h - padding * 2) * 0.45;
+            
+            // Stroke each line individually to prevent massive path complexity
+            ctx.beginPath();
             ctx.moveTo(x, mid - amp);
             ctx.lineTo(x, mid + amp);
+            ctx.stroke();
         }
-        ctx.stroke();
+        
         // Reset lineCap
         ctx.lineCap = 'round';
     }

@@ -1,10 +1,12 @@
 'use strict';
 
 import ut from '../../libs/nui/nui_ut.js';
+import superSelect from '../../libs/nui/nui_select.js';
 import dragSlider from '../../libs/nui/nui_drag_slider.js';
 import { Visualizers } from './visualizers.js';
 
 window.ut = ut;
+window.superSelect = superSelect;
 ut.dragSlider = dragSlider;
 
 export const main = {
@@ -49,6 +51,9 @@ export const main = {
 
         // Target selection
         if (this.visualizers.meters.targetPreset) {
+            // Initialize nui-select
+            superSelect(this.visualizers.meters.targetPreset);
+            
             this.visualizers.meters.targetPreset.addEventListener('change', (e) => {
                 this.visualizers.setTarget(parseFloat(e.target.value));
             });
@@ -99,6 +104,23 @@ export const main = {
             this.fileInfo.innerText = 'Loading...';
         });
 
+        // File change notification with type
+        window.bridge.on('file-change', (data) => {
+            console.log('[Monitoring] FILE-CHANGE event received:', {
+                filePath: data.filePath,
+                fileType: data.fileType,
+                isMIDI: data.isMIDI,
+                isTracker: data.isTracker
+            });
+            
+            // Clear waveform for MIDI files (no waveform available)
+            if (data.isMIDI) {
+                console.log('[Monitoring] Clearing waveform for MIDI file');
+                this.visualizers.setWaveformData(null);
+                this.fileInfo.innerText = data.filePath + ' (MIDI - no waveform)';
+            }
+        });
+
         // Progressive waveform chunks (streaming for large files)
         window.bridge.on('waveform-chunk', (chunk) => {
             console.log('[Monitoring] Received waveform chunk. Progress:', (chunk.progress * 100).toFixed(1) + '%');
@@ -111,6 +133,16 @@ export const main = {
         // Peak data for static waveform (complete, legacy path for small files)
         window.bridge.on('waveform-data', (data) => {
             console.log('[Monitoring] Received waveform data:', data ? data.filePath : 'null');
+            
+            // Handle MIDI files specially - set null data to clear waveform
+            if (data && data.isMIDI) {
+                this.visualizers.setWaveformData(null);
+                if (data.filePath) {
+                    this.fileInfo.innerText = data.filePath + ' (MIDI - no waveform)';
+                }
+                return;
+            }
+            
             this.visualizers.setWaveformData(data);
             if (data && data.filePath) {
                 this.fileInfo.innerText = data.filePath;
@@ -135,8 +167,12 @@ export const main = {
     },
 
     setupResizing() {
+        let resizeTimeout;
         window.addEventListener('resize', () => {
-            this.visualizers.resize();
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.visualizers.resize();
+            }, 16); // ~60fps throttle
         });
     },
 

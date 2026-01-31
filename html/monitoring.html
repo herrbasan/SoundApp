@@ -6,6 +6,7 @@
     <title>Monitoring - SoundApp</title>
     <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
     <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_select.css">
     <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
     <link rel="stylesheet" href="../css/window.css">
     <link rel="stylesheet" href="../css/monitoring.css">
@@ -63,6 +64,18 @@
 
                     <!-- Right Column: Meters + Readouts + Correlation -->
                     <div class="right-column">
+                        <!-- Correlation -->
+                        <section class="panel correlation-panel">
+                            <div class="panel-header">CORRELATION</div>
+                            <div class="canvas-container">
+                                <canvas id="corrCanvas"></canvas>
+                                <div class="labels">
+                                    <span>-1</span>
+                                    <span>0</span>
+                                    <span>+1</span>
+                                </div>
+                            </div>
+                        </section>
                         <!-- Meters Section -->
                         <div class="meters-section">
                             <div class="panel-header">LOUDNESS</div>
@@ -105,20 +118,17 @@
                             </div>
                         </div>
 
-                        <!-- Target Selector -->
-                        <div class="target-selector">
-                            <div class="nui-select compact">
-                                <select id="targetPreset" class="nui-select">
-                                    <option value="-14">Streaming (-14 LUFS)</option>
-                                    <option value="-23">EBU R128 (-23 LUFS)</option>
-                                    <option value="-9">CD/Club (-9 LUFS)</option>
-                                    <option value="-18">Podcast (-18 LUFS)</option>
-                                </select>
-                            </div>
-                        </div>
 
                         <!-- Readouts -->
                         <div class="loudness-readouts">
+                            <div class="target-selector">
+                            <select id="targetPreset" class="nui-select">
+                                <option value="-14">Streaming (-14 LUFS)</option>
+                                <option value="-23">EBU R128 (-23 LUFS)</option>
+                                <option value="-9">CD/Club (-9 LUFS)</option>
+                                <option value="-18">Podcast (-18 LUFS)</option>
+                            </select>
+                        </div>
                             <div class="readout-row main">
                                 <div class="readout">
                                     <div class="label">SHORT</div>
@@ -148,25 +158,12 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Correlation -->
-                        <section class="panel correlation-panel">
-                            <div class="panel-header">CORRELATION</div>
-                            <div class="canvas-container">
-                                <canvas id="corrCanvas"></canvas>
-                                <div class="labels">
-                                    <span>-1</span>
-                                    <span>0</span>
-                                    <span>+1</span>
-                                </div>
-                            </div>
-                        </section>
                     </div>
                 </div>
             </div>
         </div>
         <div class="nui-status-bar window-chrome">
-            <div id="file-info" class="file-info">Ready</div>
+            <div id="file-info" class="file-info"></div>
         </div>
     </div>
 

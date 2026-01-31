@@ -578,6 +578,11 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Backlog / Future Features
 
+- **Waveform Caching** - Cache extracted waveforms to avoid re-extraction on repeated monitoring
+   - In-memory cache keyed by file path + mtime (cleared on app restart)
+   - Optional persistent cache in %APPDATA%/SoundApp/waveforms/ with filename hashes
+   - Smart invalidation based on file modification time and size
+   - Performance: instant cache hit vs 250ms-4s extraction time for 4min-1hr tracks
 - **Playlist Window**
    - Separate window displaying full playlist
    - Use `libs/nui/nui_list.js` for virtualized list handling

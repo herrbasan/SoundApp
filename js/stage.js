@@ -1317,6 +1317,16 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 		const isTracker = g.supportedMpt.includes(ext);
 		console.log('[playAudio] File:', parse.base, 'Type:', isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg', 'parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
 
+		// Notify monitoring window of file change
+		if (g.windows.monitoring) {
+			tools.sendToId(g.windows.monitoring, 'file-change', {
+				filePath: fp,
+				fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
+				isMIDI: isMIDI,
+				isTracker: isTracker
+			});
+		}
+
 		if (isMIDI) {
 			console.log('[playAudio] Starting MIDI playback');
 			if (!midi) {
@@ -2515,6 +2525,19 @@ async function extractAndSendWaveform(fp) {
 	
 	if (isMIDI) {
 		console.log('[Monitoring] MIDI files not supported in monitoring window');
+		// Send file info so monitoring window shows the filename
+		try {
+			tools.sendToId(g.windows.monitoring, 'waveform-data', {
+				peaksL: null,
+				peaksR: null,
+				points: 0,
+				duration: 0,
+				filePath: fp,
+				isMIDI: true
+			});
+		} catch (err) {
+			console.warn('[Monitoring] Failed to send MIDI info:', err.message);
+		}
 		return;
 	}
 
@@ -2527,7 +2550,7 @@ async function extractAndSendWaveform(fp) {
 		const peaks = await ipcRenderer.invoke('extract-waveform', {
 			filePath: fp,
 			binPath: g.ffmpeg_napi_path,
-			numPoints: 600,
+			numPoints: 1900,
 			workerPath: workerPath
 		});
 
