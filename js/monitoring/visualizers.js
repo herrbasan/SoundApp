@@ -148,6 +148,7 @@ export class Visualizers {
     setWaveformData(data) {
         console.log('[Visualizers] setWaveformData received. points:', data ? data.points : 'null');
         this.waveformData = data;
+        this.midiActivity = null; // Clear MIDI data when waveform is set
         this.drawWaveform();
     }
 

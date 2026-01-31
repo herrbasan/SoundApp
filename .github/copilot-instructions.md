@@ -444,11 +444,34 @@ Use the MCP memory endpoint to memorize noteworthy discoveries and learnings:
 
 Focus on quality evidence, not preferences - what demonstrably produces better outcomes in this codebase.
 
-### Collaboration Rules for Gemini
-- **Announce Before Action**: Always describe the specific changes you intend to make (files, functions, logic) before using any edit tools.
-- **Wait for Confirmation**: If a change is complex or involves visual/UI styling, wait for user approval before proceeding.
-- **No Unsolicited Changes**: Do not fix "extra" things or add unrequested features (like standard D&D visuals) without explicit instruction.
-- **Respect Styling**: Do not revert or modify user-defined CSS colors or layouts unless specifically asked to "fix" or "improve" them.
+### Critical Working Rules (ALL AI ASSISTANTS)
+
+**BEFORE making ANY code changes:**
+1. **Read the existing implementation completely** - Don't assume, verify the current state
+2. **Trace dependencies** - Check what other code calls this function, what it calls
+3. **Check git history** - Use `git show <commit>:file` to understand why code is structured this way
+4. **Query MCP memories** - Run `mcp_orchestrator_recall` for domain-specific learnings
+5. **Announce your plan** - Describe files, functions, and logic changes BEFORE executing
+
+**FORBIDDEN actions (causes breakage):**
+- ❌ Removing code without understanding why it exists
+- ❌ "Simplifying" complex logic without tracing all call sites
+- ❌ Changing function signatures without checking all usages
+- ❌ Modifying audio pipeline routing without understanding dual-context architecture
+- ❌ Adding features that touch multiple systems without comprehensive testing plan
+- ❌ Force-terminating worker threads that run native code (NAPI fatal errors)
+
+**SoundApp-specific critical systems (extra care required):**
+- **Dual audio pipelines** - `g.audioContext` (normal) and `g.rubberbandContext` (pitch/time) - only one connects to destination at a time
+- **Native addons** - FFmpeg NAPI, never call `worker.terminate()` during active processing
+- **AudioWorklet lifecycle** - Persistent nodes, careful disposal, monitor connections
+- **Parameters/Mode state** - `g.audioParams.mode` ('tape' vs 'pitchtime') drives pipeline selection
+- **Window state vs feature state** - Window open ≠ feature active (check mode/locked flags)
+
+**When uncertain:**
+- ASK before making changes to core audio systems (stage.js pipelines, rubberband, FFmpeg)
+- VERIFY assumptions by reading code, not guessing
+- TEST changes mentally: "What breaks if this function isn't called?" "What else depends on this?"
 
 ### Release Workflow
 When the user asks to create a release, **always use the release script**:

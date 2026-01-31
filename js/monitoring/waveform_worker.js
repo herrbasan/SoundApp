@@ -57,3 +57,6 @@ try {
         parentPort.postMessage({ error: err.message, complete: true });
     }
 }
+
+// Explicitly exit to ensure worker cleanup
+process.exit(0);

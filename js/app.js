@@ -235,15 +235,28 @@ async function appStart() {
 	ipcMain.handle('command', mainCommand);
 	
 	let currentWaveformWorker = null;
+	let currentWaveformFile = null;
 	
 	ipcMain.handle('extract-waveform', async (event, data) => {
 		const { Worker } = require('worker_threads');
 		
-		// Abort any existing worker
+		// Abort any existing worker - send abort signal and schedule cleanup
+		// Native FFmpeg code creates TypedArrays before calling JS callback,
+		// so terminate() during processing causes NAPI fatal error
 		if (currentWaveformWorker) {
-			currentWaveformWorker.postMessage('abort');
-			currentWaveformWorker.terminate();
-			currentWaveformWorker = null;
+			const oldWorker = currentWaveformWorker;
+			oldWorker.postMessage('abort');
+			
+			// Safety: force-terminate after 2 seconds if worker doesn't exit
+			// (Worker should exit within ~100ms after abort, but this prevents leaks)
+			setTimeout(() => {
+				try {
+					oldWorker.removeAllListeners();
+					oldWorker.terminate();
+				} catch (err) {
+					// Already exited
+				}
+			}, 2000);
 		}
 		
 		return new Promise((resolve) => {
@@ -257,26 +270,60 @@ async function appStart() {
 			});
 			
 			currentWaveformWorker = worker;
+			currentWaveformFile = data.filePath;
+			let resolved = false;
+			
+			const cleanup = () => {
+				if (currentWaveformWorker === worker) {
+					currentWaveformWorker = null;
+					currentWaveformFile = null;
+				}
+				// Remove all event listeners to allow GC
+				worker.removeAllListeners();
+				// Terminate only after worker has exited naturally
+				setTimeout(() => {
+					try { worker.terminate(); } catch (err) {}
+				}, 100);
+			};
 			
 			worker.on('message', (msg) => {
-				if (msg.error || msg.complete) {
-					resolve(msg);
-					worker.terminate();
-					if (currentWaveformWorker === worker) {
-						currentWaveformWorker = null;
+				// Ignore messages if this worker was replaced
+				if (currentWaveformWorker !== worker) {
+					if (!resolved) {
+						resolved = true;
+						resolve({ aborted: true, complete: true });
 					}
+					return;
+				}
+				
+				if (msg.error || msg.complete) {
+					if (!resolved) {
+						resolved = true;
+						resolve(msg);
+					}
+					cleanup();
 				} else {
-					// Progressive chunk
-					event.sender.send('waveform-chunk', msg);
+					// Progressive chunk - only send if still current
+					if (currentWaveformFile === data.filePath) {
+						event.sender.send('waveform-chunk', msg);
+					}
 				}
 			});
 			
 			worker.on('error', (err) => {
-				resolve({ error: err.message, complete: true });
-				worker.terminate();
-				if (currentWaveformWorker === worker) {
-					currentWaveformWorker = null;
+				if (!resolved) {
+					resolved = true;
+					resolve({ error: err.message, complete: true });
 				}
+				cleanup();
+			});
+			
+			worker.on('exit', (code) => {
+				if (!resolved) {
+					resolved = true;
+					resolve({ aborted: true, complete: true });
+				}
+				cleanup();
 			});
 		});
 	});

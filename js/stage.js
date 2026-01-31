@@ -27,6 +27,7 @@ g.parametersOpen = false;
 g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null };
 g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
 g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
+g.monitoringReady = false;
 g.monitoringLoop = null;
 g.monitoringAnalyserL = null;
 g.monitoringAnalyserR = null;
@@ -371,6 +372,10 @@ async function init() {
 			g.windows[data.type] = null;
 			g.windowsVisible[data.type] = false;
 
+			if (data.type === 'monitoring') {
+				g.monitoringReady = false;
+			}
+
 			if (data.type === 'midi') {
 				g.midiSettings = { pitch: 0, speed: null };
 				if (midi) {
@@ -389,6 +394,10 @@ async function init() {
 	ipcRenderer.on('window-hidden', async (e, data) => {
 		g.windowsVisible[data.type] = false;
 		if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+
+		if (data.type === 'monitoring') {
+			g.monitoringReady = false;
+		}
 
 		if (data.type === 'midi') {
 			g.midiSettings = { pitch: 0, speed: null };
@@ -859,10 +868,12 @@ async function init() {
 		g.mixerPlaying = !!(data && data.playing);
 	});
 
-	ipcRenderer.on('monitoring-ready', (e, data) => {
+	ipcRenderer.on('monitoring-ready', async (e, data) => {
 		console.log('[Monitoring] Window signaled ready (id:', data.windowId, ')');
+		// Mark window as ready to receive messages
+		g.monitoringReady = true;
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-		if (currentFile) {
+		if (currentFile && g.windows.monitoring) {
 			console.log('[Monitoring] Sending initial waveform to ready window');
 			extractAndSendWaveform(currentFile);
 		}
@@ -870,10 +881,14 @@ async function init() {
 
 	ipcRenderer.on('waveform-chunk', (e, chunk) => {
 		if (!g.windows.monitoring) return;
-		tools.sendToId(g.windows.monitoring, 'waveform-chunk', {
-			...chunk,
-			filePath: g.currentAudio ? path.basename(g.currentAudio.fp) : ''
-		});
+		try {
+			tools.sendToId(g.windows.monitoring, 'waveform-chunk', {
+				...chunk,
+				filePath: g.currentAudio ? path.basename(g.currentAudio.fp) : ''
+			});
+		} catch (err) {
+			console.warn('[Monitoring] Failed to send waveform chunk (window may be closing):', err.message);
+		}
 	});
 
 	ipcRenderer.on('player-seek', (e, data) => {
@@ -1457,15 +1472,21 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			checkState();
 		}
 		else {
-			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
+			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'audioMode:', g.audioParams?.mode, 'activePipeline:', g.activePipeline);
 			try {
-				if (g.parametersOpen && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
+				// Determine which pipeline to use based on audio mode (not just window state)
+				const shouldUseRubberband = g.parametersOpen && g.audioParams && g.audioParams.mode === 'pitchtime';
+				
+				if (shouldUseRubberband && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
 					console.log('[playAudio] Need to switch to rubberband - was:', g.activePipeline);
 					g.activePipeline = 'rubberband';
-					g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
+					g.rubberbandPlayer.connect(); // Connect to destination for audio output
+					if (g.monitoringSplitter_RB) {
+						g.rubberbandPlayer.connect(g.monitoringSplitter_RB); // Also connect to monitoring
+					}
 					console.log('[playAudio] Switched to rubberband pipeline');
-				} else if (!g.parametersOpen && g.activePipeline === 'rubberband') {
-					console.log('[playAudio] Parameters closed but still on rubberband - switching to normal');
+				} else if (!shouldUseRubberband && g.activePipeline === 'rubberband') {
+					console.log('[playAudio] Should use normal pipeline (tape mode or params closed) - switching from rubberband');
 					g.rubberbandPlayer.disconnect();
 					g.activePipeline = 'normal';
 				}
@@ -1511,10 +1532,29 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 
 				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 
-				// Apply tape speed if locked and in tape mode, otherwise no speed adjustment
+				// Apply locked settings based on mode
 				const locked = g.audioParams && g.audioParams.locked;
-				if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
-					ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
+				if (locked) {
+					if (g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
+						// Tape mode: apply playback rate
+						ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
+						console.log('[playAudio] Applied locked tape speed:', g.audioParams.tapeSpeed);
+					} else if (g.audioParams.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
+						// Pitch/Time mode: apply rubberband parameters
+						if (typeof ffPlayer.setPitch === 'function') {
+							const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+							ffPlayer.setPitch(pitchRatio);
+							console.log('[playAudio] Applied locked pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
+						}
+						if (typeof ffPlayer.setTempo === 'function') {
+							ffPlayer.setTempo(g.audioParams.tempo || 1.0);
+							console.log('[playAudio] Applied locked tempo:', g.audioParams.tempo || 1.0);
+						}
+						if (typeof ffPlayer.setOptions === 'function') {
+							ffPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
+							console.log('[playAudio] Applied locked formant:', !!g.audioParams.formant);
+						}
+					}
 				}
 
 				if (!startPaused) {
@@ -2399,7 +2439,7 @@ function initMonitoring() {
 }
 
 function updateMonitoring() {
-	if (!g.windows.monitoring || !g.windowsVisible.monitoring) return;
+	if (!g.windows.monitoring || !g.windowsVisible.monitoring || !g.monitoringReady) return;
 
 	// Determine which analysers to use
 	let aL = g.monitoringAnalyserL;
@@ -2425,31 +2465,38 @@ function updateMonitoring() {
 	const pos = (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') ? g.currentAudio.getCurrentTime() : 0;
 	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
 
-	tools.sendToId(g.windows.monitoring, 'ana-data', {
-		freqL: Array.from(freqL),
-		freqR: Array.from(freqR),
-		timeL: Array.from(timeL),
-		timeR: Array.from(timeR),
-		pos,
-		duration: dur,
-		sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
-	});
+	try {
+		tools.sendToId(g.windows.monitoring, 'ana-data', {
+			freqL: Array.from(freqL),
+			freqR: Array.from(freqR),
+			timeL: Array.from(timeL),
+			timeR: Array.from(timeR),
+			pos,
+			duration: dur,
+			sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
+		});
+	} catch (err) {
+		// Silently ignore - window may be closing, and this runs at 60 FPS
+	}
 }
 
 async function extractAndSendWaveform(fp) {
-	if (!g.windows.monitoring) return;
+	if (!g.windows.monitoring || !g.monitoringReady) return;
 
 	// Clear existing waveform immediately to avoid visual persistence
-	tools.sendToId(g.windows.monitoring, 'clear-waveform');
+	try {
+		tools.sendToId(g.windows.monitoring, 'clear-waveform');
+	} catch (err) {
+		console.warn('[Monitoring] Failed to clear waveform (window may be closing):', err.message);
+		return;
+	}
 
-	// Check if this is a MIDI file
+	// Check if this is a MIDI file (FFmpeg cannot decode MIDI)
 	const ext = path.extname(fp).toLowerCase();
 	const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
 	
 	if (isMIDI) {
-		// TODO: Parse MIDI file and extract channel activity segments
-		// For now, just clear the waveform for MIDI files
-		console.log('[Monitoring] MIDI file detected, waveform cleared');
+		console.log('[Monitoring] MIDI files not supported in monitoring window');
 		return;
 	}
 
@@ -2466,6 +2513,11 @@ async function extractAndSendWaveform(fp) {
 			workerPath: workerPath
 		});
 
+		if (peaks && peaks.aborted) {
+			console.log('[Monitoring] Waveform extraction aborted (file changed)');
+			return;
+		}
+
 		if (peaks && peaks.error) {
 			console.error('[Monitoring] Waveform worker error:', peaks.error);
 			return;
@@ -2479,10 +2531,16 @@ async function extractAndSendWaveform(fp) {
 		const hasData = peaks.peaksL && peaks.peaksL.some(p => p > 0);
 		console.log('[Monitoring] Waveform received. Points:', peaks.points, 'hasData:', hasData, 'duration:', peaks.duration);
 
-		tools.sendToId(g.windows.monitoring, 'waveform-data', {
-			...peaks,
-			filePath: path.basename(fp)
-		});
+		if (g.windows.monitoring) {
+			try {
+				tools.sendToId(g.windows.monitoring, 'waveform-data', {
+					...peaks,
+					filePath: path.basename(fp)
+				});
+			} catch (err) {
+				console.warn('[Monitoring] Failed to send waveform data (window may be closing):', err.message);
+			}
+		}
 	} catch (err) {
 		console.error('[Monitoring] Waveform extraction IPC failed:', err);
 	}
@@ -2996,9 +3054,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 	if (type === 'monitoring') {
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		init_data.filePath = currentFile ? path.basename(currentFile) : '';
-		if (currentFile) {
-			extractAndSendWaveform(currentFile);
-		}
+		// Don't extract waveform here - wait for 'monitoring-ready' signal from the window
 	}
 
 	g.windows[type] = await tools.browserWindow('frameless', {
