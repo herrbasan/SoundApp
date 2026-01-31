@@ -16,14 +16,30 @@ export class Visualizers {
         this.anaData = null;
 
         // Colors
-        this.colors = {
-            waveform: '#00d2ff',
-            spectrum: '#9d50bb',
-            spectrumFill: 'rgba(157, 80, 187, 0.3)',
-            liveWave: '#00d2ff',
-            gonio: '#00d2ff',
-            corr: '#00d2ff'
-        };
+        this.colors = {};
+        this.updateColors();
+
+        if (window.ut) {
+
+            // Use NUI utility to read CSS variables
+            const waveColor = ut.getCssVar('--waveform-color');
+            const specColor = ut.getCssVar('--spectrum-color');
+            const accColor = ut.getCssVar('--accent-color');
+
+            this.colors.waveform = waveColor.value || '#444';
+            this.colors.spectrum = specColor.value || 'rgb(64, 168, 59)';
+
+            // Compute fill from spectrum color
+            if (this.colors.spectrum.includes('rgb')) {
+                this.colors.spectrumFill = this.colors.spectrum.replace('rgb', 'rgba').replace(')', ', 0.3)');
+            } else {
+                this.colors.spectrumFill = 'rgba(64, 168, 59, 0.3)';
+            }
+
+            this.colors.liveWave = accColor.value || 'rgb(64, 168, 59)';
+            this.colors.gonio = accColor.value || 'rgb(64, 168, 59)';
+            this.colors.corr = accColor.value || 'rgb(64, 168, 59)';
+        }
 
         // State for smoothing
         this.smoothCorr = 1.0;
@@ -60,6 +76,49 @@ export class Visualizers {
         ];
         this.bandLevels = new Array(31).fill(0);
         this.bandPeaks = new Array(31).fill(0);
+    }
+
+    updateColors() {
+        if (!window.ut) return;
+
+        // Use NUI utility to read CSS variables
+        const waveColor = ut.getCssVar('--waveform-color');
+        const specColor = ut.getCssVar('--spectrum-color');
+        const accColor = ut.getCssVar('--accent-color');
+
+        // Layout props
+        const waveGap = ut.getCssVar('--waveform-gap');
+        const waveMin = ut.getCssVar('--waveform-min-width');
+        const specGap = ut.getCssVar('--spectrum-gap');
+        const liveWidth = ut.getCssVar('--live-width');
+        const gridColor = ut.getCssVar('--grid-color');
+        const gonioBg = ut.getCssVar('--gonio-bg');
+        const labelColor = ut.getCssVar('--label-color');
+        const padding = ut.getCssVar('--canvas-padding');
+
+        this.colors.waveform = waveColor.value || '#444';
+        this.colors.spectrum = specColor.value || 'rgb(64, 168, 59)';
+        this.colors.grid = gridColor.value || 'rgba(255, 255, 255, 0.1)';
+        this.colors.gonioBg = gonioBg.value || 'rgba(0, 0, 0, 0.8)';
+        this.colors.label = labelColor.value || '#888';
+
+        this.layout = this.layout || {};
+        this.layout.padding = padding.computed !== undefined ? padding.computed : 0;
+        this.layout.waveGap = waveGap.computed !== undefined ? waveGap.computed : 0;
+        this.layout.waveMin = waveMin.computed !== undefined ? waveMin.computed : 1;
+        this.layout.specGap = specGap.computed !== undefined ? specGap.computed : 2;
+        this.layout.liveWidth = liveWidth.computed !== undefined ? liveWidth.computed : 1.2;
+
+        // Compute fill from spectrum color
+        if (this.colors.spectrum.includes('rgb')) {
+            this.colors.spectrumFill = this.colors.spectrum.replace('rgb', 'rgba').replace(')', ', 0.3)');
+        } else {
+            this.colors.spectrumFill = 'rgba(64, 168, 59, 0.3)';
+        }
+
+        this.colors.liveWave = accColor.value || 'rgb(64, 168, 59)';
+        this.colors.gonio = accColor.value || 'rgb(64, 168, 59)';
+        this.colors.corr = accColor.value || 'rgb(64, 168, 59)';
     }
 
     setTarget(val) {
@@ -144,20 +203,35 @@ export class Visualizers {
         if (!this.waveformData || !this.waveformData.peaksL) return;
 
         const peaks = this.waveformData.peaksL;
-        const step = w / peaks.length;
+        const padding = (this.layout && this.layout.padding) || 0;
+        const innerW = w - (padding * 2);
+
+        const step = innerW / peaks.length;
         const mid = h / 2;
 
         ctx.beginPath();
         ctx.strokeStyle = this.colors.waveform;
-        ctx.lineWidth = 1;
+
+        // Dynamic width with small gap
+        const gap = (this.layout && this.layout.waveGap !== undefined) ? this.layout.waveGap : 0;
+        const minW = (this.layout && this.layout.waveMin !== undefined) ? this.layout.waveMin : 1;
+
+        const barWidth = Math.max(minW, step - gap);
+        ctx.lineWidth = barWidth;
+
+        // Use "butt" cap for precise gap rendering
+        ctx.lineCap = 'butt';
 
         for (let i = 0; i < peaks.length; i++) {
-            const x = i * step;
-            const amp = peaks[i] * h * 0.45;
+            // Draw in the center of the "step" slot, offset by padding
+            const x = padding + (i * step) + (step / 2);
+            const amp = peaks[i] * (h - padding * 2) * 0.45;
             ctx.moveTo(x, mid - amp);
             ctx.lineTo(x, mid + amp);
         }
         ctx.stroke();
+        // Reset lineCap
+        ctx.lineCap = 'round';
     }
 
     drawSpectrum() {
@@ -175,15 +249,20 @@ export class Visualizers {
         // AnalyserNode.frequencyBinCount is N/2
         const fftSize = len * 2;
 
+        const padding = (this.layout && this.layout.padding) || 0;
+        const innerW = w - (padding * 2);
+
         const numBands = this.spectrumBands.length;
-        const barGap = 2;
-        const barWidth = (w - (numBands - 1) * barGap) / numBands;
+        const barGap = (this.layout && this.layout.specGap !== undefined) ? this.layout.specGap : 2;
+        const barWidth = (innerW - (numBands - 1) * barGap) / numBands;
 
         // Gradient for bars
-        const gradient = ctx.createLinearGradient(0, h, 0, 0);
-        gradient.addColorStop(0, '#9d50bb');
-        gradient.addColorStop(0.5, '#6e48aa');
-        gradient.addColorStop(1, '#00d2ff');
+        // const gradient = ctx.createLinearGradient(0, h, 0, 0);
+        // gradient.addColorStop(0, '#9d50bb');
+        // gradient.addColorStop(0.5, '#6e48aa');
+        // gradient.addColorStop(1, '#00d2ff');
+
+        const gradient = 'rgb(64, 168, 59)';
 
         for (let i = 0; i < numBands; i++) {
             const centerFreq = this.spectrumBands[i];
@@ -218,23 +297,23 @@ export class Visualizers {
                 this.bandLevels[i] += (val - this.bandLevels[i]) * 0.25; // Slow release
             }
 
-            const barHeight = this.bandLevels[i] * h * 0.9;
-            const x = i * (barWidth + barGap);
+            const barHeight = this.bandLevels[i] * (h - padding * 2) * 0.9;
+            const x = padding + (i * (barWidth + barGap));
 
             // Draw Bar
             ctx.fillStyle = gradient;
-            ctx.fillRect(x, h - barHeight, barWidth, barHeight);
+            ctx.fillRect(x, (h - padding) - barHeight, barWidth, barHeight);
         }
 
         // Draw basic labels for octaves
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillStyle = this.colors.label || 'rgba(255, 255, 255, 0.3)';
         ctx.font = '10px Inter, sans-serif';
         const octaves = [100, 1000, 10000];
         octaves.forEach(freq => {
             const bandIdx = this.spectrumBands.findIndex(f => f >= freq);
             if (bandIdx !== -1) {
-                const x = bandIdx * (barWidth + barGap);
-                ctx.fillText(freq >= 1000 ? (freq / 1000) + 'k' : freq, x, h - 5);
+                const x = padding + (bandIdx * (barWidth + barGap));
+                ctx.fillText(freq >= 1000 ? (freq / 1000) + 'k' : freq, x, h - padding - 5);
             }
         });
     }
@@ -251,15 +330,17 @@ export class Visualizers {
         const tR = this.anaData.timeR;
         const len = tL.length;
         const mid = h / 2;
+        const padding = (this.layout && this.layout.padding) || 0;
+        const innerW = w - (padding * 2);
 
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = (this.layout && this.layout.liveWidth !== undefined) ? this.layout.liveWidth : 1.2;
 
         // Draw Left (Cyan)
         ctx.beginPath();
         ctx.strokeStyle = this.colors.liveWave;
         for (let i = 0; i < len; i++) {
-            const x = (i / len) * w;
-            const y = mid + ((tL[i] - 128) / 128) * mid * 0.9;
+            const x = padding + ((i / len) * innerW);
+            const y = mid + ((tL[i] - 128) / 128) * (mid - padding) * 0.9;
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -268,10 +349,10 @@ export class Visualizers {
         // Draw Right (Purple)
         if (tR) {
             ctx.beginPath();
-            ctx.strokeStyle = 'rgba(157, 80, 187, 0.5)';
+            ctx.strokeStyle = 'rgba(64, 168, 59, 0.5)';
             for (let i = 0; i < len; i++) {
-                const x = (i / len) * w;
-                const y = mid + ((tR[i] - 128) / 128) * mid * 0.9;
+                const x = padding + ((i / len) * innerW);
+                const y = mid + ((tR[i] - 128) / 128) * (mid - padding) * 0.9;
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             }
@@ -279,10 +360,10 @@ export class Visualizers {
         }
 
         // Midline
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.strokeStyle = this.colors.grid || 'rgba(255, 255, 255, 0.05)';
         ctx.beginPath();
-        ctx.moveTo(0, mid);
-        ctx.lineTo(w, mid);
+        ctx.moveTo(padding, mid);
+        ctx.lineTo(w - padding, mid);
         ctx.stroke();
     }
 
@@ -292,14 +373,17 @@ export class Visualizers {
         const h = this.canvases.gonio.height;
         const midX = w / 2;
         const midY = h / 2;
+        const padding = (this.layout && this.layout.padding) || 0;
+        const innerW = w - (padding * 2);
+        const innerH = h - (padding * 2);
 
-        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillStyle = this.colors.gonioBg || 'rgba(0,0,0,0.8)';
         ctx.fillRect(0, 0, w, h);
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.strokeStyle = this.colors.grid || 'rgba(255,255,255,0.05)';
         ctx.beginPath();
-        ctx.moveTo(0, midY); ctx.lineTo(w, midY);
-        ctx.moveTo(midX, 0); ctx.lineTo(midX, h);
+        ctx.moveTo(padding, midY); ctx.lineTo(w - padding, midY);
+        ctx.moveTo(midX, padding); ctx.lineTo(midX, h - padding);
         ctx.stroke();
 
         if (!this.anaData || !this.anaData.timeL) return;
@@ -318,8 +402,8 @@ export class Visualizers {
             const l = (tL[i] - 128) / 128;
             const r = (tR[i] - 128) / 128;
 
-            const x = (l - r) * 0.707 * midX;
-            const y = (l + r) * 0.707 * midY;
+            const x = (l - r) * 0.707 * (innerW / 2);
+            const y = (l + r) * 0.707 * (innerH / 2);
 
             if (i === 0) ctx.moveTo(midX + x, midY - y);
             else ctx.lineTo(midX + x, midY - y);
@@ -334,10 +418,13 @@ export class Visualizers {
         const h = this.canvases.corr.height;
         ctx.clearRect(0, 0, w, h);
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        const padding = (this.layout && this.layout.padding) || 0;
+        const innerW = w - (padding * 2);
+
+        ctx.strokeStyle = this.colors.grid || 'rgba(255,255,255,0.05)';
         ctx.beginPath();
-        ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
-        ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
+        ctx.moveTo(padding, h / 2); ctx.lineTo(w - padding, h / 2);
+        ctx.moveTo(w / 2, padding); ctx.lineTo(w / 2, h - padding);
         ctx.stroke();
 
         if (!this.anaData || !this.anaData.timeL || !this.anaData.timeR) return;
@@ -363,13 +450,13 @@ export class Visualizers {
         const coef = 0.1;
         this.smoothCorr += (instantCorr - this.smoothCorr) * coef;
 
-        const x = ((this.smoothCorr + 1) / 2) * w;
+        const x = padding + ((this.smoothCorr + 1) / 2) * innerW;
         const barW = 4;
 
         ctx.fillStyle = this.colors.corr;
         ctx.shadowBlur = 10;
         ctx.shadowColor = this.colors.corr;
-        ctx.fillRect(x - barW / 2, 5, barW, h - 15);
+        ctx.fillRect(x - barW / 2, 5 + padding, barW, h - 15 - (padding * 2));
         ctx.shadowBlur = 0;
     }
 

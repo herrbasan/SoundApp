@@ -233,23 +233,50 @@ async function appStart() {
 	createTray();
 
 	ipcMain.handle('command', mainCommand);
+	
+	let currentWaveformWorker = null;
+	
 	ipcMain.handle('extract-waveform', async (event, data) => {
 		const { Worker } = require('worker_threads');
+		
+		// Abort any existing worker
+		if (currentWaveformWorker) {
+			currentWaveformWorker.postMessage('abort');
+			currentWaveformWorker.terminate();
+			currentWaveformWorker = null;
+		}
+		
 		return new Promise((resolve) => {
 			const worker = new Worker(data.workerPath, {
 				workerData: {
 					filePath: data.filePath,
 					binPath: data.binPath,
-					numPoints: data.numPoints || 1000
+					numPoints: data.numPoints || 300,
+					chunkSizeMB: data.chunkSizeMB || 10
 				}
 			});
+			
+			currentWaveformWorker = worker;
+			
 			worker.on('message', (msg) => {
-				resolve(msg);
-				worker.terminate();
+				if (msg.error || msg.complete) {
+					resolve(msg);
+					worker.terminate();
+					if (currentWaveformWorker === worker) {
+						currentWaveformWorker = null;
+					}
+				} else {
+					// Progressive chunk
+					event.sender.send('waveform-chunk', msg);
+				}
 			});
+			
 			worker.on('error', (err) => {
-				resolve({ error: err.message });
+				resolve({ error: err.message, complete: true });
 				worker.terminate();
+				if (currentWaveformWorker === worker) {
+					currentWaveformWorker = null;
+				}
 			});
 		});
 	});

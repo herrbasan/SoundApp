@@ -27,8 +27,7 @@ const CONTROL = {
   UNDERRUN_COUNT: 9, // Underrun counter
   START_TIME_HI: 10, // Scheduled start time (high 32 bits of float64)
   START_TIME_LO: 11, // Scheduled start time (low 32 bits of float64)
-  PLAYBACK_RATE: 12, // Playback rate multiplier (1000 = 1.0x, stored as int)
-  SIZE: 13           // Total control buffer size
+  SIZE: 12           // Total control buffer size
 };
 
 const STATE = {
@@ -47,10 +46,8 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     this.channels = 2;
     this.isReady = false;
     this.hasEnded = false;
-    this.framesPlayed = 0;      // Frames consumed from buffer
-    this.outputFrames = 0;      // Frames output to speakers (accounts for playback rate)
+    this.framesPlayed = 0;
     this.startTime = 0;
-    this.readPosition = 0;      // Fractional frame position for pitch shifting
     
     this.port.onmessage = this.onMessage.bind(this);
   }
@@ -68,24 +65,18 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
         this.isReady = true;
         this.hasEnded = false;
         this.framesPlayed = 0;
-        this.outputFrames = 0;
-        this.readPosition = 0;
         break;
       
       case 'reset':
         // Reset state but keep same SABs
         this.hasEnded = false;
         this.framesPlayed = 0;
-        this.outputFrames = 0;
-        this.readPosition = 0;
         break;
       
       case 'seek':
         // Seek: reset frame counter (player tracks offset separately)
         this.hasEnded = false;
         this.framesPlayed = 0;
-        this.outputFrames = 0;
-        this.readPosition = 0;
         break;
         
       case 'dispose':
@@ -162,62 +153,33 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     let available = writePtr - readPtr;
     if (available < 0) available += this.ringSize;
     
-    // Get playback rate (stored as int: 1000 = 1.0x)
-    const rateInt = Atomics.load(this.controlBuffer, CONTROL.PLAYBACK_RATE) || 1000;
-    const playbackRate = rateInt / 1000.0;
-    
-    // Process samples with fractional frame reading
+    // Process samples
     let framesRead = 0;
     let localReadPtr = readPtr;
     
     for (let i = 0; i < blockSize; i++) {
-      if (framesRead >= available - 1) {
-        // Underrun - no data available (need -1 for interpolation)
+      if (framesRead >= available) {
+        // Underrun - no data available
         channel0[i] = 0;
         channel1[i] = 0;
-        if (framesRead >= available) {
-          Atomics.add(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 1);
-        }
+        Atomics.add(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 1);
       } else {
-        // Linear interpolation between frames
-        const framePos = this.readPosition;
-        const frame0 = Math.floor(framePos);
-        const frame1 = frame0 + 1;
-        const frac = framePos - frame0;
+        // Read interleaved samples from ring buffer
+        const bufferIndex = (localReadPtr % this.ringSize) * this.channels;
+        channel0[i] = this.audioBuffer[bufferIndex];
+        channel1[i] = this.audioBuffer[bufferIndex + 1];
         
-        const ptr0 = ((localReadPtr + frame0) % this.ringSize) * this.channels;
-        const ptr1 = ((localReadPtr + frame1) % this.ringSize) * this.channels;
-        
-        const s0L = this.audioBuffer[ptr0];
-        const s0R = this.audioBuffer[ptr0 + 1];
-        const s1L = this.audioBuffer[ptr1];
-        const s1R = this.audioBuffer[ptr1 + 1];
-        
-        channel0[i] = s0L + frac * (s1L - s0L);
-        channel1[i] = s0R + frac * (s1R - s0R);
-        
-        this.readPosition += playbackRate;
-        
-        // Advance read pointer when we consume a full frame
-        while (this.readPosition >= 1.0) {
-          this.readPosition -= 1.0;
-          localReadPtr++;
-          framesRead++;
-          this.framesPlayed++;
-        }
+        localReadPtr++;
+        framesRead++;
+        this.framesPlayed++;
       }
     }
     
     // Update read pointer atomically
     Atomics.store(this.controlBuffer, CONTROL.READ_PTR, localReadPtr % this.ringSize);
     
-    // Track output frames (actual audio frames sent to speakers)
-    this.outputFrames += blockSize;
-    
-    // Check for end of file based on output frames adjusted for playback rate
-    // At 2x speed: need totalFrames/2 output frames, at 0.5x: need totalFrames*2
-    // So: outputFrames * playbackRate >= totalFrames
-    if (!loopEnabled && (this.outputFrames * playbackRate) >= totalFrames && !this.hasEnded) {
+    // Check for end of file
+    if (!loopEnabled && this.framesPlayed >= totalFrames && !this.hasEnded) {
       this.hasEnded = true;
       this.port.postMessage({ type: 'ended' });
     }

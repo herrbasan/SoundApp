@@ -182,7 +182,6 @@ class FFmpegStreamPlayerSAB {
     if (this.gainNode) this.gainNode.gain.value = val;
   }
 
-
   connect(node, outputIndex = 0, inputIndex = 0) {
     this.gainNode.connect(node, outputIndex, inputIndex);
   }
@@ -229,7 +228,6 @@ class FFmpegStreamPlayerSAB {
     if (!this.decoder.open(filePath, ctxRate, this.threadCount)) {
       throw new Error(`Failed to open: ${filePath}`);
     }
-
 
     this.filePath = filePath;
     this._sampleRate = this.decoder.getSampleRate() || ctxRate;
@@ -291,9 +289,6 @@ class FFmpegStreamPlayerSAB {
     Atomics.store(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_HI, 0);
     Atomics.store(this.controlBuffer, CONTROL.START_TIME_LO, 0);
-    const rateInt = Math.round(this._playbackRate * 1000) | 0;
-    Atomics.store(this.controlBuffer, CONTROL.PLAYBACK_RATE, rateInt);
-
     
     // Create or reuse worklet node
     // Reuse worklet node if we're reusing SABs (same buffers, just reset state)
@@ -607,12 +602,16 @@ class FFmpegStreamPlayerSAB {
       }
     }
     
+    // When loop is/was enabled, keep frames in valid range
+    if (this.duration > 0) {
+      const totalFrames = Math.floor(this.duration * this._sampleRate);
+      if (totalFrames > 0 && frames >= totalFrames) {
+        frames = frames % totalFrames;
+      }
+    }
+    
     // framesPlayed in worklet is relative to seek position, add offset
     const time = this._seekOffset + (frames / this._sampleRate);
-    
-    if (this.isLoop && this.duration > 0) {
-      return time % this.duration;
-    }
     
     return Math.min(time, this.duration);
   }
@@ -679,18 +678,6 @@ class FFmpegStreamPlayerSAB {
     }
     
     this.isLoaded = false;
-  }
-
-  clearBuffer() {
-    if (this.audioBuffer) {
-      this.audioBuffer.fill(0);
-    }
-    if (this.controlBuffer) {
-      Atomics.store(this.controlBuffer, CONTROL.WRITE_PTR, 0);
-      Atomics.store(this.controlBuffer, CONTROL.READ_PTR, 0);
-      Atomics.store(this.controlBuffer, CONTROL.STATE, STATE.STOPPED);
-      Atomics.store(this.controlBuffer, CONTROL.UNDERRUN_COUNT, 0);
-    }
   }
 
   /**

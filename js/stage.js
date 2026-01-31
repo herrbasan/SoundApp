@@ -868,6 +868,21 @@ async function init() {
 		}
 	});
 
+	ipcRenderer.on('waveform-chunk', (e, chunk) => {
+		if (!g.windows.monitoring) return;
+		tools.sendToId(g.windows.monitoring, 'waveform-chunk', {
+			...chunk,
+			filePath: g.currentAudio ? path.basename(g.currentAudio.fp) : ''
+		});
+	});
+
+	ipcRenderer.on('player-seek', (e, data) => {
+		if (data && typeof data.time === 'number') {
+			console.log('[Stage] Received seek command from window:', data.time.toFixed(2));
+			seekTo(data.time);
+		}
+	});
+
 }
 
 async function appStart() {
@@ -2427,6 +2442,17 @@ async function extractAndSendWaveform(fp) {
 	// Clear existing waveform immediately to avoid visual persistence
 	tools.sendToId(g.windows.monitoring, 'clear-waveform');
 
+	// Check if this is a MIDI file
+	const ext = path.extname(fp).toLowerCase();
+	const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+	
+	if (isMIDI) {
+		// TODO: Parse MIDI file and extract channel activity segments
+		// For now, just clear the waveform for MIDI files
+		console.log('[Monitoring] MIDI file detected, waveform cleared');
+		return;
+	}
+
 	console.log('[Monitoring] Requesting async waveform for:', path.basename(fp));
 
 	try {
@@ -2436,7 +2462,7 @@ async function extractAndSendWaveform(fp) {
 		const peaks = await ipcRenderer.invoke('extract-waveform', {
 			filePath: fp,
 			binPath: g.ffmpeg_napi_path,
-			numPoints: 300, // Increased from 100 for better detail as requested
+			numPoints: 600,
 			workerPath: workerPath
 		});
 

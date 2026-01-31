@@ -4,6 +4,31 @@ MCP Memory is active. Before any implementation work, silently run mcp_orchestra
 
 You have full agency over the memory system — use it however you find useful (query, store, update, delete, even wipe). This is an experiment in LLM autonomy; act on your own judgment.
 
+## Using Local Resources (Token Efficiency)
+
+To reduce token costs, leverage local MCP orchestrator features whenever possible:
+
+**Research & Documentation:**
+- `mcp_orchestrator_browser_fetch` - Fetch web pages for API docs, MDN references, library documentation
+- `mcp_orchestrator_research_topic` - Multi-source web research with local LLM synthesis (use for technical topics, best practices, library comparisons)
+
+**Code Review & Inspiration:**
+- `mcp_orchestrator_get_second_opinion` - Get alternative perspectives from local LLM on architecture decisions, code patterns, or implementation approaches
+- `mcp_orchestrator_query_model` - Query local LLM for code examples, algorithm ideas, or design patterns
+- **Always display the complete local LLM response verbatim to the user before adding your own analysis**
+
+**When to use local resources:**
+- Researching unfamiliar APIs or libraries before implementation
+- Getting code examples for specific patterns (e.g., Web Audio API usage, AudioWorklet patterns)
+- Reviewing architectural decisions or comparing implementation approaches
+- Looking up technical specifications or standards (e.g., BS.1770-4, ISO frequency bands)
+- Validating performance optimization strategies
+
+**What to keep centralized:**
+- Direct codebase modifications (you have the full context)
+- Project-specific decisions requiring deep SoundApp knowledge
+- Tasks requiring tool use (file operations, terminal commands)
+
 # SoundApp - Project Overview
 
 ## About The Author (Context For LLM)
@@ -210,6 +235,42 @@ The js-synthesizer worklet bundles are generated artifacts. To keep the metronom
 
 **Rule:** Do not edit the js-synthesizer submodule directly; keep it update-compatible and patch the generated bundles via the script.
 
+## FFmpeg NAPI Module Build
+
+The FFmpeg decoder is a native Node.js addon (C++) that must be built before use. **Important:** Do not use `node-gyp rebuild` directly.
+
+**Build Requirements:**
+- **Visual Studio Build Tools:** C++ build toolchain required
+- **node-gyp:** Local version (10.3.1) used automatically by npm script
+
+**Build Command:**
+```powershell
+cd libs/ffmpeg-napi-interface
+npm run build
+```
+
+**Sync to Runtime:**
+After building, sync the native addon and FFmpeg DLLs to the runtime directory:
+```powershell
+.\scripts\sync-ffmpeg-napi.ps1 -IncludeNative
+```
+
+**Why Not `node-gyp rebuild`:**
+- Global node-gyp (11.1.0+) has a Windows Unicode issue in `win_delay_load_hook.cc`
+- Error: `error C2664: 'HMODULE GetModuleHandleW(LPCWSTR)': cannot convert argument`
+- The module's npm build script uses local node-gyp 10.3.1 which doesn't have this issue
+- The build script also applies necessary vcxproj patches automatically
+
+**Output Files:**
+- `libs/ffmpeg-napi-interface/build/Release/ffmpeg_napi.node` - Native addon
+- Synced to `bin/win_bin/ffmpeg_napi.node` by sync script
+- FFmpeg DLLs (avcodec-62.dll, avformat-62.dll, avutil-60.dll, swresample-6.dll) also synced
+
+**When to Rebuild:**
+- After modifying C++ source files in `libs/ffmpeg-napi-interface/src/`
+- After pulling updates that include native module changes
+- If native module fails to load with binding errors
+
 ## libopenmpt WASM Build
 
 The tracker/module player uses libopenmpt compiled to WASM. The build is performed on Windows using native Emscripten.
@@ -290,7 +351,7 @@ The Monitoring window provides professional-grade audio analysis and visualizati
 **Features:**
 - **Overview Waveform** - Static waveform with playhead tracking for navigation
 - **Live Waveform** - Real-time oscilloscope view of the audio signal
-- **Spectrum Analyzer** - 31-band ISO 266 frequency analysis with peak hold
+- **Spectrum Analyzer** - 31-band ISO 266 frequency analysis (RTA) with fast-attack/slow-release ballistics
 - **Goniometer** - Stereo phase visualization (Mid-Side XY display)
 - **Correlation Meter** - Real-time stereo phase correlation (-1 to +1)
 - **BS.1770-4 Loudness Metering** - Professional broadcast loudness measurement:
@@ -298,7 +359,7 @@ The Monitoring window provides professional-grade audio analysis and visualizati
   - Integrated LUFS (gated, full-track measurement)
   - LRA (Loudness Range)
   - PLR (Peak-to-Loudness Ratio)
-  - True Peak detection
+  - Sample Peak detection
   - Configurable target presets: Streaming (-14), EBU R128 (-23), CD/Club (-9), Podcast (-18)
 
 **Architecture:**
