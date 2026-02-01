@@ -45,6 +45,10 @@ export const main = {
             }
         });
 
+        // Title label element inside the NUI title bar
+        this.titleLabel = document.querySelector('.nui-title-bar .title .label');
+        if (this.titleLabel) this.titleLabel.innerText = 'Monitor - Main Player';
+
         this.setupIPC();
         this.setupResizing();
         this.setupWaveformSeek();
@@ -72,6 +76,9 @@ export const main = {
         // Initial draw
         this.visualizers.resize();
         this.visualizers.drawAll();
+
+        // Active data source for monitoring ('main' or 'mixer')
+        this.activeSource = 'main';
 
         // Create analysis worker for off-main-thread loudness/peaks computation
         try {
@@ -181,6 +188,8 @@ export const main = {
         let pendingData = null;
         let rafId = 0;
         window.bridge.on('ana-data', (data) => {
+            // Ignore data that isn't from the currently active source
+            if (data && data.source && this.activeSource && data.source !== this.activeSource) return;
             pendingData = data;
             if (!rafId) {
                 rafId = requestAnimationFrame(() => {
@@ -213,6 +222,19 @@ export const main = {
                         }
                     }
                 });
+            }
+        });
+
+        // Allow external windows to switch the active monitoring source
+        window.bridge.on('set-monitoring-source', (src) => {
+            console.log('[Monitoring] set-monitoring-source received:', src);
+            this.activeSource = src || 'main';
+            const titleText = this.activeSource === 'mixer' ? 'Monitoring - Mixer' : 'Monitoring - Main Player';
+            document.title = titleText;
+            if (this.titleLabel) this.titleLabel.innerText = titleText.replace('Monitoring - ', 'Monitor - ');
+            if (this.activeSource === 'mixer') {
+                this.visualizers.clearWaveform();
+                this.fileInfo.innerText = 'Mixer';
             }
         });
     },

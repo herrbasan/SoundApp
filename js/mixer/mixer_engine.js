@@ -326,6 +326,11 @@ class MixerEngine {
 		this.masterGain.gain.value = 1;
 		this._targetMasterGain = 1;
 		this.masterGain.connect(this.ctx.destination);
+
+		// Monitoring taps (stereo)
+		this.monitoringSplitter = null;
+		this.analyserL = null;
+		this.analyserR = null;
 		this.maxTracks = 128;
 		this.mixNode = null;
 		this.Transport = new MixerTransport(this);
@@ -375,6 +380,25 @@ class MixerEngine {
 					}
 				}
 			};
+
+			// Monitoring analyser taps: create once and connect a tap from masterGain
+			if (!this.monitoringSplitter) {
+				this.monitoringSplitter = this.ctx.createChannelSplitter(2);
+				this.analyserL = this.ctx.createAnalyser();
+				this.analyserR = this.ctx.createAnalyser();
+
+				const fftSize = this.ctx.sampleRate > 48000 ? 8192 : 2048;
+				this.analyserL.fftSize = fftSize;
+				this.analyserR.fftSize = fftSize;
+
+				try {
+					this.masterGain.connect(this.monitoringSplitter);
+					this.monitoringSplitter.connect(this.analyserL, 0);
+					this.monitoringSplitter.connect(this.analyserR, 1);
+				} catch (e) {
+					// Ignore - in rare cases connection may already exist
+				}
+			}
 			this._isReady = true;
 		}
 		if(this.ctx.state !== 'running') await this.ctx.resume();
@@ -456,6 +480,25 @@ class MixerEngine {
 			return this._startAll(this.Transport.seconds);
 		}
 		return 0;
+	}
+
+	getMonitoringData(){
+		if(!this.analyserL || !this.analyserR) return null;
+		const freqL = new Uint8Array(this.analyserL.frequencyBinCount);
+		const freqR = new Uint8Array(this.analyserR.frequencyBinCount);
+		const timeL = new Uint8Array(this.analyserL.fftSize);
+		const timeR = new Uint8Array(this.analyserR.fftSize);
+		this.analyserL.getByteFrequencyData(freqL);
+		this.analyserR.getByteFrequencyData(freqR);
+		this.analyserL.getByteTimeDomainData(timeL);
+		this.analyserR.getByteTimeDomainData(timeR);
+		return {
+			freqL: Array.from(freqL),
+			freqR: Array.from(freqR),
+			timeL: Array.from(timeL),
+			timeR: Array.from(timeR),
+			sampleRate: this.ctx ? this.ctx.sampleRate : 48000
+		};
 	}
 
 	resetForReuse(){

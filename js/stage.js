@@ -881,6 +881,41 @@ async function init() {
 		}
 	});
 
+	// Forward analysis data and source-selection commands from other windows (e.g. Mixer)
+	ipcRenderer.on('ana-data', (e, data) => {
+		if (!g.windows.monitoring) return;
+		try {
+			console.log('[Stage] forwarding ana-data to monitoring (source=' + (data && data.source) + ')');
+			tools.sendToId(g.windows.monitoring, 'ana-data', data);
+		} catch (err) {
+			console.warn('[Stage] failed to forward ana-data', err && err.message);
+		}
+	});
+
+	ipcRenderer.on('set-monitoring-source', (e, src) => {
+		if (!g.windows.monitoring) {
+			console.warn('[Stage] set-monitoring-source received but monitoring window not open');
+			return;
+		}
+		try {
+			console.log('[Stage] set-monitoring-source:', src);
+			tools.sendToId(g.windows.monitoring, 'set-monitoring-source', src);
+		} catch (err) {
+			console.warn('[Stage] failed to forward set-monitoring-source', err && err.message);
+		}
+	});
+
+    // Handle announce-monitoring-focus from other windows (e.g. Mixer)
+    ipcRenderer.on('announce-monitoring-focus', (e, src) => {
+        // Only track non-monitoring sources
+        if (!src) return;
+        g.lastFocusedSource = src;
+        console.log('[Stage] announce-monitoring-focus received, lastFocusedSource=', g.lastFocusedSource);
+        if (g.windows.monitoring) {
+            try { tools.sendToId(g.windows.monitoring, 'set-monitoring-source', g.lastFocusedSource); } catch (err) {}
+        }
+    });
+
 	ipcRenderer.on('player-seek', (e, data) => {
 		if (data && typeof data.time === 'number') {
 			console.log('[Stage] Received seek command from window:', data.time.toFixed(2));
@@ -892,6 +927,13 @@ async function init() {
 
 async function appStart() {
 	window.addEventListener("keydown", onKey);
+	// Stage focus implies main player is the last focused non-monitor source
+	window.addEventListener('focus', () => {
+		g.lastFocusedSource = 'main';
+		if (g.windows.monitoring) {
+			try { tools.sendToId(g.windows.monitoring, 'set-monitoring-source', 'main'); } catch (e) {}
+		}
+	});
 	window.addEventListener('wheel', onWheelVolume, { passive: false });
 	g.scale = window.devicePixelRatio || 1;
 	g.body = document.body;
@@ -2493,19 +2535,20 @@ function updateMonitoring() {
 	const pos = (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') ? g.currentAudio.getCurrentTime() : 0;
 	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
 
-	try {
-		tools.sendToId(g.windows.monitoring, 'ana-data', {
-			freqL: Array.from(buf.freqL),
-			freqR: Array.from(buf.freqR),
-			timeL: Array.from(buf.timeL),
-			timeR: Array.from(buf.timeR),
-			pos,
-			duration: dur,
-			sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
-		});
-	} catch (err) {
-		// Silently ignore - window may be closing
-	}
+		try {
+			tools.sendToId(g.windows.monitoring, 'ana-data', {
+				source: 'main',
+				freqL: Array.from(buf.freqL),
+				freqR: Array.from(buf.freqR),
+				timeL: Array.from(buf.timeL),
+				timeR: Array.from(buf.timeR),
+				pos,
+				duration: dur,
+				sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
+			});
+		} catch (err) {
+			// Silently ignore - window may be closing
+		}
 }
 
 async function extractAndSendWaveform(fp) {

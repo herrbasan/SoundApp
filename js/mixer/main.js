@@ -38,6 +38,49 @@ let _loopStarted = false;
 
 let DEBUG_DND = true;
 
+// Monitoring integration (focus-driven)
+let _mixerMonitoringLoop = null;
+// Keep mixer monitoring active by default so Monitoring window can continue
+// to display the last-focused non-monitor source even when Monitoring is focused.
+let _mixerMonitoringActive = true;
+
+function getMixerDuration() {
+	if (!engine || !engine.tracks) return 0;
+	let maxDur = 0;
+	for (let i = 0; i < engine.tracks.length; i++) {
+		const tr = engine.tracks[i];
+		if (tr && tr.duration > maxDur) maxDur = tr.duration;
+	}
+	return maxDur;
+}
+
+function startMixerMonitoringLoop() {
+	if (_mixerMonitoringLoop) return;
+	_mixerMonitoringLoop = setInterval(() => {
+		try {
+			if (!_mixerMonitoringActive) return;
+			if (!engine || !engine.getMonitoringData) return;
+			const data = engine.getMonitoringData();
+			if (!data) return;
+			data.source = 'mixer';
+			data.pos = (engine && engine.Transport) ? engine.Transport.seconds : 0;
+			data.duration = getMixerDuration();
+			if (window.bridge && window.bridge.sendToStage) {
+				window.bridge.sendToStage('ana-data', data);
+			}
+		} catch (e) {
+			// swallow
+		}
+	}, 1000 / 60);
+}
+
+function stopMixerMonitoringLoop() {
+	if (_mixerMonitoringLoop) {
+		clearInterval(_mixerMonitoringLoop);
+		_mixerMonitoringLoop = null;
+	}
+}
+
 function _copyToClipboard(text){
 	if(text == null) return false;
 	text = '' + text;
@@ -1697,6 +1740,32 @@ function updateTransport(){
 			window.bridge.sendToStage('mixer-state', { playing: state === 'started' });
 		}
 	}
+}
+
+// Focus-driven monitoring source switching (use helper hook_event for reliable window focus)
+if (window.bridge && window.bridge.window && window.bridge.window.hook_event) {
+	try {
+		window.bridge.window.hook_event('focus', () => {
+			console.log('[Mixer] window focused -> announcing monitoring focus to Stage');
+			if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('announce-monitoring-focus', 'mixer');
+			// Keep monitoring active always; Stage/Monitoring decide which source to render
+			startMixerMonitoringLoop();
+		});
+		window.bridge.window.hook_event('blur', () => {
+			console.log('[Mixer] window lost focus');
+			// Do not deactivate monitoring here - keep sending so Monitoring can display last-focused source
+		});
+	} catch (e) {
+		console.warn('[Mixer] hook_event install failed', e);
+	}
+} else {
+	// Fallback to DOM focus events if hook_event unavailable
+	window.addEventListener('focus', () => {
+		try { if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('set-monitoring-source', 'mixer'); } catch (e) {}
+		_mixerMonitoringActive = true;
+		startMixerMonitoringLoop();
+	});
+	window.addEventListener('blur', () => { _mixerMonitoringActive = false; });
 }
 
 main.init = init;
