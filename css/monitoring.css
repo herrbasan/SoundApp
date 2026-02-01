@@ -15,6 +15,11 @@
     --label-color: #666;
     --section-gap: 10px;
     --vectorscope-size: 30vh;
+    /* MIDI timeline colors */
+    --midi-lane-bg: transparent;
+    --midi-activity: rgb(50, 50, 50);
+    --midi-drums: rgb(60, 60, 60);
+    --midi-top-offset: 25px;
 }
 
 body.monitoring-window {
@@ -34,6 +39,10 @@ body.dark {
     --gonio-bg: rgb(var(--color-shade2));
     --live-width: 1.2px;
     --label-color: #888;
+    /* MIDI timeline colors */
+    --midi-lane-bg: transparent;
+    --midi-activity: rgb(107, 107, 107);
+    --midi-drums: rgb(127, 127, 127);
 }
 
 body.monitoring-window.dark {

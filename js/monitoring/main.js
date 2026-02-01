@@ -107,12 +107,43 @@ export const main = {
         if (window.bridge && window.bridge.isElectron) {
             window.bridge.sendToStage('monitoring-ready', { windowId: window.bridge.windowId });
 
-            // Global Shortcuts
-            if (window.shortcuts) {
-                window.addEventListener('keydown', (e) => {
-                    window.shortcuts.handleShortcut(e, 'monitoring');
-                });
-            }
+            // Global Shortcuts - relay playback controls to stage
+            window.addEventListener('keydown', (e) => {
+                const code = e.code || '';
+
+                // Escape: Close monitoring window
+                if (code === 'Escape' || e.key === 'n' || e.key === 'N') {
+                    e.preventDefault();
+                    if (window.bridge && window.bridge.close) window.bridge.close();
+                    return;
+                }
+
+                // F12: Toggle DevTools
+                if (code === 'F12') {
+                    e.preventDefault();
+                    if (window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+                    return;
+                }
+
+                // Handle global shortcuts via shared module
+                if (window.shortcuts && window.shortcuts.handleShortcut) {
+                    const action = window.shortcuts.handleShortcut(e, 'monitoring');
+                    if (action) return;
+                }
+
+                // Relay playback shortcuts to stage (volume, seek, play/pause, loop, shuffle, prev/next)
+                if (window.bridge && window.bridge.sendToStage) {
+                    window.bridge.sendToStage('stage-keydown', {
+                        keyCode: e.keyCode | 0,
+                        code: e.code || '',
+                        key: e.key || '',
+                        ctrlKey: !!e.ctrlKey,
+                        shiftKey: !!e.shiftKey,
+                        altKey: !!e.altKey,
+                        metaKey: !!e.metaKey
+                    });
+                }
+            });
         } else {
             this.startPreviewMode();
         }
@@ -148,11 +179,38 @@ export const main = {
                 isTracker: data.isTracker
             });
             
-            // Clear waveform for MIDI files (no waveform available)
+            // Handle MIDI files: fetch and parse timeline for visualization
             if (data.isMIDI) {
-                console.log('[Monitoring] Clearing waveform for MIDI file');
-                this.visualizers.setWaveformData(null);
-                this.fileInfo.innerText = data.filePath + ' (MIDI - no waveform)';
+                console.log('[Monitoring] Received MIDI file change - parsing timeline');
+                // Clear any existing waveform view
+                this.visualizers.clearWaveform();
+                this.fileInfo.innerText = data.filePath + ' (MIDI - loading timeline...)';
+
+                (async () => {
+                    try {
+                        // Use provided fileUrl from stage.js (tools.getFileURL)
+                        const url = data.fileUrl;
+                        if (!url) throw new Error('No fileUrl provided for MIDI file');
+
+                        const resp = await fetch(url);
+                        if (!resp.ok) throw new Error('Failed to fetch MIDI file: ' + resp.status);
+                        const buf = await resp.arrayBuffer();
+
+                        // Dynamically import local analyzer module
+                        const mod = await import(new URL('./midi_analyzer.js', import.meta.url).href);
+                        if (!mod || typeof mod.parseMidiChannelActivity !== 'function') throw new Error('MIDI analyzer not available');
+
+                        const activity = mod.parseMidiChannelActivity(buf, 1000); // 500ms gap threshold
+                        // Set parsed timeline on visualizers
+                        this.visualizers.setMidiActivity(activity);
+                        if (data.filePath) this.fileInfo.innerText = data.filePath;
+                    } catch (err) {
+                        console.warn('[Monitoring] Failed to parse MIDI timeline:', err && err.message);
+                        // Fallback to default message
+                        this.visualizers.setWaveformData(null);
+                        if (data.filePath) this.fileInfo.innerText = data.filePath + ' (MIDI - no timeline)';
+                    }
+                })();
             }
         });
 

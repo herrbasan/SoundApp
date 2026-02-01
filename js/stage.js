@@ -309,6 +309,10 @@ async function init() {
 		}
 	}
 
+	// Initialize MIDI player BEFORE tracker player callbacks
+	// (appStart() may be triggered by onInitialized before this function returns)
+	await initMidiPlayer();
+
 	if (!player) {
 		const modConfig = {
 			repeatCount: 0,
@@ -349,8 +353,6 @@ async function init() {
 		// Already initialized (likely by toggleHQMode), but we still need to trigger appStart
 		appStart();
 	}
-
-	await initMidiPlayer();
 
 	ipcRenderer.on('main', async (e, data) => {
 		if (data.length == 1) {
@@ -864,6 +866,22 @@ async function init() {
 		g.monitoringReady = true;
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		if (currentFile && g.windows.monitoring) {
+			// Send file-change so monitoring can parse MIDI timeline if applicable
+			const ext = path.extname(currentFile).toLowerCase();
+			const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+			const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
+			try {
+				tools.sendToId(g.windows.monitoring, 'file-change', {
+					filePath: currentFile,
+					fileUrl: tools.getFileURL(currentFile),
+					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
+					isMIDI: isMIDI,
+					isTracker: isTracker
+				});
+			} catch (err) {
+				console.warn('[Monitoring] Failed to send file-change on ready:', err && err.message);
+			}
+			// Send initial waveform for non-MIDI files
 			console.log('[Monitoring] Sending initial waveform to ready window');
 			extractAndSendWaveform(currentFile);
 		}
@@ -1359,14 +1377,19 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 		const isTracker = g.supportedMpt.includes(ext);
 		console.log('[playAudio] File:', parse.base, 'Type:', isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg', 'parametersOpen:', g.parametersOpen, 'activePipeline:', g.activePipeline);
 
-		// Notify monitoring window of file change
+		// Notify monitoring window of file change (include file URL for renderer fetch)
 		if (g.windows.monitoring) {
-			tools.sendToId(g.windows.monitoring, 'file-change', {
-				filePath: fp,
-				fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
-				isMIDI: isMIDI,
-				isTracker: isTracker
-			});
+			try {
+				tools.sendToId(g.windows.monitoring, 'file-change', {
+					filePath: fp,
+					fileUrl: tools.getFileURL(fp),
+					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
+					isMIDI: isMIDI,
+					isTracker: isTracker
+				});
+			} catch (err) {
+				console.warn('[Stage] Failed to notify monitoring window of file change:', err && err.message);
+			}
 		}
 
 		if (isMIDI) {

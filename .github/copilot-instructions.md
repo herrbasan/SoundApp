@@ -350,6 +350,7 @@ The Monitoring window provides professional-grade audio analysis and visualizati
 
 **Features:**
 - **Overview Waveform** - Static waveform with playhead tracking for navigation
+- **MIDI Timeline Visualization** - For MIDI files, displays 16 channel lanes with activity bars showing note events; gap detection groups continuous activity into segments
 - **Live Waveform** - Real-time oscilloscope view of the audio signal
 - **Spectrum Analyzer** - 31-band ISO 266 frequency analysis (RTA) with fast-attack/slow-release ballistics
 - **Goniometer** - Stereo phase visualization (Mid-Side XY display)
@@ -373,13 +374,15 @@ The Monitoring window provides professional-grade audio analysis and visualizati
 **Files:**
 - [html/monitoring.html](html/monitoring.html) - NUI-based window structure with canvas containers
 - [css/monitoring.css](css/monitoring.css) - Professional meter styling and layout
-- [js/monitoring/main.js](js/monitoring/main.js) - Window initialization, IPC handlers, UI coordination
-- [js/monitoring/visualizers.js](js/monitoring/visualizers.js) - Canvas rendering, BS.1770-4 LUFS engine, spectrum analysis
+- [js/monitoring/main.js](js/monitoring/main.js) - Window initialization, IPC handlers, UI coordination, keyboard relay to stage
+- [js/monitoring/visualizers.js](js/monitoring/visualizers.js) - Canvas rendering, BS.1770-4 LUFS engine, spectrum analysis, MIDI timeline
+- [js/monitoring/midi_analyzer.js](js/monitoring/midi_analyzer.js) - MIDI file parsing with channel activity extraction and gap detection
 - [js/monitoring/waveform_worker.js](js/monitoring/waveform_worker.js) - Worker thread for async waveform peak extraction
 - [js/stage.js](js/stage.js) - `initMonitoring()`, `updateMonitoring()`, `extractAndSendWaveform()` functions
 
 **IPC Protocol:**
-- `monitoring-ready` - Window signals ready state, triggers initial waveform extraction
+- `monitoring-ready` - Window signals ready state, triggers initial waveform extraction and file-change for MIDI parsing
+- `file-change` - Stage notifies of track change: `{ filePath, fileUrl, fileType, isMIDI, isTracker }` - triggers MIDI parsing in renderer
 - `clear-waveform` - Stage clears waveform before track change
 - `waveform-data` - Stage sends peak data: `{ peaksL, peaksR, points, duration, filePath }`
 - `ana-data` - Stage sends real-time analysis (60Hz): `{ freqL, freqR, timeL, timeR, pos, duration, sampleRate }`
@@ -567,14 +570,7 @@ The script (`scripts/create-release.ps1`) handles:
 
 ## Immediate Features
 
-- **MIDI Channel Activity Visualization (Monitoring Window)** - Replace blank waveform canvas with MIDI activity visualization when playing MIDI files
-   - All 16 MIDI channels displayed as horizontal lanes stacked vertically
-   - Events rendered as horizontal bars within each channel lane
-   - Continuous activity (notes/events without gaps) combined into single bar
-   - Bar breaks when no events occur for a threshold duration (~2 seconds)
-   - Minimum bar length (~1 second) ensures short events remain visible
-   - Next activity after gap starts a new bar
-   - Time-aligned with playhead position for visual feedback during playback
+(none)
 
 ## Backlog / Future Features
 

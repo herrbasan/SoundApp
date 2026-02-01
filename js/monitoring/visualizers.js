@@ -164,6 +164,9 @@ export class Visualizers {
         this.layout.waveMin = waveMin.computed !== undefined ? waveMin.computed : 1;
         this.layout.specGap = specGap.computed !== undefined ? specGap.computed : 2;
         this.layout.liveWidth = liveWidth.computed !== undefined ? liveWidth.computed : 1.2;
+        // Optional top offset to protect title/labels (e.g. 'Overview') from MIDI bars
+        const midiTop = ut.getCssVar('--midi-top-offset');
+        this.layout.topOffset = (midiTop && midiTop.computed !== undefined) ? midiTop.computed : 24;
 
         // Compute fill from spectrum color
         if (this.colors.spectrum.includes('rgb')) {
@@ -175,6 +178,19 @@ export class Visualizers {
         this.colors.liveWave = accColor.value || 'rgb(64, 168, 59)';
         this.colors.gonio = accColor.value || 'rgb(64, 168, 59)';
         this.colors.corr = accColor.value || 'rgb(64, 168, 59)';
+
+        // Read MIDI timeline color variables
+        try {
+            const midiLane = ut.getCssVar('--midi-lane-bg');
+            const midiAct = ut.getCssVar('--midi-activity');
+            const midiDr = ut.getCssVar('--midi-drums');
+
+            this.colors.midiLaneBg = (midiLane && midiLane.value) ? midiLane.value : (this.colors.midiLaneBg || 'rgba(128,128,128,0.06)');
+            this.colors.midiActivity = (midiAct && midiAct.value) ? midiAct.value : (this.colors.midiActivity || this.colors.spectrum);
+            this.colors.midiDrums = (midiDr && midiDr.value) ? midiDr.value : (this.colors.midiDrums || '#f59e0b');
+        } catch (e) {
+            // Ignore CSS read errors and keep defaults
+        }
     }
 
     setTarget(val) {
@@ -205,6 +221,15 @@ export class Visualizers {
         console.log('[Visualizers] setWaveformData received. points:', data ? data.points : 'null');
         this.waveformData = data;
         this.midiActivity = null; // Clear MIDI data when waveform is set
+        this.drawWaveform();
+    }
+
+    setMidiActivity(data) {
+        console.log('[Visualizers] setMidiActivity received. channels:', data && data.channels ? data.channels.length : 0);
+        this.midiActivity = data;
+        this.waveformData = null; // clear waveform data when MIDI timeline present
+        // Store duration in seconds for playhead/seeking compatibility
+        if (data && data.duration !== undefined) this.currentDuration = data.duration;
         this.drawWaveform();
     }
 
@@ -267,6 +292,12 @@ export class Visualizers {
         const h = this.canvases.waveform.height;
         ctx.clearRect(0, 0, w, h);
 
+        // If MIDI timeline present, render that instead of waveform
+        if ((!this.waveformData || !this.waveformData.peaksL) && this.midiActivity) {
+            this.drawMidiTimeline();
+            return;
+        }
+
         if (!this.waveformData || !this.waveformData.peaksL) return;
 
         const peaks = this.waveformData.peaksL;
@@ -303,6 +334,60 @@ export class Visualizers {
         
         // Reset lineCap
         ctx.lineCap = 'round';
+    }
+
+    drawMidiTimeline() {
+        const ctx = this.ctxs.waveform;
+        const w = this.canvases.waveform.width;
+        const h = this.canvases.waveform.height;
+        ctx.clearRect(0, 0, w, h);
+
+        if (!this.midiActivity || !this.midiActivity.channels || !this.midiActivity.channels.length) return;
+
+        const padding = (this.layout && this.layout.padding) || 0;
+        const topOffset = (this.layout && this.layout.topOffset) || 0;
+        const innerW = w - (padding * 2);
+        const innerH = h - (padding * 2) - topOffset;
+
+        const durationSec = this.midiActivity.duration || this.currentDuration || 0;
+        const durationMs = Math.max(1, durationSec * 1000);
+
+        const channels = this.midiActivity.channels;
+        // Compact: only show active channels
+        const displayCount = channels.length;
+        const rawLaneHeight = innerH / Math.max(1, displayCount);
+        const laneGap = 2;
+        const maxLane = 20; // pixels maximum per lane
+        const laneHeight = Math.max(8, Math.min(maxLane, rawLaneHeight));
+
+        // Lane background
+        ctx.fillStyle = this.colors.midiLaneBg || 'rgba(128,128,128,0.06)';
+        for (let i = 0; i < displayCount; i++) {
+            // When rawLaneHeight > laneHeight (i.e. we capped), compute vertical offset to center the visual lane
+            const extra = Math.max(0, rawLaneHeight - laneHeight);
+            const y = padding + topOffset + (i * rawLaneHeight) + Math.floor(extra / 2);
+            ctx.fillRect(padding, y, innerW, laneHeight - laneGap);
+        }
+
+        // Activity bars
+        for (let i = 0; i < channels.length; i++) {
+            const ch = channels[i];
+            const extra = Math.max(0, rawLaneHeight - laneHeight);
+            const laneY = padding + topOffset + (i * rawLaneHeight) + Math.floor(extra / 2) + 2;
+            const barH = Math.max(4, laneHeight - laneGap - 4);
+
+            for (let s = 0; s < ch.segments.length; s++) {
+                const seg = ch.segments[s];
+                const x = padding + (seg.start / durationMs) * innerW;
+                const segW = Math.max(2, ((seg.end - seg.start) / durationMs) * innerW);
+
+                // Drums channel (10) use drum color
+                if (ch.channel === 9) ctx.fillStyle = this.colors.midiDrums || '#f59e0b';
+                else ctx.fillStyle = this.colors.midiActivity || this.colors.spectrum;
+
+                ctx.fillRect(x, laneY, segW, barH);
+            }
+        }
     }
 
     drawSpectrum() {

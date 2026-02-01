@@ -5,7 +5,8 @@
  * Groups events by channel with gap detection (3-5 second pauses break segments)
  */
 
-export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
+export function parseMidiChannelActivity(buffer, gapThresholdMs = 1000) {
+	const t0 = performance.now();
 	const view = new DataView(buffer);
 	let offset = 0;
 	
@@ -35,14 +36,19 @@ export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
 		const trackLength = view.getUint32(offset); offset += 4;
 		const trackEnd = offset + trackLength;
 		
-		let time = 0;
+		// time is tracked in milliseconds (converted per-delta using current tempo)
+		let timeMs = 0;
 		let runningStatus = 0;
 		
 		while (offset < trackEnd) {
 			// Read delta time (variable length)
 			const deltaTime = readVarLen(view, offset);
 			offset += deltaTime.length;
-			time += deltaTime.value;
+			// Convert delta ticks to milliseconds using currentTempo
+			// currentTempo is microseconds per quarter note
+			const deltaTicks = deltaTime.value;
+			const deltaMs = (deltaTicks * (currentTempo / 1000)) / ticksPerBeat;
+			timeMs += deltaMs;
 			
 			// Read event
 			let status = view.getUint8(offset);
@@ -67,7 +73,7 @@ export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
 				const isNoteOn = eventType === 0x90 && velocity > 0;
 				
 				allEvents.push({
-					time: time,
+					time: timeMs,
 					channel: channel,
 					type: isNoteOn ? 'noteOn' : 'noteOff',
 					note: note,
@@ -90,6 +96,7 @@ export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
 				
 				// Tempo change
 				if (metaType === 0x51 && metaLength.value === 3) {
+					// Update tempo for subsequent deltas (microseconds per quarter note)
 					currentTempo = (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
 				}
 				
@@ -103,20 +110,62 @@ export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
 		}
 	}
 	
-	// Convert ticks to milliseconds
-	const tickToMs = (currentTempo / 1000) / ticksPerBeat;
-	allEvents.forEach(e => e.timeMs = e.time * tickToMs);
-	
-	// Sort by time
+	// Events were recorded with `time` as milliseconds (timeMs)
+	// Normalize to `timeMs` property and sort
+	allEvents.forEach(e => { e.timeMs = e.time; });
 	allEvents.sort((a, b) => a.timeMs - b.timeMs);
+	const t1 = performance.now();
+	console.log(`[MIDI Analyzer] Parse + sort: ${(t1 - t0).toFixed(1)}ms`);
+	
+	// DEBUG: Log event distribution to understand gap detection (optimized - O(n) instead of O(n²))
+	const noteOnEvents = allEvents.filter(e => e.type === 'noteOn');
+	console.log('[MIDI Analyzer] Total events:', allEvents.length, 'Note On events:', noteOnEvents.length);
+	if (noteOnEvents.length > 0) {
+		console.log('[MIDI Analyzer] First Note On at:', noteOnEvents[0].timeMs.toFixed(1), 'ms');
+		console.log('[MIDI Analyzer] Last Note On at:', noteOnEvents[noteOnEvents.length - 1].timeMs.toFixed(1), 'ms');
+		
+		// Compute gaps between consecutive Note On events per channel - O(n) version
+		const lastEventTime = {};
+		const channelGaps = {};
+		for (let ch = 0; ch < 16; ch++) {
+			channelGaps[ch] = [];
+			lastEventTime[ch] = -1;
+		}
+		
+		for (let i = 0; i < noteOnEvents.length; i++) {
+			const e = noteOnEvents[i];
+			if (lastEventTime[e.channel] >= 0) {
+				channelGaps[e.channel].push(e.timeMs - lastEventTime[e.channel]);
+			}
+			lastEventTime[e.channel] = e.timeMs;
+		}
+		
+		for (let ch = 0; ch < 16; ch++) {
+			const gaps = channelGaps[ch];
+			if (gaps.length > 0) {
+				const maxGap = Math.max(...gaps);
+				const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+				const gapsOver200 = gaps.filter(g => g > 200).length;
+				const gapsOver1000 = gaps.filter(g => g > 1000).length;
+				console.log(`[MIDI Analyzer] Ch ${ch}: ${gaps.length} gaps, max=${maxGap.toFixed(0)}ms, avg=${avgGap.toFixed(0)}ms, >200ms: ${gapsOver200}, >1000ms: ${gapsOver1000}`);
+			}
+		}
+	}
+	const t2 = performance.now();
+	console.log(`[MIDI Analyzer] Debug stats: ${(t2 - t1).toFixed(1)}ms`);
 	
 	// Group into channel segments with gap detection
+	// IMPORTANT: Only use Note On events for gap detection!
+	// Note Off events fill gaps artificially because held notes sustain across silences
 	const channels = {};
 	for (let ch = 0; ch < 16; ch++) {
 		channels[ch] = [];
 	}
 	
 	allEvents.forEach(event => {
+		// Skip Note Off events for segment building - they don't represent new activity
+		if (event.type !== 'noteOn') return;
+		
 		const ch = event.channel;
 		const segments = channels[ch];
 		
@@ -155,7 +204,8 @@ export function parseMidiChannelActivity(buffer, gapThresholdMs = 4000) {
 	
 	return {
 		channels: activeChannels,
-		duration: duration
+		duration: duration,
+		parseTime: performance.now() - t0
 	};
 }
 
