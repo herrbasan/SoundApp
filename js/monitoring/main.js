@@ -55,15 +55,42 @@ export const main = {
             superSelect(this.visualizers.meters.targetPreset);
             
             this.visualizers.meters.targetPreset.addEventListener('change', (e) => {
-                this.visualizers.setTarget(parseFloat(e.target.value));
+                const val = e.target.value;
+                // Toggle loudness calculations on/off
+                this.visualizers.setLoudnessEnabled(val !== 'none');
+                // Only set numeric target when not 'none'
+                if (val !== 'none') this.visualizers.setTarget(parseFloat(val));
             });
-            // Set initial
-            this.visualizers.setTarget(parseFloat(this.visualizers.meters.targetPreset.value));
+            // Set initial loudness state and target
+            const initialVal = this.visualizers.meters.targetPreset.value;
+            this.visualizers.setLoudnessEnabled(initialVal !== 'none');
+            if (initialVal !== 'none') {
+                this.visualizers.setTarget(parseFloat(initialVal));
+            }
         }
 
         // Initial draw
         this.visualizers.resize();
         this.visualizers.drawAll();
+
+        // Create analysis worker for off-main-thread loudness/peaks computation
+        try {
+            this.analysisWorker = new Worker(new URL('./analysis.worker.js', import.meta.url), { type: 'module' });
+            this.analysisWorker.onmessage = (ev) => {
+                const data = ev.data;
+                if (!data) return;
+                if (data.error) {
+                    console.warn('[AnalysisWorker] error:', data.error);
+                    return;
+                }
+                if (this.visualizers && this.visualizers.updateAnalysis) {
+                    this.visualizers.updateAnalysis(data);
+                }
+            };
+        } catch (e) {
+            console.warn('Failed to create analysis worker', e);
+            this.analysisWorker = null;
+        }
 
         if (data && data.filePath) {
             this.fileInfo.innerText = data.filePath;
@@ -102,6 +129,7 @@ export const main = {
         window.bridge.on('clear-waveform', () => {
             this.visualizers.clearWaveform();
             this.fileInfo.innerText = 'Loading...';
+            if (this.analysisWorker) this.analysisWorker.postMessage({ reset: true });
         });
 
         // File change notification with type
@@ -160,6 +188,29 @@ export const main = {
                     if (pendingData) {
                         self.visualizers.update(pendingData);
                         self.updatePlayhead(pendingData.pos, pendingData.duration);
+                        // Post to worker for heavy analysis (transfer buffers if available)
+                        try {
+                            if (self.analysisWorker && pendingData.timeL) {
+                                const timeLbuf = pendingData.timeL.buffer ? pendingData.timeL.buffer : pendingData.timeL;
+                                const timeRbuf = pendingData.timeR && pendingData.timeR.buffer ? pendingData.timeR.buffer : pendingData.timeR;
+                                self.analysisWorker.postMessage({
+                                    timeLBuffer: timeLbuf,
+                                    timeRBuffer: timeRbuf,
+                                    sampleRate: pendingData.sampleRate,
+                                    minimal: !self.visualizers.loudnessEnabled
+                                }, timeRbuf ? [timeLbuf, timeRbuf] : [timeLbuf]);
+                            }
+                        } catch (e) {
+                            // fallback: post without transfer
+                            if (self.analysisWorker && pendingData.timeL) {
+                                self.analysisWorker.postMessage({
+                                    timeLBuffer: pendingData.timeL,
+                                    timeRBuffer: pendingData.timeR,
+                                    sampleRate: pendingData.sampleRate,
+                                    minimal: !self.visualizers.loudnessEnabled
+                                });
+                            }
+                        }
                     }
                 });
             }

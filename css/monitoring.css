@@ -330,6 +330,23 @@ canvas {
     padding: 2px 0;
 }
 
+/* When loudness calculation is disabled */
+.meters-section.loudness-disabled .meter-group.lufs-group {
+    display: none;
+}
+.meters-section.loudness-disabled .meter-group.level-group {
+    /* Let level meters expand to take available space */
+    flex: 1;
+}
+.meters-section.loudness-disabled .loudness-readouts .readout .value {
+    opacity: 0.5;
+    color: var(--label-color);
+}
+.meters-section.loudness-disabled .loudness-readouts .readout.highlight {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.03);
+}
+
 
 .value.danger {
     color: #ff4d4d !important;

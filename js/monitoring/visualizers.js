@@ -46,6 +46,9 @@ export class Visualizers {
         this.lufsHold = { L: 0, R: 0 };
         this.rmsSmooth = { L: 0, R: 0 };
 
+        // Loudness calculation enabled flag
+        this.loudnessEnabled = true;
+
         // LUFS State
         this.filtersL = [new KWeightFilter(), new KWeightFilter()]; // Stage 1 & 2
         this.filtersR = [new KWeightFilter(), new KWeightFilter()];
@@ -79,6 +82,45 @@ export class Visualizers {
         this.smoothedL = null;
         this.smoothedR = null;
         this.waveSmoothing = 0.7; // 0 = no smoothing, 0.9 = very smooth
+    }
+
+    setLoudnessEnabled(flag) {
+        this.loudnessEnabled = !!flag;
+        if (!this.loudnessEnabled) {
+            // Reset loudness state
+            this.shortTermBuffer = [];
+            this.lraHistory = [];
+            this.gatedBlocks = [];
+            this.integratedSum = 0;
+            this.integratedCount = 0;
+            this.stats.mMax = -100;
+            this.stats.sMax = -100;
+            this.stats.pMax = -100;
+            this.stats.lra = 0;
+            this.smoothS = 0;
+            this.smoothI = 0;
+
+            // Clear LUFS-specific DOM meters/readouts but keep peak meters active
+            try {
+                if (this.meters.barS) this.meters.barS.style.height = '0%';
+                if (this.meters.barM) this.meters.barM.style.bottom = '0%';
+                if (this.meters.barI) this.meters.barI.style.bottom = '0%';
+                const setVal = (el) => { if (el) el.innerText = '---'; };
+                setVal(this.meters.valS);
+                setVal(this.meters.valI);
+                setVal(this.meters.valLRA);
+                setVal(this.meters.valMMax);
+                setVal(this.meters.valPMax);
+                setVal(this.meters.valPLR);
+            } catch (e) {
+                // ignore DOM errors
+            }
+        }
+        // Toggle CSS class on meters section for layout changes and dimming
+        try {
+            const metersSection = document.querySelector('.meters-section');
+            if (metersSection) metersSection.classList.toggle('loudness-disabled', !this.loudnessEnabled);
+        } catch (e) {}
     }
 
     generateLogBands(minFreq, maxFreq, numBands) {
@@ -184,7 +226,6 @@ export class Visualizers {
         this.drawLiveWave();
         this.drawGonio();
         this.drawCorr();
-        this.drawLoudness();
     }
 
     drawAll() {
@@ -405,6 +446,124 @@ export class Visualizers {
         ctx.stroke();
     }
 
+    drawLevelMeters() {
+        if (!this.anaData || !this.anaData.timeL || !this.meters) return;
+
+        const tL = this.anaData.timeL;
+        const tR = this.anaData.timeR;
+
+        let peakL = 0, peakR = 0, peakChunk = 0;
+        for (let i = 0; i < tL.length; i++) {
+            const l = Math.abs((tL[i] - 128) / 128);
+            const r = Math.abs((tR[i] - 128) / 128);
+            if (l > peakL) peakL = l;
+            if (r > peakR) peakR = r;
+            if (l > peakChunk) peakChunk = l;
+            if (r > peakChunk) peakChunk = r;
+        }
+
+        const peakDbL = 20 * Math.log10(Math.max(peakL, 1e-5));
+        const peakDbR = 20 * Math.log10(Math.max(peakR, 1e-5));
+
+        const mapLevel = (db) => Math.max(0, Math.min(100, ((db + 48) / 48) * 100));
+
+        const lvlL = mapLevel(peakDbL);
+        const lvlR = mapLevel(peakDbR);
+
+        // Update Level DOM bars (instant)
+        try {
+            if (this.meters.levelBarL) this.meters.levelBarL.style.height = `${lvlL}%`;
+            if (this.meters.levelBarR) this.meters.levelBarR.style.height = `${lvlR}%`;
+        } catch (e) {}
+
+        // Peak hold logic
+        if (!this.levelPeakHoldL) { this.levelPeakHoldL = 0; this.levelPeakHoldR = 0; this.levelPeakDecayL = 0; this.levelPeakDecayR = 0; }
+
+        if (lvlL >= this.levelPeakHoldL) { this.levelPeakHoldL = lvlL; this.levelPeakDecayL = 20; }
+        else if (this.levelPeakDecayL > 0) { this.levelPeakDecayL--; }
+        else { this.levelPeakHoldL = Math.max(0, this.levelPeakHoldL - 2); }
+
+        if (lvlR >= this.levelPeakHoldR) { this.levelPeakHoldR = lvlR; this.levelPeakDecayR = 20; }
+        else if (this.levelPeakDecayR > 0) { this.levelPeakDecayR--; }
+        else { this.levelPeakHoldR = Math.max(0, this.levelPeakHoldR - 2); }
+
+        try {
+            if (this.meters.levelPeakL) this.meters.levelPeakL.style.bottom = `${this.levelPeakHoldL}%`;
+            if (this.meters.levelPeakR) this.meters.levelPeakR.style.bottom = `${this.levelPeakHoldR}%`;
+        } catch (e) {}
+    }
+
+    // Receive analysis results from worker and update DOM accordingly
+    updateAnalysis(data) {
+        if (!data || !this.meters) return;
+
+        // Peaks
+        if (data.peaks) {
+            const { peakL, peakR, peakDbL, peakDbR } = data.peaks;
+            const mapLevel = (db) => Math.max(0, Math.min(100, ((db + 48) / 48) * 100));
+            const lvlL = mapLevel(peakDbL);
+            const lvlR = mapLevel(peakDbR);
+
+            try {
+                if (this.meters.levelBarL) this.meters.levelBarL.style.height = `${lvlL}%`;
+                if (this.meters.levelBarR) this.meters.levelBarR.style.height = `${lvlR}%`;
+            } catch (e) {}
+
+            if (!this.levelPeakHoldL) { this.levelPeakHoldL = 0; this.levelPeakHoldR = 0; this.levelPeakDecayL = 0; this.levelPeakDecayR = 0; }
+            if (lvlL >= this.levelPeakHoldL) { this.levelPeakHoldL = lvlL; this.levelPeakDecayL = 20; }
+            else if (this.levelPeakDecayL > 0) { this.levelPeakDecayL--; }
+            else { this.levelPeakHoldL = Math.max(0, this.levelPeakHoldL - 2); }
+
+            if (lvlR >= this.levelPeakHoldR) { this.levelPeakHoldR = lvlR; this.levelPeakDecayR = 20; }
+            else if (this.levelPeakDecayR > 0) { this.levelPeakDecayR--; }
+            else { this.levelPeakHoldR = Math.max(0, this.levelPeakHoldR - 2); }
+
+            try {
+                if (this.meters.levelPeakL) this.meters.levelPeakL.style.bottom = `${this.levelPeakHoldL}%`;
+                if (this.meters.levelPeakR) this.meters.levelPeakR.style.bottom = `${this.levelPeakHoldR}%`;
+            } catch (e) {}
+        }
+
+        // Correlation
+        if (typeof data.correlation === 'number') {
+            this.smoothCorr += (data.correlation - this.smoothCorr) * 0.1;
+            // drawCorr reads this.smoothCorr during drawCorr's next frame
+        }
+
+        // LUFS/readouts
+        if (data.lufs) {
+            const momentaryLUFS = data.lufs.momentary;
+            const shortTermLUFS = data.lufs.shortTerm;
+            const integratedLUFS = data.lufs.integrated;
+
+            const perM = this.mapToPercent(momentaryLUFS);
+            const perS = this.mapToPercent(shortTermLUFS);
+            const perI = integratedLUFS !== null ? this.mapToPercent(integratedLUFS) : 0;
+
+            this.smoothS += (perS - this.smoothS) * 0.3;
+            this.smoothI += (perI - this.smoothI) * 0.05;
+
+            if (this.meters.barS) this.meters.barS.style.height = `${this.smoothS}%`;
+            if (this.meters.barM) this.meters.barM.style.bottom = `${perM}%`;
+            if (this.meters.barI) this.meters.barI.style.bottom = `${this.smoothI}%`;
+
+            const setVal = (el, val, precision = 1) => { if (el) el.innerText = isFinite(val) && val !== null ? val.toFixed(precision) : '---'; };
+            setVal(this.meters.valS, shortTermLUFS);
+            setVal(this.meters.valI, integratedLUFS);
+            setVal(this.meters.valLRA, data.lufs.lra);
+            setVal(this.meters.valMMax, data.mMax);
+            setVal(this.meters.valPMax, data.pMax);
+
+            const plr = data.pMax - (integratedLUFS || 0);
+            setVal(this.meters.valPLR, Math.abs(plr));
+
+            if (this.meters.valPMax) {
+                if (data.pMax > 0) this.meters.valPMax.classList.add('danger');
+                else this.meters.valPMax.classList.remove('danger');
+            }
+        }
+    }
+
     drawGonio() {
         const ctx = this.ctxs.gonio;
         const w = this.canvases.gonio.width;
@@ -499,6 +658,7 @@ export class Visualizers {
     }
 
     drawLoudness() {
+        if (!this.loudnessEnabled) return;
         if (!this.anaData || !this.anaData.timeL || !this.meters) return;
 
         const tL = this.anaData.timeL;
