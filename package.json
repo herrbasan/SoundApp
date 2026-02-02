@@ -9,6 +9,7 @@
     "package": "electron-forge package",
     "dist": "electron-builder",
     "make": "electron-forge make",
+    "make:external": "start powershell -NoExit -Command \"npm run make\"",
     "patch-midiplayer-worklet": "node scripts/patch-midiplayer-worklet.js",
     "postinstall": "node scripts/patch-midiplayer-worklet.js"
   },

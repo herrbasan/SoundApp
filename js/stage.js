@@ -575,11 +575,15 @@ async function init() {
 
 	});
 
-	ipcRenderer.on('open-soundfonts-folder', () => {
-		const fp = g.app_path;
-		const baseDir = g.isPackaged ? path.dirname(fp) : fp;
-		const soundfontPath = path.resolve(baseDir + '/bin/soundfonts/');
-		helper.shell.showItemInFolder(soundfontPath + '/README.md');
+	ipcRenderer.on('open-soundfonts-folder', async () => {
+		const userDataPath = await helper.app.getPath('userData');
+		const userSoundfontsPath = path.join(userDataPath, 'soundfonts');
+		try {
+			await fs.mkdir(userSoundfontsPath, { recursive: true });
+			await helper.shell.openPath(userSoundfontsPath);
+		} catch (err) {
+			console.error('[MIDI] Failed to open soundfonts folder:', err);
+		}
 	});
 
 	ipcRenderer.on('midi-soundfont-changed', async (e, soundfontFile) => {
@@ -693,7 +697,17 @@ async function init() {
 					if (midi && midi.setSoundFont) {
 						let fp = g.app_path;
 						if (g.isPackaged) { fp = path.dirname(fp); }
-						const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
+						const userDataPath = await helper.app.getPath('userData');
+						const userDir = path.join(userDataPath, 'soundfonts');
+						const userPath = path.join(userDir, data.value);
+						const bundledPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
+						let soundfontPath = bundledPath;
+						try {
+							await fs.access(userPath);
+							soundfontPath = userPath;
+						} catch (e) {
+							// Use bundled path
+						}
 						const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
 						console.log('[MIDI] Calling midi.setSoundFont with URL:', soundfontUrl);
 						midi.setSoundFont(soundfontUrl);
@@ -802,33 +816,55 @@ async function init() {
 	ipcRenderer.on('get-available-soundfonts', async (e, data) => {
 		let fp = g.app_path;
 		if (g.isPackaged) { fp = path.dirname(fp); }
-		const soundfontsDir = path.resolve(fp + '/bin/soundfonts/');
+		const bundledDir = path.resolve(fp + '/bin/soundfonts/');
+		const userDataPath = await helper.app.getPath('userData');
+		const userDir = path.join(userDataPath, 'soundfonts');
 
+		const availableFonts = [];
+
+		// Scan bundled soundfonts
 		try {
-			const files = await fs.readdir(soundfontsDir);
+			const files = await fs.readdir(bundledDir);
 			const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
-
-			const availableFonts = soundfontFiles.map(filename => {
+			for (const filename of soundfontFiles) {
 				let label = filename.replace(/\.(sf2|sf3)$/i, '');
 				label = label.replace(/_/g, ' ');
-				return { filename, label };
-			});
-
-			availableFonts.sort((a, b) => {
-				if (a.filename.startsWith('TimGM')) return -1;
-				if (b.filename.startsWith('TimGM')) return 1;
-				return a.label.localeCompare(b.label);
-			});
-
-			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
-			tools.sendToId(targetWindow, 'available-soundfonts', { fonts: availableFonts });
+				availableFonts.push({ filename, label, location: 'bundled' });
+			}
 		} catch (err) {
-			console.error('[MIDI] Failed to read soundfonts directory:', err);
-			const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
-			tools.sendToId(targetWindow, 'available-soundfonts', {
-				fonts: [{ filename: 'TimGM6mb.sf2', label: 'TimGM6mb' }]
-			});
+			console.error('[MIDI] Failed to read bundled soundfonts directory:', err);
 		}
+
+		// Scan user soundfonts (AppData)
+		try {
+			await fs.mkdir(userDir, { recursive: true });
+			const files = await fs.readdir(userDir);
+			const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
+			for (const filename of soundfontFiles) {
+				// Skip if already in bundled list
+				if (availableFonts.some(f => f.filename === filename)) continue;
+				let label = filename.replace(/\.(sf2|sf3)$/i, '');
+				label = label.replace(/_/g, ' ');
+				availableFonts.push({ filename, label, location: 'user' });
+			}
+		} catch (err) {
+			console.error('[MIDI] Failed to read user soundfonts directory:', err);
+		}
+
+		// Sort: TimGM first, then alphabetically
+		availableFonts.sort((a, b) => {
+			if (a.filename.startsWith('TimGM')) return -1;
+			if (b.filename.startsWith('TimGM')) return 1;
+			return a.label.localeCompare(b.label);
+		});
+
+		// Fallback if no fonts found
+		if (availableFonts.length === 0) {
+			availableFonts.push({ filename: 'default.sf2', label: 'Default', location: 'bundled' });
+		}
+
+		const targetWindow = data.windowId || g.windows.parameters || g.windows['midi'];
+		tools.sendToId(targetWindow, 'available-soundfonts', { fonts: availableFonts });
 	});
 
 	ipcRenderer.on('theme-changed', (e, data) => {
@@ -2090,16 +2126,30 @@ async function initMidiPlayer() {
 	let fp = g.app_path;
 	if (g.isPackaged) { fp = path.dirname(fp); }
 	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
-	const soundfontPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
+	
+	// Check user directory first, then bundled
+	const userDataPath = await helper.app.getPath('userData');
+	const userDir = path.join(userDataPath, 'soundfonts');
+	const userPath = path.join(userDir, soundfontFile);
+	const bundledPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
 
+	let soundfontPath = null;
 	try {
-		await fs.access(soundfontPath);
+		await fs.access(userPath);
+		soundfontPath = userPath;
+		console.log('[MIDI] Using user soundfont:', soundfontFile);
 	} catch (e) {
-		console.warn('[MIDI] SoundFont not found:', soundfontFile, '- falling back to default.sf2');
-		const defaultPath = path.resolve(fp + '/bin/soundfonts/default.sf2');
-		const soundfontUrl = tools.getFileURL(defaultPath);
-		await initMidiWithSoundfont(soundfontUrl, defaultPath);
-		return;
+		try {
+			await fs.access(bundledPath);
+			soundfontPath = bundledPath;
+			console.log('[MIDI] Using bundled soundfont:', soundfontFile);
+		} catch (e2) {
+			console.warn('[MIDI] SoundFont not found:', soundfontFile, '- falling back to default.sf2');
+			const defaultPath = path.resolve(fp + '/bin/soundfonts/default.sf2');
+			const soundfontUrl = tools.getFileURL(defaultPath);
+			await initMidiWithSoundfont(soundfontUrl, defaultPath);
+			return;
+		}
 	}
 
 	const soundfontUrl = tools.getFileURL(soundfontPath);

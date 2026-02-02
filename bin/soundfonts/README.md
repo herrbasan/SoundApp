@@ -1,10 +1,19 @@
-# SoundFonts
+# SoundFonts (Bundled)
 
-This directory contains SoundFont (.sf2) files for MIDI playback.
+This directory contains **bundled SoundFont (.sf2) files** that ship with the application. These files are included in the installation package.
+
+## User SoundFonts Location
+
+**To add your own SoundFonts that survive app updates**, place them in:
+```
+%APPDATA%\SoundApp\soundfonts\
+```
+
+You can open this folder directly by clicking the **"Show SoundFonts Folder"** button in the Parameters window (press `P`).
 
 ## Bundled SoundFont
 
-The application comes bundled with **GeneralUser GS** (renamed to \default.sf2\).
+The application comes bundled with **GeneralUser GS** (renamed to `default.sf2`).
 - **Author:** S. Christian Collins
 - **Size:** ~30 MB
 - **Description:** A highly regarded GM/GS SoundFont that offers an excellent balance between sound quality and low memory usage.
@@ -36,18 +45,16 @@ If you are looking for alternatives, here are some highly recommended SoundFonts
 For more details, visit: [Best Free General MIDI SoundFonts in 2026](https://miditoolbox.com/posts/best-free-general-midi-soundfonts-2026)
 - **License:** Permissive (allows redistribution).
 
-## Using Other SoundFonts
+## Massive SoundFont Archive
 
-You can add other SoundFonts to this folder to use them. While GeneralUser GS is excellent, larger SoundFonts may offer more realistic instrument samples (at the cost of higher memory usage and download size).
+For testing and exploration: [541 Full GM SoundFonts Collection](https://archive.org/download/541-soundfonts-full-gm-sets/541-soundfonts-full-gm-sets/541_Soundfonts_Full_GM_Sets/)
+- **Note:** Huge collection with varying quality - download individual files as needed.
 
-Some well-known high-quality General MIDI SoundFonts you might want to try:
+## How to Add Your Own SoundFonts
 
-- **FluidR3_GM** (~140 MB) - Very popular, often standard with FluidSynth.
-- **Timbres of Heaven** (~400 MB) - Extremely comprehensive and high quality.
-- **SGM-V2.01** (~240 MB) - Excellent for orchestral and acoustic sounds.
-- **Arachno SoundFont** (~150 MB) - Good for rock/pop MIDI.
+1. Download a SoundFont (.sf2 or .sf3) from the links above or elsewhere
+2. Click the **"Show SoundFonts Folder"** button in the Parameters window (press `P`)
+3. Place the downloaded file in the opened folder (`%APPDATA%\SoundApp\soundfonts\`)
+4. Select the new SoundFont from the dropdown in the Parameters window
 
-To use one of these:
-1. Download the \.sf2\ file.
-2. Place it in this folder.
-3. Select it in the application settings (MIDI Playback).
+**Note:** SoundFonts in the AppData folder persist across app updates. This bundled directory gets replaced during updates, so use the AppData location for your custom fonts.

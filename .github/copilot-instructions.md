@@ -123,7 +123,12 @@ scripts/
 - **Patches applied:**
   - UMD wrapper fix for ES module context (`root = root || globalThis`)
   - Metronome hook injection (`AudioWorkletGlobalScope.SoundAppMetronome`)
-- **Soundfonts:** `bin/soundfonts/` and MIDI Settings window drive the active SoundFont
+- **SoundFonts (Dual-Location Architecture):**
+  - **Bundled:** `bin/soundfonts/` - Ships with app, replaced on updates
+  - **User:** `%APPDATA%\SoundApp\soundfonts\` - Survives app updates
+  - **Resolution:** Stage checks user directory first, falls back to bundled
+  - **UI:** "Show SoundFonts Folder" button opens user directory (Parameters window)
+  - **Path handling:** All soundfont operations use `await helper.app.getPath('userData')`
 - **Updates:** `npm update js-synthesizer && npm run patch-midiplayer-worklet`
 
 ## Window System
@@ -481,16 +486,19 @@ When the user asks to create a release, **always use the release script**:
 
 ```powershell
 # Standard release workflow:
-1. npm version patch   # (or minor/major) - bumps version in package.json
+1. npm version patch   # (or minor/major) - bumps version in package.json and creates git tag
 2. git add -A && git commit -m "Description (vX.X.X)"
 3. git push origin main
-4. .\scripts\create-release.ps1 -Notes "description of changes since last release"
+4. git push origin --tags  # REQUIRED: Push the version tag created by npm version
+5. .\scripts\create-release.ps1 -Notes "description of changes since last release"
 ```
 
 The script (`scripts/create-release.ps1`) handles:
 - Building the app with `npm run make`
 - Uploading all required artifacts: `soundApp_Setup.exe`, `*-full.nupkg`, `RELEASES`
 - Creating the GitHub release with proper tagging
+
+**Critical:** The git tag created by `npm version` MUST be pushed with `git push origin --tags` before running the release script, otherwise the release will fail.
 
 **Never manually run `gh release create`** - the nupkg and RELEASES files are required for Squirrel auto-updates to work.
 

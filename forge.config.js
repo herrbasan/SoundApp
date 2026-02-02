@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 
 module.exports = {
+  outDir: 'C:/Temp/SoundApp-build',
   packagerConfig: {
     asar: true,
     ignore: [
@@ -85,6 +86,21 @@ module.exports = {
           }
         }
       }
+    },
+    postMake: async (forgeConfig, makeResults) => {
+      console.info('\n✓ Build complete! Opening output folder...\n');
+      const { exec } = require('child_process');
+      
+      // Get the output directory (typically the make folder)
+      if (makeResults && makeResults.length > 0) {
+        const firstResult = makeResults[0];
+        const outputDir = path.dirname(firstResult.artifacts[0]);
+        
+        // Open the folder using Windows explorer
+        exec(`explorer "${outputDir}"`);
+      }
+      
+      return makeResults;
     }
   },
   rebuildConfig: {

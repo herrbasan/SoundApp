@@ -101,9 +101,12 @@ if ($status) {
 }
 
 # Optionally clean old builds
-if ($Clean -and (Test-Path "out")) {
+if ($Clean) {
     Write-Host "Cleaning old builds..." -ForegroundColor Yellow
-    Remove-Item -Path "out" -Recurse -Force
+    $outDir = "C:\Temp\SoundApp-build"
+    if (Test-Path $outDir) {
+        Remove-Item -Path $outDir -Recurse -Force
+    }
 }
 
 # Build the application
@@ -115,13 +118,14 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Find generated artifacts
-$installerPath = Get-ChildItem -Path "out\make\squirrel.windows\x64\*.exe" | Where-Object { $_.Name -ne "Update.exe" } | Select-Object -First 1
-$nupkgPath = Get-ChildItem -Path "out\make\squirrel.windows\x64\*-full.nupkg" | Select-Object -First 1
-$releasesPath = Get-Item -Path "out\make\squirrel.windows\x64\RELEASES"
+# Find generated artifacts (using the outDir from forge.config.js)
+$outDir = "C:\Temp\SoundApp-build"
+$installerPath = Get-ChildItem -Path "$outDir\make\squirrel.windows\x64\*.exe" | Where-Object { $_.Name -ne "Update.exe" } | Select-Object -First 1
+$nupkgPath = Get-ChildItem -Path "$outDir\make\squirrel.windows\x64\*-full.nupkg" | Select-Object -First 1
+$releasesPath = Get-Item -Path "$outDir\make\squirrel.windows\x64\RELEASES"
 
 if (-not $installerPath) {
-    Write-Error "Could not find generated installer in out\make\squirrel.windows\x64\"
+    Write-Error "Could not find generated installer in $outDir\make\squirrel.windows\x64\"
     exit 1
 }
 
