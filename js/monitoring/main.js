@@ -111,10 +111,19 @@ export const main = {
             window.addEventListener('keydown', (e) => {
                 const code = e.code || '';
 
-                // Escape: Close monitoring window
-                if (code === 'Escape' || e.key === 'n' || e.key === 'N') {
+                // N: Toggle monitoring window (hide when already open)
+                if (e.key === 'n' || e.key === 'N') {
                     e.preventDefault();
-                    if (window.bridge && window.bridge.close) window.bridge.close();
+                    if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
+                    else if (window.bridge && window.bridge.window && window.bridge.window.hide) window.bridge.window.hide();
+                    return;
+                }
+
+                // Escape: Close monitoring window
+                if (code === 'Escape') {
+                    e.preventDefault();
+                    if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
+                    else if (window.bridge && window.bridge.window && window.bridge.window.hide) window.bridge.window.hide();
                     return;
                 }
 

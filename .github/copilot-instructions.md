@@ -575,13 +575,9 @@ The script (`scripts/create-release.ps1`) handles:
 
 (none)
 
-
-## Immediate Features
-
-(none)
-
 ## Backlog / Future Features
 
+- **Mixer Volume Boost** - Increase mixer track volume sliders to go up to 2x gain (currently maxes at 1x) to accommodate low-volume mixes
 - **Waveform Caching** - Cache extracted waveforms to avoid re-extraction on repeated monitoring
    - In-memory cache keyed by file path + mtime (cleared on app restart)
    - Optional persistent cache in %APPDATA%/SoundApp/waveforms/ with filename hashes
@@ -591,9 +587,7 @@ The script (`scripts/create-release.ps1`) handles:
    - Separate window displaying full playlist
    - Use `libs/nui/nui_list.js` for virtualized list handling
    - Search, sort, and scroll through large playlists
-- **Tracker Type Controls for the Parameters Window** - Tracker-style parameter controls in Parameters window
 - **Automatic or User Driven Soundfont Downloads** - Download SoundFonts from Archive.org sources
-- **Waveform Visualization** - Display audio waveform (if performance allows)
 - **BPM Detection** - Detect tempo, maybe in conjunction with the waveform display
 - **Quick Compare Mode** - Hold key to jump to another track, release to return
 - **Export Playlist** - Save playlist as M3U or text file

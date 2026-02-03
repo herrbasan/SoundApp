@@ -31,6 +31,7 @@ class MixerTrack {
 		this.lastLoadNote = '';
 		this._bufStartCtxTime = -1;
 		this._bufStartOffset = 0;
+		this.pendingStartOffset = undefined;
 		this._gain = 1;
 		this._pan = 0;
 		this._mute = false;
@@ -131,6 +132,32 @@ class MixerTrack {
 		this.duration = this.buffer ? (this.buffer.duration || 0) : 0;
 		this.lastLoadMode = 'buf';
 		if(!this.lastLoadNote) this.lastLoadNote = 'buf ok';
+	}
+
+	_seekTo(offsetSec){
+		if(this.ffPlayer){
+			this.ffPlayer.seek(offsetSec);
+			return true;
+		}
+		return false;
+	}
+
+	_playAt(startTime = 0){
+		if(this.ffPlayer){
+			this.ffPlayer.play(startTime);
+			this._bufStartCtxTime = -1;
+			return;
+		}
+		if(!this.buffer || this.pendingStartOffset === undefined) return;
+		const ctx = this.engine.ctx;
+		const src = ctx.createBufferSource();
+		src.buffer = this.buffer;
+		src.connect(this.engine.mixNode, 0, this.idx);
+		this.source = src;
+		this._bufStartCtxTime = ctx.currentTime;
+		this._bufStartOffset = this.pendingStartOffset || 0;
+		try { src.start(startTime, this.pendingStartOffset); } catch(e) {}
+		this.pendingStartOffset = undefined;
 	}
 
 	_startAt(offsetSec, skipSeek = false, startTime = 0){
@@ -458,18 +485,31 @@ class MixerEngine {
 	_startAll(offset){
 		const ar = this.tracks;
 		
-		// Schedule start in the future to allow all tracks to seek and fill buffers in parallel.
-		// Increased from 50ms to 80ms to accommodate parallel seeking.
+		// Schedule start in the future to allow all tracks to seek and fill buffers.
+		// Pre-buffer window allows FFmpeg tracks to complete seeking before play starts.
 		const preBufferMs = (this.initData && this.initData.config && this.initData.config.mixer && this.initData.config.mixer.preBuffer !== undefined)
 			? (this.initData.config.mixer.preBuffer | 0)
-			: 80;
+			: 200;  // Increased to 200ms to ensure all tracks complete seeking before scheduled start
 		const startTime = this.ctx.currentTime + (preBufferMs / 1000);
 
-		// Start all tracks in parallel - each will seek independently during pre-buffer time.
-		// This is MUCH faster than sequential seeking.
+		// PHASE 1: Seek all FFmpeg tracks, prepare buffer sources
 		for(let i=0; i<ar.length; i++){
 			const tr = ar[i];
-			if(tr) tr._startAt(offset, false, startTime);  // skipSeek=false to allow seeking
+			if(!tr) continue;
+			if(tr.ffPlayer){
+				// FFmpeg: seek now, play later
+				tr._seekTo(offset);
+			} else if(tr.buffer){
+				// BufferSource: store offset for later
+				tr.pendingStartOffset = offset || 0;
+			}
+		}
+
+		// PHASE 2: Start all tracks at the synchronized time
+		// FFmpeg tracks will have completed seeking by now
+		for(let i=0; i<ar.length; i++){
+			const tr = ar[i];
+			if(tr) tr._playAt(startTime);
 		}
 		return startTime;
 	}

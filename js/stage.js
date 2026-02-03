@@ -1712,6 +1712,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 						if (g.activePipeline === 'rubberband') {
 							await switchPipeline('normal');
 						}
+						// Explicitly reset tape speed to 0 on the player
+						applyTapeSpeed(0);
 					} else {
 						// If locked, apply the appropriate settings for the current mode
 						if (g.audioParams.mode === 'tape') {
@@ -3038,6 +3040,27 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			g.windowsVisible[type] = true;
 			if (type === 'monitoring') {
 				g.monitoringReady = true;
+				// Send file-change and waveform when reopening monitoring window
+				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
+				if (currentFile) {
+					const isMIDI = g.currentAudio && g.currentAudio.isMidi;
+					const isTracker = g.currentAudio && g.currentAudio.isMod;
+					try {
+						tools.sendToId(g.windows.monitoring, 'file-change', {
+							filePath: currentFile,
+							fileUrl: tools.getFileURL(currentFile),
+							fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
+							isMIDI: isMIDI,
+							isTracker: isTracker
+						});
+					} catch (err) {
+						console.warn('[Monitoring] Failed to send file-change on show:', err && err.message);
+					}
+					// Extract and send waveform for non-MIDI files
+					if (!isMIDI) {
+						extractAndSendWaveform(currentFile);
+					}
+				}
 			}
 			if (type === 'mixer') {
 				if (g.currentAudio && !g.currentAudio.paused) {

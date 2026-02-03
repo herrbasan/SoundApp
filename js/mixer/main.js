@@ -1629,7 +1629,7 @@ function loop(){
 				}
 
 				if(isValid){
-					// Visual Drift Bar
+					// Visual Drift Bar - use driftR (relative to ref track) instead of driftT (absolute)
 					const barX = xDriftBar;
 					const barW = 140;
 					const center = barX + (barW / 2);
@@ -1642,11 +1642,11 @@ function loop(){
 					ctx.fillStyle = '#888';
 					ctx.fillRect(center, y - 6, 1, 6);
 
-					// Drift bar
-					const dPx = driftT * scale;
+					// Drift bar - show relative drift (driftR) to indicate sync between tracks
+					const dPx = driftR * scale;
 					let barColor = '#0f0';
-					if(Math.abs(driftT) > 20) barColor = '#ff0';
-					if(Math.abs(driftT) > 50) barColor = '#f00';
+					if(Math.abs(driftR) > 20) barColor = '#ff0';
+					if(Math.abs(driftR) > 50) barColor = '#f00';
 					
 					ctx.fillStyle = barColor;
 					let bx = center;
