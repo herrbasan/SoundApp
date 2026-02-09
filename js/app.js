@@ -21,6 +21,48 @@ let tray = null;
 let user_cfg = null;
 let isQuitting = false;
 
+// ═══════════════════════════════════════════════════════════
+// AUDIO WORKER ARCHITECTURE: State Machine (Phase 2)
+// ═══════════════════════════════════════════════════════════
+
+// Ground truth state - lives in main process, outlives both renderers
+const audioState = {
+    // Playback
+    file: null,             // Current file path
+    isPlaying: false,
+    position: 0,            // Seconds (updated from engine)
+    duration: 0,
+    
+    // Audio params
+    mode: 'tape',           // 'tape' | 'pitchtime'
+    tapeSpeed: 0,
+    pitch: 0,
+    tempo: 1.0,
+    formant: false,
+    locked: false,
+    volume: 0.5,
+    loop: false,
+    
+    // Pipeline
+    activePipeline: 'normal',   // 'normal' | 'rubberband'
+    
+    // Engine
+    engineAlive: false,
+    engineInitializing: false,
+    
+    // Playlist
+    playlist: [],
+    playlistIndex: 0,
+    
+    // Metadata (for UI)
+    metadata: null,
+    fileType: null          // 'MIDI' | 'Tracker' | 'FFmpeg'
+};
+
+// Engine window reference
+let engineWindow = null;
+let playerWindow = null;
+
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
 //app.commandLine.appendSwitch('--js-flags', '--experimental-module');
@@ -235,6 +277,9 @@ async function appStart() {
 	} catch (err) { }
 
 	createTray();
+	
+	// Setup Audio Worker IPC (Phase 2)
+	setupAudioIPC();
 
 	ipcMain.handle('command', mainCommand);
 	
@@ -469,6 +514,307 @@ function mainCommand(e, data) {
 	return true;
 }
 
+// ═══════════════════════════════════════════════════════════
+// AUDIO ENGINE LIFECYCLE
+// ═══════════════════════════════════════════════════════════
+
+async function createEngineWindow() {
+    if (engineWindow) return;
+    if (audioState.engineInitializing) return;
+    
+    audioState.engineInitializing = true;
+    fb('Creating audio engine window...', 'engine');
+    
+    try {
+        engineWindow = await helper.tools.browserWindow('default', {
+            frame: false,
+            show: false,           // Hidden window
+            width: 400,
+            height: 300,
+            resizable: false,
+            maximizable: false,
+            devTools: !isPackaged, // Allow devtools in dev mode
+            transparent: false,
+            backgroundColor: '#1a1a1a',
+            file: 'html/engines.html',
+            webPreferences: {
+                navigateOnDragDrop: false,
+                backgroundThrottling: false  // Keep engine running when hidden
+            }
+        });
+        
+        // Track engine state
+        engineWindow.on('closed', () => {
+            audioState.engineAlive = false;
+            audioState.engineInitializing = false;
+            engineWindow = null;
+            fb('Engine window closed', 'engine');
+        });
+        
+        engineWindow.on('ready-to-show', () => {
+            fb('Engine window ready', 'engine');
+        });
+        
+        // Wait for engine:ready signal
+        ipcMain.once('engine:ready', () => {
+            audioState.engineAlive = true;
+            audioState.engineInitializing = false;
+            fb('Engine signaled ready', 'engine');
+            
+            // If we have a file loaded, tell engine to load it
+            if (audioState.file) {
+                sendToEngine('cmd:load', {
+                    file: audioState.file,
+                    position: audioState.position,
+                    paused: !audioState.isPlaying
+                });
+            }
+        });
+        
+    } catch (err) {
+        fb('Failed to create engine window: ' + err.message, 'engine');
+        audioState.engineInitializing = false;
+        engineWindow = null;
+    }
+}
+
+function disposeEngineWindow() {
+    if (!engineWindow) return;
+    
+    fb('Disposing engine window...', 'engine');
+    audioState.engineAlive = false;
+    
+    try {
+        engineWindow.destroy();  // Force close without events
+    } catch (err) {
+        fb('Error disposing engine: ' + err.message, 'engine');
+    }
+    
+    engineWindow = null;
+}
+
+function sendToEngine(channel, data) {
+    if (!engineWindow || engineWindow.isDestroyed()) return false;
+    try {
+        engineWindow.webContents.send(channel, data);
+        return true;
+    } catch (err) {
+        fb('Failed to send to engine: ' + err.message, 'engine');
+        return false;
+    }
+}
+
+function sendToPlayer(channel, data) {
+    // For now, send to main window (stage.html)
+    // Later this will be playerWindow
+    if (!wins.main || wins.main.isDestroyed()) return false;
+    try {
+        wins.main.webContents.send(channel, data);
+        return true;
+    } catch (err) {
+        return false;
+    }
+}
+
+function broadcastState(excludeEngine = false) {
+    const stateUpdate = {
+        file: audioState.file,
+        isPlaying: audioState.isPlaying,
+        position: audioState.position,
+        duration: audioState.duration,
+        mode: audioState.mode,
+        tapeSpeed: audioState.tapeSpeed,
+        pitch: audioState.pitch,
+        tempo: audioState.tempo,
+        formant: audioState.formant,
+        locked: audioState.locked,
+        volume: audioState.volume,
+        loop: audioState.loop,
+        activePipeline: audioState.activePipeline,
+        metadata: audioState.metadata,
+        fileType: audioState.fileType
+    };
+    
+    // Send to player window
+    sendToPlayer('state:update', stateUpdate);
+    
+    // Optionally send to other windows (settings, monitoring, etc.)
+    // via tools.broadcast if needed
+}
+
+// ═══════════════════════════════════════════════════════════
+// IPC HANDLERS (AUDIO WORKER ARCHITECTURE)
+// ═══════════════════════════════════════════════════════════
+
+function setupAudioIPC() {
+    // Commands from player UI → forward to engine
+    ipcMain.on('audio:play', async () => {
+        audioState.isPlaying = true;
+        if (!audioState.engineAlive) {
+            await createEngineWindow();
+        }
+        sendToEngine('cmd:play');
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:pause', () => {
+        audioState.isPlaying = false;
+        sendToEngine('cmd:pause');
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:seek', (e, data) => {
+        if (data && typeof data.position === 'number') {
+            audioState.position = data.position;
+            sendToEngine('cmd:seek', { position: data.position });
+        }
+    });
+    
+    ipcMain.on('audio:load', async (e, data) => {
+        if (!data || !data.file) return;
+        
+        audioState.file = data.file;
+        audioState.position = data.position || 0;
+        audioState.isPlaying = !data.paused;
+        audioState.duration = 0;
+        audioState.metadata = null;
+        
+        if (!audioState.engineAlive) {
+            await createEngineWindow();
+        }
+        
+        sendToEngine('cmd:load', {
+            file: data.file,
+            position: data.position || 0,
+            paused: data.paused || false
+        });
+        
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:next', () => {
+        sendToEngine('cmd:next');
+    });
+    
+    ipcMain.on('audio:prev', () => {
+        sendToEngine('cmd:prev');
+    });
+    
+    ipcMain.on('audio:setParams', (e, data) => {
+        // Update local state
+        if (data.mode !== undefined) audioState.mode = data.mode;
+        if (data.tapeSpeed !== undefined) audioState.tapeSpeed = data.tapeSpeed;
+        if (data.pitch !== undefined) audioState.pitch = data.pitch;
+        if (data.tempo !== undefined) audioState.tempo = data.tempo;
+        if (data.formant !== undefined) audioState.formant = data.formant;
+        if (data.locked !== undefined) audioState.locked = data.locked;
+        if (data.volume !== undefined) audioState.volume = data.volume;
+        if (data.loop !== undefined) audioState.loop = data.loop;
+        
+        // Forward to engine
+        sendToEngine('cmd:setParams', data);
+        
+        // Broadcast to UI
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:setPlaylist', (e, data) => {
+        if (data.playlist) audioState.playlist = data.playlist;
+        if (data.index !== undefined) audioState.playlistIndex = data.index;
+        
+        sendToEngine('cmd:playlist', {
+            music: audioState.playlist,
+            idx: audioState.playlistIndex,
+            max: audioState.playlist.length - 1
+        });
+    });
+    
+    // Events from engine → update state and broadcast to player
+    ipcMain.on('audio:position', (e, position) => {
+        audioState.position = position;
+        // Targeted send to player only (frequent updates)
+        sendToPlayer('position', position);
+    });
+    
+    ipcMain.on('audio:state', (e, data) => {
+        if (data.isPlaying !== undefined) {
+            audioState.isPlaying = data.isPlaying;
+        }
+        if (data.isLoop !== undefined) {
+            audioState.loop = data.isLoop;
+        }
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:loaded', (e, data) => {
+        if (data.duration) audioState.duration = data.duration;
+        if (data.file) audioState.file = data.file;
+        broadcastState();
+    });
+    
+    ipcMain.on('audio:ended', () => {
+        // Handle track end - advance playlist
+        handleTrackEnded();
+    });
+    
+    ipcMain.on('audio:metadata', (e, data) => {
+        if (data.duration) audioState.duration = data.duration;
+        if (data.metadata) audioState.metadata = data.metadata;
+        if (data.fileType) audioState.fileType = data.fileType;
+        broadcastState();
+    });
+    
+    // Window visibility (for monitoring)
+    ipcMain.on('window-visible', (e, data) => {
+        if (data && data.type) {
+            sendToEngine('window-visible', data);
+        }
+    });
+    
+    ipcMain.on('window-hidden', (e, data) => {
+        if (data && data.type) {
+            sendToEngine('window-hidden', data);
+        }
+    });
+}
+
+async function handleTrackEnded() {
+    fb('Track ended, advancing...', 'engine');
+    
+    if (audioState.loop && audioState.file) {
+        // Loop current track
+        audioState.position = 0;
+        sendToEngine('cmd:seek', { position: 0 });
+        sendToEngine('cmd:play');
+        audioState.isPlaying = true;
+    } else if (audioState.playlist.length > 0) {
+        // Advance to next track
+        audioState.playlistIndex++;
+        if (audioState.playlistIndex >= audioState.playlist.length) {
+            audioState.playlistIndex = 0;  // Wrap around
+        }
+        
+        const nextFile = audioState.playlist[audioState.playlistIndex];
+        if (nextFile) {
+            audioState.file = nextFile;
+            audioState.position = 0;
+            audioState.isPlaying = true;
+            audioState.duration = 0;
+            audioState.metadata = null;
+            
+            sendToEngine('cmd:load', {
+                file: nextFile,
+                position: 0,
+                paused: false
+            });
+        }
+    } else {
+        audioState.isPlaying = false;
+    }
+    
+    broadcastState();
+}
+
 function fb(o, context = 'main') {
 	if (!isPackaged) {
 		console.log(context + ' : ', o);
@@ -477,6 +823,5 @@ function fb(o, context = 'main') {
 		wins.main.webContents.send('log', { context: context, data: o });
 	}
 }
-
 
 module.exports.fb = fb;
