@@ -51,6 +51,300 @@ g.audioParams = {
 	locked: false      // lock settings across track changes
 };
 
+// =============================================================================
+// ROUTING COORDINATOR - Centralized State Machine
+// =============================================================================
+// Single source of truth for audio pipeline and monitoring state decisions.
+// All routing logic lives here; execution happens via applyRoutingState().
+
+/**
+ * Calculate which audio pipeline should be active based on current state.
+ * Returns: 'normal' | 'rubberband'
+ */
+function calculateDesiredPipeline() {
+	// No FFmpeg file playing = normal pipeline (no rubberband for MIDI/tracker)
+	if (!g.currentAudio || !g.currentAudio.isFFmpeg) return 'normal';
+	
+	// Locked pitchtime mode persists even when parameters window closed
+	if (g.audioParams.locked && g.audioParams.mode === 'pitchtime') return 'rubberband';
+	
+	// Parameters window open in pitchtime mode
+	if (g.parametersOpen && g.audioParams.mode === 'pitchtime') return 'rubberband';
+	
+	// Default: normal pipeline
+	return 'normal';
+}
+
+/**
+ * Calculate whether monitoring should be active based on current state.
+ * Returns: boolean
+ */
+function calculateDesiredMonitoring() {
+	// Window must exist, be visible, and be ready
+	return !!(g.windows.monitoring && g.windowsVisible.monitoring && g.monitoringReady);
+}
+
+/**
+ * Apply the calculated routing state.
+ * Handles transitions between pipeline states and monitoring activation.
+ * Call this whenever state changes affect routing (window show/hide, mode change, track change).
+ * 
+ * @param {boolean|null} shouldPlay - Explicitly set playback state after transition (null = auto-detect from current player)
+ */
+async function applyRoutingState(shouldPlay = null) {
+	const desiredPipeline = calculateDesiredPipeline();
+	const desiredMonitoring = calculateDesiredMonitoring();
+	
+	// --- Pipeline Routing (with lazy rubberband initialization) ---
+	if (g.activePipeline !== desiredPipeline) {
+		if (desiredPipeline === 'rubberband') {
+			// Transition to rubberband - lazy init if needed
+			if (g.currentAudio && g.currentAudio.isFFmpeg) {
+				const ready = await ensureRubberbandPipeline();
+				if (ready) {
+					console.log('[Routing] Switching to rubberband pipeline');
+					try {
+						await switchPipeline('rubberband', shouldPlay);
+						g.rubberbandPlayer.connect();
+						// Connect to monitoring if active
+						if (desiredMonitoring && g.monitoringSplitter_RB) {
+							g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
+							console.log('[Routing] Connected rubberband to monitoring splitter');
+						} else if (desiredMonitoring) {
+							console.log('[Routing] RB monitoring splitter not available yet');
+						}
+					} catch (err) {
+						console.error('[Routing] Failed to switch to rubberband:', err);
+					}
+				}
+			}
+		} else {
+			// Transition to normal
+			if (g.activePipeline === 'rubberband') {
+				console.log('[Routing] Switching to normal pipeline');
+				// Use switchPipeline to properly transition playback to normal player
+				try {
+					await switchPipeline('normal', shouldPlay);
+				} catch (err) {
+					console.error('[Routing] Failed to switch to normal pipeline:', err);
+				}
+			}
+		}
+	}
+	
+	// --- Rubberband Cleanup (when no longer needed) ---
+	// Destroy rubberband if: not desired, not locked, and not currently playing
+	const shouldKeepRubberband = desiredPipeline === 'rubberband' || 
+		(g.audioParams.locked && g.audioParams.mode === 'pitchtime');
+	if (!shouldKeepRubberband && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
+		// Destroy to free ~70MB memory
+		await destroyRubberbandPipeline();
+	}
+	
+	// --- Monitoring Routing (lazy resource management) ---
+	if (desiredMonitoring && !g.monitoringAnalyserL) {
+		// Monitoring just became active - create resources
+		initMonitoring();
+	} else if (!desiredMonitoring && g.monitoringAnalyserL) {
+		// Monitoring just became inactive - destroy resources to save CPU/memory
+		destroyMonitoring();
+	}
+	
+	// --- Monitoring Connection Updates ---
+	if (desiredMonitoring && g.monitoringAnalyserL) {
+		// Ensure correct pipeline is connected to monitoring taps
+		await updateMonitoringConnections();
+	}
+}
+
+/**
+ * Update monitoring tap connections based on current pipeline.
+ * Called when pipeline switches while monitoring is active.
+ */
+async function updateMonitoringConnections() {
+	// Disconnect all sources first (idempotent) - safe even if splitters don't exist
+	try {
+		if (g.ffmpegPlayer?.gainNode && g.monitoringSplitter) g.ffmpegPlayer.gainNode.disconnect(g.monitoringSplitter);
+	} catch (e) {}
+	try {
+		if (player?.gain && g.monitoringSplitter) player.gain.disconnect(g.monitoringSplitter);
+	} catch (e) {}
+	try {
+		if (midi?.gain && g.monitoringSplitter) midi.gain.disconnect(g.monitoringSplitter);
+	} catch (e) {}
+	try {
+		if (g.rubberbandPlayer && g.monitoringSplitter_RB) g.rubberbandPlayer.disconnect(g.monitoringSplitter_RB);
+	} catch (e) {}
+	
+	// Small delay to ensure player is fully initialized
+	await new Promise(resolve => setTimeout(resolve, 10));
+	
+	// Connect active source to appropriate splitter
+	if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && g.monitoringSplitter_RB) {
+		g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
+		console.log('[Monitoring] Connected rubberband player to RB splitter');
+	} else if (g.monitoringSplitter) {
+		// Normal pipeline - connect based on file type
+		if (g.currentAudio?.isFFmpeg && g.ffmpegPlayer?.gainNode) {
+			g.ffmpegPlayer.gainNode.connect(g.monitoringSplitter);
+		} else if (g.currentAudio?.isMod && player?.gain) {
+			player.gain.connect(g.monitoringSplitter);
+		} else if (g.currentAudio?.isMidi && midi?.gain) {
+			// MIDI: connect via resampler if active, otherwise direct
+			const sourceNode = midi.needsResampling ? midi.resamplerSource : midi.gain;
+			if (sourceNode) sourceNode.connect(g.monitoringSplitter);
+		}
+	}
+}
+
+/**
+ * Destroy monitoring resources to free CPU/memory.
+ * Called when monitoring window is hidden.
+ */
+function destroyMonitoring() {
+	if (g.monitoringLoop) {
+		clearInterval(g.monitoringLoop);
+		g.monitoringLoop = null;
+	}
+	
+	if (g.monitoringAnalyserL) {
+		try { g.monitoringAnalyserL.disconnect(); } catch (e) {}
+		g.monitoringAnalyserL = null;
+	}
+	if (g.monitoringAnalyserR) {
+		try { g.monitoringAnalyserR.disconnect(); } catch (e) {}
+		g.monitoringAnalyserR = null;
+	}
+	if (g.monitoringSplitter) {
+		try { g.monitoringSplitter.disconnect(); } catch (e) {}
+		g.monitoringSplitter = null;
+	}
+	
+	if (g.monitoringAnalyserL_RB) {
+		try { g.monitoringAnalyserL_RB.disconnect(); } catch (e) {}
+		g.monitoringAnalyserL_RB = null;
+	}
+	if (g.monitoringAnalyserR_RB) {
+		try { g.monitoringAnalyserR_RB.disconnect(); } catch (e) {}
+		g.monitoringAnalyserR_RB = null;
+	}
+	if (g.monitoringSplitter_RB) {
+		try { g.monitoringSplitter_RB.disconnect(); } catch (e) {}
+		g.monitoringSplitter_RB = null;
+	}
+	
+	g.monitoringBuffers = null;
+}
+
+/**
+ * Ensure rubberband pipeline is initialized (lazy initialization).
+ * Creates context and player on demand. Idempotent - safe to call multiple times.
+ */
+async function ensureRubberbandPipeline() {
+	// Already initialized?
+	if (g.rubberbandPlayer && g.rubberbandContext && g.rubberbandContext.state !== 'closed') {
+		return true;
+	}
+	
+	console.log('[Rubberband] Lazy initializing pipeline (48kHz)...');
+	
+	try {
+		// Create 48kHz context for rubberband (fixed rate, ignores HQ mode)
+		if (!g.rubberbandContext || g.rubberbandContext.state === 'closed') {
+			g.rubberbandContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+			
+			// Match output device to main context
+			const outDevId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
+			if (outDevId) {
+				try {
+					await g.rubberbandContext.setSinkId(outDevId);
+				} catch (err) {
+					console.warn('[Rubberband] Failed to set output device:', err);
+				}
+			}
+		}
+		
+		// Create rubberband pipeline
+		const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
+		const RubberbandPipeline = require('./rubberband-pipeline.js');
+		g.rubberbandPlayer = new RubberbandPipeline(g.rubberbandContext, g.FFmpegDecoder, g.ffmpeg_player_path, g.ffmpeg_worklet_path, g.rubberband_worklet_path, threadCount);
+		
+		await g.rubberbandPlayer.init();
+		console.log('[Rubberband] Pipeline initialized (48kHz)');
+		
+		// Re-initialize monitoring to create RB analysers now that context exists
+		if (g.windows.monitoring && g.windowsVisible.monitoring) {
+			console.log('[Rubberband] Re-init monitoring after context creation');
+			initMonitoring();
+		}
+		
+		return true;
+	} catch (err) {
+		console.error('[Rubberband] Failed to initialize pipeline:', err);
+		g.rubberbandPlayer = null;
+		return false;
+	}
+}
+
+/**
+ * Destroy rubberband pipeline to free memory (~70MB WASM heap).
+ * Called when pitchtime mode is no longer needed.
+ */
+async function destroyRubberbandPipeline() {
+	if (!g.rubberbandPlayer && !g.rubberbandContext) return;
+	
+	console.log('[Rubberband] Destroying pipeline to free memory...');
+	
+	// Disconnect from monitoring if connected
+	if (g.monitoringSplitter_RB) {
+		try {
+			if (g.rubberbandPlayer) g.rubberbandPlayer.disconnect(g.monitoringSplitter_RB);
+		} catch (e) {}
+	}
+	
+	// Dispose player
+	if (g.rubberbandPlayer) {
+		try {
+			await g.rubberbandPlayer.stop(false);
+			if (typeof g.rubberbandPlayer.dispose === 'function') {
+				g.rubberbandPlayer.dispose();
+			}
+		} catch (e) {
+			console.warn('[Rubberband] Error disposing player:', e);
+		}
+		g.rubberbandPlayer = null;
+	}
+	
+	// Also destroy rubberband-specific monitoring taps
+	if (g.monitoringAnalyserL_RB) {
+		try { g.monitoringAnalyserL_RB.disconnect(); } catch (e) {}
+		g.monitoringAnalyserL_RB = null;
+	}
+	if (g.monitoringAnalyserR_RB) {
+		try { g.monitoringAnalyserR_RB.disconnect(); } catch (e) {}
+		g.monitoringAnalyserR_RB = null;
+	}
+	if (g.monitoringSplitter_RB) {
+		try { g.monitoringSplitter_RB.disconnect(); } catch (e) {}
+		g.monitoringSplitter_RB = null;
+	}
+	
+	// Close context
+	if (g.rubberbandContext && g.rubberbandContext.state !== 'closed') {
+		try {
+			await g.rubberbandContext.close();
+		} catch (e) {}
+	}
+	g.rubberbandContext = null;
+	
+	// Reset active pipeline so applyRoutingState() knows to recreate rubberband if needed
+	if (g.activePipeline === 'rubberband') {
+		g.activePipeline = 'normal';
+	}
+	
+	console.log('[Rubberband] Pipeline destroyed');
+}
+
 // Init
 // ###########################################################################
 
@@ -70,6 +364,93 @@ async function detectMaxSampleRate() {
 	return 48000;
 }
 
+/**
+ * DEBUG MODE: Initialize components step by step for CPU profiling
+ * @param {number} level - 1-7, what to initialize
+ */
+async function runDebugInit(level) {
+	console.log('[DEBUG] Starting step-by-step initialization, level:', level);
+	
+	// Level 0: Just window and basic UI
+	g.config = { ui: { theme: 'dark', showControls: true }, audio: {}, windows: { main: {} } };
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	g.win.show();
+	if (!g.isPackaged) { g.win.toggleDevTools() }
+	
+	g.body = document.body;
+	g.body.classList.add('dark');
+	
+	console.log('[DEBUG] Level 0 complete - Basic UI only. Check CPU now.');
+	if (level === 0) return;
+	
+	// Level 1: Add config system
+	console.log('[DEBUG] Level 1: Initializing config system...');
+	g.configName = g.main_env.configName || 'user';
+	g.config_obj = await helper.config.initRenderer(g.configName, () => {});
+	g.config = g.config_obj.get() || { ui: { theme: 'dark' }, audio: {} };
+	console.log('[DEBUG] Level 1 complete - Config system added. Check CPU now.');
+	if (level === 1) return;
+	
+	// Level 2: Add AudioContext (but keep it suspended)
+	console.log('[DEBUG] Level 2: Creating AudioContext (suspended)...');
+	const targetRate = (g.config.audio?.hqMode) ? 48000 : 48000; // Use 48k for testing
+	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
+	await g.audioContext.suspend(); // Keep it suspended!
+	console.log('[DEBUG] Level 2 complete - AudioContext created (suspended). Check CPU now.');
+	if (level === 2) return;
+	
+	// Level 3: Add FFmpeg player (not playing)
+	console.log('[DEBUG] Level 3: Initializing FFmpeg player (idle)...');
+	let fp = g.app_path;
+	if (g.isPackaged) { fp = path.dirname(fp); }
+	g.ffmpeg_napi_path = path.resolve(fp + '/bin/win_bin/ffmpeg_napi.node');
+	g.ffmpeg_player_path = path.resolve(fp + '/bin/win_bin/player-sab.js');
+	g.ffmpeg_worklet_path = path.resolve(fp + '/bin/win_bin/ffmpeg-worklet-sab.js');
+	
+	const { FFmpegDecoder } = require(g.ffmpeg_napi_path);
+	g.FFmpegDecoder = FFmpegDecoder;
+	const { FFmpegStreamPlayerSAB } = require(g.ffmpeg_player_path);
+	FFmpegStreamPlayerSAB.setDecoder(FFmpegDecoder);
+	
+	g.ffmpegPlayer = new FFmpegStreamPlayerSAB(g.audioContext, g.ffmpeg_worklet_path, 'ffmpeg-stream-sab', 2, 0, false);
+	await g.ffmpegPlayer.init();
+	// Keep audio context suspended - don't connect to destination yet
+	console.log('[DEBUG] Level 3 complete - FFmpeg player initialized (idle). Check CPU now.');
+	if (level === 3) return;
+	
+	// Level 4: Resume AudioContext and connect player
+	console.log('[DEBUG] Level 4: Resuming AudioContext and connecting player...');
+	await g.audioContext.resume();
+	g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
+	console.log('[DEBUG] Level 4 complete - AudioContext running, player connected. Check CPU now.');
+	if (level === 4) return;
+	
+	// Level 5: Add MIDI player
+	console.log('[DEBUG] Level 5: Initializing MIDI player...');
+	await initMidiPlayer();
+	console.log('[DEBUG] Level 5 complete - MIDI player added. Check CPU now.');
+	if (level === 5) return;
+	
+	// Level 6: Add Tracker player
+	console.log('[DEBUG] Level 6: Initializing Tracker player...');
+	player = new window.chiptune({
+		repeatCount: 0,
+		stereoSeparation: 100,
+		context: g.audioContext
+	});
+	player.onInitialized(() => {
+		player.gain.connect(g.audioContext.destination);
+		console.log('[DEBUG] Tracker player ready');
+	});
+	console.log('[DEBUG] Level 6 complete - Tracker player added. Check CPU now.');
+	if (level === 6) return;
+	
+	// Level 7: Full initialization (normal mode)
+	console.log('[DEBUG] Level 7: Running full appStart()...');
+	await appStart();
+	console.log('[DEBUG] Level 7 complete - Full initialization.');
+}
+
 init();
 async function init() {
 	fb('Init Stage')
@@ -80,6 +461,73 @@ async function init() {
 	g.cache_path = await helper.global.get('temp_path');
 	g.start_vars = await helper.global.get('start_vars');
 	g.app_path = await helper.app.getAppPath();
+	
+	// MINIMAL MODE: For debugging CPU usage - skips all heavy initialization
+	// Check for --minimal flag or MINIMAL_MODE env var
+	const isMinimalMode = g.start_vars?.includes('--minimal') || g.main_env?.MINIMAL_MODE;
+	const debugMode = g.main_env?.DEBUG_MODE; // Step-by-step component enablement
+	
+	if (isMinimalMode) {
+		console.log('═══════════════════════════════════════════════════════════');
+		console.log('  MINIMAL MODE ENABLED - Skipping all heavy initialization');
+		console.log('  Only basic UI will be loaded. Check Task Manager for CPU.');
+		console.log('═══════════════════════════════════════════════════════════');
+		
+		// Minimal config
+		g.config = { ui: { theme: 'dark', showControls: true }, audio: {}, windows: { main: {} } };
+		
+		// Show window with minimal setup
+		await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		g.win.show();
+		if (!g.isPackaged) { g.win.toggleDevTools() }
+		
+		// Set up basic UI only
+		g.body = document.body;
+		g.body.classList.add('dark');
+		g.frame = document.querySelector('.frame');
+		g.top = document.querySelector('.top');
+		
+		fb('Minimal mode - ready. Check CPU usage now.');
+		return; // Skip everything else
+	}
+	
+	// DEBUG MODE: Step-by-step component testing
+	// Set DEBUG_MODE in env.json to test each component:
+	// 1 = Config system only
+	// 2 = + AudioContext (suspended)
+	// 3 = + FFmpeg player (not playing)
+	// 4 = + MIDI player
+	// 5 = + Tracker player
+	// 6 = + All IPC handlers
+	// 7 = Full initialization (normal)
+	if (debugMode) {
+		console.log('═══════════════════════════════════════════════════════════');
+		console.log('  DEBUG MODE ENABLED - Level:', debugMode);
+		console.log('  Testing components step by step');
+		console.log('═══════════════════════════════════════════════════════════');
+		
+		await runDebugInit(debugMode);
+		return;
+	}
+
+	// KILL SWITCHES: For debugging CPU usage by killing components one by one
+	const killAudioContext = g.main_env?.KILL_AUDIO_CONTEXT;
+	const killFFmpeg = g.main_env?.KILL_FFMPEG;
+	const killMIDI = g.main_env?.KILL_MIDI;
+	const killTracker = g.main_env?.KILL_TRACKER;
+	const killMonitoring = g.main_env?.KILL_MONITORING;
+	
+	if (killAudioContext || killFFmpeg || killMIDI || killTracker || killMonitoring) {
+		console.log('═══════════════════════════════════════════════════════════');
+		console.log('  KILL SWITCHES ACTIVE:');
+		if (killAudioContext) console.log('    ❌ AudioContext: KILLED');
+		if (killFFmpeg) console.log('    ❌ FFmpeg Player: KILLED');
+		if (killMIDI) console.log('    ❌ MIDI Player: KILLED');
+		if (killTracker) console.log('    ❌ Tracker Player: KILLED');
+		if (killMonitoring) console.log('    ❌ Monitoring: KILLED');
+		console.log('  Check Task Manager to see which component causes CPU usage.');
+		console.log('═══════════════════════════════════════════════════════════');
+	}
 
 	g.configName = g.main_env.configName || 'user';
 	g.config_obj = await helper.config.initRenderer(g.configName, async (newData) => {
@@ -242,22 +690,20 @@ async function init() {
 
 	// Contexts will be initialized or re-applied via toggleHQMode or lazy init
 	// We ensure it exists here if not already done by config handler
-	if (!g.audioContext || g.audioContext.state === 'closed') {
+	if (!killAudioContext && (!g.audioContext || g.audioContext.state === 'closed')) {
 		const targetRate = (g.config && g.config.audio && g.config.audio.hqMode) ? g.maxSampleRate : 48000;
 		g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 		console.log('Normal pipeline AudioContext initialized:', g.audioContext.sampleRate, 'Hz');
+	} else if (killAudioContext) {
+		console.log('[KILL SWITCH] AudioContext skipped');
 	}
 
-	if (!g.rubberbandContext || g.rubberbandContext.state === 'closed') {
-		g.rubberbandContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-		console.log('Rubberband pipeline AudioContext initialized (48kHz)');
-	}
-
+	// Rubberband context is created lazily by ensureRubberbandPipeline()
+	
 	const outDevId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
 	if (outDevId) {
 		try {
 			await g.audioContext.setSinkId(outDevId);
-			await g.rubberbandContext.setSinkId(outDevId);
 			console.log('Output device set to:', outDevId);
 		} catch (err) {
 			console.error('Failed to set output device, using system default:', err);
@@ -280,34 +726,14 @@ async function init() {
 		try {
 			await g.ffmpegPlayer.init();
 
-			// Setup monitoring tap
-			initMonitoring();
-
-			// Connect FFmpeg player to both destination and monitoring tap
+			// Connect FFmpeg player to destination
 			g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
-			if (g.monitoringSplitter) {
-				g.ffmpegPlayer.gainNode.connect(g.monitoringSplitter);
-			}
 		} catch (err) {
 			console.error('Failed to initialize FFmpeg player:', err);
 		}
 	}
 
-	if (!g.rubberbandPlayer) {
-		g.rubberbandPlayer = new RubberbandPipeline(g.rubberbandContext, g.FFmpegDecoder, g.ffmpeg_player_path, g.ffmpeg_worklet_path, g.rubberband_worklet_path, threadCount);
-		try {
-			await g.rubberbandPlayer.init();
-			console.log('Rubberband pipeline initialized (48kHz)');
-
-			g.rubberbandPlayer.connect(g.rubberbandContext.destination);
-			if (g.monitoringSplitter_RB) {
-				g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
-			}
-		} catch (err) {
-			console.error('Failed to initialize Rubberband player:', err);
-			g.rubberbandPlayer = null;
-		}
-	}
+	// Rubberband pipeline is initialized lazily by ensureRubberbandPipeline()
 
 	// Initialize MIDI player BEFORE tracker player callbacks
 	// (appStart() may be triggered by onInitialized before this function returns)
@@ -376,6 +802,7 @@ async function init() {
 
 			if (data.type === 'monitoring') {
 				g.monitoringReady = false;
+				stopMonitoringLoop();
 			}
 
 			if (data.type === 'midi') {
@@ -399,6 +826,7 @@ async function init() {
 
 		if (data.type === 'monitoring') {
 			g.monitoringReady = false;
+			stopMonitoringLoop();
 		}
 
 		if (data.type === 'midi') {
@@ -461,6 +889,9 @@ async function init() {
 				}
 			}
 		}
+
+		// Apply routing state changes (e.g., monitoring deactivated, pipeline switched)
+		await applyRoutingState();
 
 		g.win.focus();
 	});
@@ -725,14 +1156,8 @@ async function init() {
 				console.log('[Stage] audioMode change:', oldMode, '→', newMode);
 				g.audioParams.mode = newMode;
 
-				// Switch pipeline based on mode
-				if (newMode === 'pitchtime' && g.activePipeline !== 'rubberband') {
-					console.log('[Stage] Switching to rubberband pipeline');
-					await switchPipeline('rubberband');
-				} else if (newMode === 'tape' && g.activePipeline === 'rubberband') {
-					console.log('[Stage] Switching to normal pipeline');
-					await switchPipeline('normal');
-				}
+				// Apply routing state (centralized pipeline switching)
+				await applyRoutingState();
 			}
 			else if (data.param === 'tapeSpeed') {
 				console.log('[Stage] tapeSpeed:', data.value, 'currentAudio:', g.currentAudio?.isFFmpeg, g.currentAudio?.isMod);
@@ -770,6 +1195,9 @@ async function init() {
 					if (g.rubberbandPlayer.isPlaying && typeof g.rubberbandPlayer.fadeOut === 'function') {
 						try {
 							await g.rubberbandPlayer.fadeOut();
+							
+							// Re-check after async - player may have been destroyed
+							if (!g.rubberbandPlayer) return;
 
 							if (typeof g.rubberbandPlayer.setOptions === 'function') {
 								g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
@@ -777,9 +1205,11 @@ async function init() {
 
 							// 300ms stabilization for kernel recreation
 							await new Promise(resolve => setTimeout(resolve, 300));
+							
+							// Re-check after async - player may have been destroyed
+							if (!g.rubberbandPlayer) return;
 
 							await g.rubberbandPlayer.fadeIn();
-							console.log('[Stage] Formant option changed with fade+stabilization');
 						} catch (err) {
 							console.error('[Stage] Error during formant change:', err);
 						}
@@ -900,6 +1330,13 @@ async function init() {
 		console.log('[Monitoring] Window signaled ready (id:', data.windowId, ')');
 		// Mark window as ready to receive messages
 		g.monitoringReady = true;
+		
+		// Start the monitoring update loop (only when visible)
+		startMonitoringLoop();
+		
+		// Apply routing state to activate monitoring resources
+		await applyRoutingState();
+		
 		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 		if (currentFile && g.windows.monitoring) {
 			// Send file-change so monitoring can parse MIDI timeline if applicable
@@ -1114,6 +1551,8 @@ async function appStart() {
 
 	loop();
 
+	// Setup auto-freeze on inactivity (nuclear CPU saving option)
+	// setupFreezeOnInactivity(); // Uncomment to enable
 }
 
 function onWheelVolume(e) {
@@ -1455,6 +1894,9 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			try {
 				await midi.load(tools.getFileURL(fp));
 
+				// Reconnect monitoring taps for new MIDI player
+				await updateMonitoringConnections();
+
 				if (!g.currentAudio.duration && midi.getDuration() > 0) {
 					g.currentAudio.duration = midi.getDuration();
 				}
@@ -1521,6 +1963,9 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			player.load(tools.getFileURL(fp));
 			player.gain.gain.value = initialVol;
 
+			// Reconnect monitoring taps for new tracker player
+			await updateMonitoringConnections();
+
 			// Reset tracker params on new file (no lock feature for tracker)
 			g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
 
@@ -1585,23 +2030,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 		else {
 			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'audioMode:', g.audioParams?.mode, 'activePipeline:', g.activePipeline);
 			try {
-				// Determine which pipeline to use based on audio mode (not just window state)
-				const shouldUseRubberband = g.parametersOpen && g.audioParams && g.audioParams.mode === 'pitchtime';
+				// Note: applyRoutingState is called after g.currentAudio is set so calculateDesiredPipeline() works correctly
 				
-				if (shouldUseRubberband && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
-					console.log('[playAudio] Need to switch to rubberband - was:', g.activePipeline);
-					g.activePipeline = 'rubberband';
-					g.rubberbandPlayer.connect(); // Connect to destination for audio output
-					if (g.monitoringSplitter_RB) {
-						g.rubberbandPlayer.connect(g.monitoringSplitter_RB); // Also connect to monitoring
-					}
-					console.log('[playAudio] Switched to rubberband pipeline');
-				} else if (!shouldUseRubberband && g.activePipeline === 'rubberband') {
-					console.log('[playAudio] Should use normal pipeline (tape mode or params closed) - switching from rubberband');
-					g.rubberbandPlayer.disconnect();
-					g.activePipeline = 'normal';
-				}
-
 				const ffPlayer = (g.activePipeline === 'rubberband' && g.rubberbandPlayer) ? g.rubberbandPlayer : g.ffmpegPlayer;
 				console.log('[playAudio] Selected player:', g.activePipeline === 'rubberband' ? 'rubberbandPlayer' : 'ffmpegPlayer');
 
@@ -1617,10 +2047,6 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 
 				console.log('[playAudio] Opening file with', g.activePipeline, 'player...');
 				const metadata = await ffPlayer.open(fp);
-
-				if (g.windows.monitoring) {
-					extractAndSendWaveform(fp);
-				}
 
 				console.log('[playAudio] File opened, duration:', metadata?.duration, 'sampleRate:', metadata?.sampleRate);
 				ffPlayer.setLoop(g.isLoop);
@@ -1641,41 +2067,50 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 					getCurrentTime: () => ffPlayer.getCurrentTime()
 				};
 
-				ffPlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+				// Now apply routing state (locked settings may require pipeline switch)
+				// Pass shouldPlay to ensure correct playback state after pipeline switch
+				await applyRoutingState(!startPaused);
+				
+				// Reconnect monitoring taps for new player (after g.currentAudio is set and pipeline is finalized)
+				await updateMonitoringConnections();
+
+				if (g.windows.monitoring) {
+					extractAndSendWaveform(fp);
+				}
+
+				// Use g.currentAudio.player which may have been updated by applyRoutingState/switchPipeline
+				const activePlayer = g.currentAudio.player;
+				activePlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 
 				// Apply locked settings based on mode
 				const locked = g.audioParams && g.audioParams.locked;
 				if (locked) {
 					if (g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
 						// Tape mode: apply playback rate
-						ffPlayer.setPlaybackRate(g.audioParams.tapeSpeed);
-						console.log('[playAudio] Applied locked tape speed:', g.audioParams.tapeSpeed);
+						activePlayer.setPlaybackRate(g.audioParams.tapeSpeed);
 					} else if (g.audioParams.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
 						// Pitch/Time mode: apply rubberband parameters
-						if (typeof ffPlayer.setPitch === 'function') {
+						if (typeof activePlayer.setPitch === 'function') {
 							const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
-							ffPlayer.setPitch(pitchRatio);
-							console.log('[playAudio] Applied locked pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
+							activePlayer.setPitch(pitchRatio);
 						}
-						if (typeof ffPlayer.setTempo === 'function') {
-							ffPlayer.setTempo(g.audioParams.tempo || 1.0);
-							console.log('[playAudio] Applied locked tempo:', g.audioParams.tempo || 1.0);
+						if (typeof activePlayer.setTempo === 'function') {
+							activePlayer.setTempo(g.audioParams.tempo || 1.0);
 						}
-						if (typeof ffPlayer.setOptions === 'function') {
-							ffPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
-							console.log('[playAudio] Applied locked formant:', !!g.audioParams.formant);
+						if (typeof activePlayer.setOptions === 'function') {
+							activePlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
 						}
 					}
 				}
 
-				if (!startPaused) {
+				if (!startPaused && !activePlayer.isPlaying) {
 					console.log('[playAudio] Starting playback...');
-					await ffPlayer.play();
-					console.log('[playAudio] Playback started, isPlaying:', ffPlayer.isPlaying);
+					await activePlayer.play();
+					console.log('[playAudio] Playback started, isPlaying:', activePlayer.isPlaying);
 				}
-				else {
+				else if (startPaused) {
 					console.log('[playAudio] Pausing (startPaused=true)');
-					if (typeof ffPlayer.pause === 'function') await ffPlayer.pause();
+					if (typeof activePlayer.pause === 'function') await activePlayer.pause();
 				}
 
 				checkState();
@@ -1881,13 +2316,21 @@ function renderTopInfo() {
 	g.top_num.innerText = (g.idx + 1) + ' of ' + (g.max + 1);
 }
 
-async function switchPipeline(newMode) {
+async function switchPipeline(newMode, shouldPlay = null) {
 	if (g.activePipeline === newMode) return;
 	if (!g.currentAudio || !g.currentAudio.isFFmpeg) return;
 
 	console.log('Switching pipeline:', g.activePipeline, '->', newMode);
 
-	const wasPlaying = g.currentAudio.player ? g.currentAudio.player.isPlaying : false;
+	// Determine if we should continue playing after the switch
+	// If shouldPlay is explicitly provided (not null), use that value
+	// Otherwise detect from current player state
+	let wasPlaying;
+	if (shouldPlay !== null) {
+		wasPlaying = shouldPlay;
+	} else {
+		wasPlaying = g.currentAudio.player ? g.currentAudio.player.isPlaying : false;
+	}
 	const currentTime = g.currentAudio.getCurrentTime ? g.currentAudio.getCurrentTime() : 0;
 
 	if (g.currentAudio.player) {
@@ -1911,12 +2354,14 @@ async function switchPipeline(newMode) {
 			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			newPlayer.volume = vol;
 			newPlayer.setLoop(g.isLoop);
+			
+			// Set up onEnded callback for track progression
+			if (typeof newPlayer.onEnded === 'function') {
+				newPlayer.onEnded(audioEnded);
+			}
 
 			// Apply stored audio params when switching to rubberband
 			if (newMode === 'rubberband' && g.audioParams) {
-				// Ensure monitoring taps are correctly initialized for this context
-				initMonitoring();
-
 				// Connect rubberband to both audio destination and monitoring tap (T-junction)
 				if (typeof newPlayer.connect === 'function') {
 					newPlayer.connect(); // Connects to destination by default
@@ -1955,13 +2400,15 @@ async function switchPipeline(newMode) {
 			}
 
 			if (currentTime > 0) newPlayer.seek(currentTime);
-
+			
+			// Resume playback if it was playing
 			if (wasPlaying) {
 				g.currentAudio.paused = false;
 				await newPlayer.play();
 			} else {
 				g.currentAudio.paused = true;
 			}
+			checkState();
 		} catch (err) {
 			console.error('Pipeline switch failed:', err);
 		}
@@ -1989,8 +2436,8 @@ function clearAudio() {
 		if (g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function') {
 			g.rubberbandPlayer.player.clearBuffer();
 		}
-		g.rubberbandPlayer.stop(false);
-		console.log('[clearAudio] Stopped, reset, and disposed rubberband worklet');
+		g.rubberbandPlayer.stop(true); // Use retain=true to preserve internal player resources
+		console.log('[clearAudio] Stopped and reset rubberband (retained internal player)');
 		g.activePipeline = 'normal';
 	}
 	if (g.currentAudio) {
@@ -2125,6 +2572,12 @@ function applyShowControls(show, resetSize = false) {
 
 async function initMidiPlayer() {
 	if (!window.midi || !g.audioContext) return;
+	
+	// Allow disabling MIDI player to save CPU (0.3-0.5% constant usage even when idle)
+	if (g.config?.audio?.disableMidiPlayer) {
+		console.log('[MIDI] Disabled via config (disableMidiPlayer: true)');
+		return;
+	}
 	let fp = g.app_path;
 	if (g.isPackaged) { fp = path.dirname(fp); }
 	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
@@ -2251,11 +2704,8 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 	try {
 		await tempMidi.init();
 
-		// Ensure monitoring taps are correctly initialized for this context
-		initMonitoring();
-
 		// MIDI library internally connects to context.destination (via resampling if needed).
-		// We only need to handle the monitoring bridge here.
+		// Monitoring taps are managed lazily by applyRoutingState().
 		// If resampling is active, the node in the main context is resamplerSource.
 		if (g.monitoringSplitter && g.monitoringSplitter.context === context) {
 			const sourceNode = tempMidi.needsResampling ? tempMidi.resamplerSource : tempMidi.gain;
@@ -2301,6 +2751,10 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	const wasMidi = g.currentAudio?.isMidi;
 	const currentTime = wasMod ? (player?.getCurrentTime() || 0) : (wasMidi ? (midi?.getCurrentTime() || 0) : (g.currentAudio?.player?.getCurrentTime() || 0));
 
+	// Destroy rubberband pipeline (it will be recreated lazily if needed based on locked settings)
+	// Don't force activePipeline change - let applyRoutingState() handle it based on locked state
+	await destroyRubberbandPipeline();
+
 	if (g.currentAudio) {
 		if (g.currentAudio.isMod) {
 			player.stop();
@@ -2320,6 +2774,9 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	if (g.audioContext && g.audioContext.state !== 'closed') {
 		await g.audioContext.close();
 	}
+
+	// Destroy monitoring resources so they're recreated with new context
+	destroyMonitoring();
 
 	g.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetRate });
 	console.log('New AudioContext sample rate:', g.audioContext.sampleRate);
@@ -2349,14 +2806,8 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	try { g.ffmpegPlayer.reuseWorkletNode = true; } catch (e) { }
 	await g.ffmpegPlayer.init();
 
-	// Ensure monitoring taps are correctly initialized for this context
-	initMonitoring();
-
-	// Connect to both destination and monitor (T-junction)
+	// Connect to destination (monitoring taps managed lazily by applyRoutingState())
 	g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
-	if (g.monitoringSplitter) {
-		g.ffmpegPlayer.gainNode.connect(g.monitoringSplitter);
-	}
 
 	const modConfig = {
 		repeatCount: 0,
@@ -2368,14 +2819,14 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	await new Promise((resolve) => {
 		player.onInitialized(() => {
 			console.log('Player Initialized after HQ toggle');
-			initMonitoring();
 			player.gain.connect(g.audioContext.destination);
-			if (g.monitoringSplitter) {
-				player.gain.connect(g.monitoringSplitter);
-			}
+			// Monitoring taps are managed lazily by applyRoutingState()
 			resolve();
 		});
 	});
+
+	// Re-initialize monitoring if window is still open (new context)
+	await applyRoutingState();
 
 	player.onMetadata(async (meta) => {
 		if (g.currentAudio) {
@@ -2407,6 +2858,20 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		if (wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play) {
 			g.currentAudio.play();
 		}
+	}
+
+	// Notify parameters window of current settings (especially important after rubberband recreation)
+	if (g.windows.parameters) {
+		const params = {
+			audioMode: g.audioParams.mode,
+			tapeSpeed: g.audioParams.tapeSpeed,
+			pitch: g.audioParams.pitch,
+			tempo: g.audioParams.tempo,
+			formant: g.audioParams.formant,
+			locked: g.audioParams.locked,
+			reset: false
+		};
+		tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
 	}
 
 	checkState();
@@ -2555,6 +3020,7 @@ function initMonitoring() {
 			g.monitoringSplitter_RB.connect(g.monitoringAnalyserL_RB, 0);
 			g.monitoringSplitter_RB.connect(g.monitoringAnalyserR_RB, 1);
 			// Tap only - do not connect to destination here!
+			console.log('[Monitoring] Created RB analysers and splitter');
 		}
 	}
 
@@ -2570,9 +3036,21 @@ function initMonitoring() {
 		};
 	}
 
+	// Note: monitoring loop is started/stopped based on visibility
+	// See startMonitoringLoop() and stopMonitoringLoop()
+}
+
+function startMonitoringLoop() {
 	if (!g.monitoringLoop) {
 		// Use setInterval for reliable timing (RAF pauses when window not visible)
 		g.monitoringLoop = setInterval(updateMonitoring, 1000 / 60);
+	}
+}
+
+function stopMonitoringLoop() {
+	if (g.monitoringLoop) {
+		clearInterval(g.monitoringLoop);
+		g.monitoringLoop = null;
 	}
 }
 
@@ -2582,14 +3060,16 @@ function updateMonitoring() {
 	// Determine which analysers to use
 	let aL = g.monitoringAnalyserL;
 	let aR = g.monitoringAnalyserR;
+	let analyserSource = 'normal';
 
 	if (g.activePipeline === 'rubberband' && g.monitoringAnalyserL_RB) {
 		aL = g.monitoringAnalyserL_RB;
 		aR = g.monitoringAnalyserR_RB;
+		analyserSource = 'rubberband';
 	}
 
 	if (!aL || !aR) {
-		console.log('[Monitoring] No analysers available');
+		console.log('[Monitoring] No analysers available. Pipeline:', g.activePipeline, 'RB analyser exists:', !!g.monitoringAnalyserL_RB);
 		return;
 	}
 
@@ -2606,6 +3086,14 @@ function updateMonitoring() {
 	aR.getByteFrequencyData(buf.freqR);
 	aL.getByteTimeDomainData(buf.timeL);
 	aR.getByteTimeDomainData(buf.timeR);
+
+	// Debug: Check if rubberband analyser data is all zeros
+	if (analyserSource === 'rubberband') {
+		const maxVal = Math.max(...buf.freqL);
+		if (maxVal === 0) {
+			console.log('[Monitoring] RB analyser data is all zeros. RB connected:', g.rubberbandPlayer?.isConnected, 'Splitter exists:', !!g.monitoringSplitter_RB);
+		}
+	}
 
 	const pos = (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') ? g.currentAudio.getCurrentTime() : 0;
 	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
@@ -2744,10 +3232,8 @@ function renderBar() {
 	let proz = 0;
 	let time = 0;
 	if (g.currentAudio) {
-		if (g.currentAudio.isFFmpeg && g.currentAudio.player) {
-			g.currentAudio.currentTime = g.currentAudio.player.getCurrentTime();
-		}
-		else if (g.currentAudio.isMidi && g.currentAudio.getCurrentTime) {
+		// Use the getCurrentTime method if available (works for all player types including rubberband)
+		if (g.currentAudio.getCurrentTime) {
 			g.currentAudio.currentTime = g.currentAudio.getCurrentTime();
 		}
 
@@ -2984,6 +3470,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 				}
 				if (type === 'monitoring') {
 					g.monitoringReady = true;
+					startMonitoringLoop();
 				}
 				if (type === 'pitchtime') {
 					const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
@@ -3040,6 +3527,13 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 			g.windowsVisible[type] = true;
 			if (type === 'monitoring') {
 				g.monitoringReady = true;
+				startMonitoringLoop();
+			}
+			
+			// Apply routing state (handles monitoring activation, pipeline switches)
+			await applyRoutingState();
+			
+			if (type === 'monitoring') {
 				// Send file-change and waveform when reopening monitoring window
 				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
 				if (currentFile) {
@@ -3261,19 +3755,10 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 	if (type === 'parameters') {
 		g.parametersOpen = true;
-		// Only switch to rubberband if pitchtime mode is active
-		if (g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
-			if (g.activePipeline !== 'rubberband') {
-				try {
-					await switchPipeline('rubberband');
-					g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
-					console.log('[Parameters] Switched to rubberband pipeline');
-				} catch (err) {
-					console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
-				}
-			}
-		}
 	}
+
+	// Apply routing state (handles pipeline switch, monitoring activation, etc.)
+	await applyRoutingState();
 
 	setTimeout(() => {
 		tools.sendToId(g.windows[type], 'show-window');

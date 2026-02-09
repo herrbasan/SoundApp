@@ -133,6 +133,10 @@ function setEnv() {
 }
 
 
+// ═══════════════════════════════════════════════════════════
+// FREEZE/THAW ARCHITECTURE: Control window for 0% CPU mode
+// The control window stays alive while player window can be closed/reopened
+// ═══════════════════════════════════════════════════════════
 async function appStart() {
 	fb('Init Windows');
 	app.on('before-quit', () => { isQuitting = true; });

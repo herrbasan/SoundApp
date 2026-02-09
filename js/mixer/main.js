@@ -380,6 +380,13 @@ async function resetForNewPlaylist(paths){
 				if(gainKnob && gainKnob.nui) gainKnob.nui.set(1);
 				if(panKnob && panKnob.nui) panKnob.nui.set(0.5);
 				ch.track.setGain(1);
+				// Ensure visible slider reflects 100% (middle) default
+				try {
+					const s = ch.el.querySelector('.gain .slider');
+					const sn = ch.el.querySelector('.gain .slider .num');
+					if(s) s.style.top = (0.5 * 100) + '%';
+					if(sn) sn.innerText = '1.00';
+				} catch(e) {}
 				ch.track.setPan(0);
 				ch.track.setMute(false);
 			} catch(err) {
@@ -705,20 +712,20 @@ async function init(initData){
 			return;
 		}
 
-		// Arrow Up/Down: Master Volume
+		// Arrow Up/Down: Master Volume (normalized 0..1 -> actual gain 0..2)
 		if(code === 'ArrowUp'){
 			e.preventDefault();
-			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 1.0;
+			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
 			g.master_gain_val = Math.min(1.0, g.master_gain_val + 0.05);
-			engine.setMasterGain(g.master_gain_val);
+			engine.setMasterGain(g.master_gain_val * 2);
 			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
 			return;
 		}
 		if(code === 'ArrowDown'){
 			e.preventDefault();
-			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 1.0;
+			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
 			g.master_gain_val = Math.max(0.0, g.master_gain_val - 0.05);
-			engine.setMasterGain(g.master_gain_val);
+			engine.setMasterGain(g.master_gain_val * 2);
 			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
 			return;
 		}
@@ -775,6 +782,11 @@ async function init(initData){
 	g.master_vol = ut.el('.master-vol');
 	g.master_slider = ut.el('#master_slider');
 	g.master_bar = g.master_slider.el('.inner');
+
+	// Default master slider position: middle == 100% (normalized 0.5 -> actual gain 1.0)
+	if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
+	try { engine.setMasterGain(1.0); } catch(e) {}
+	if(g.master_bar) g.master_bar.style.width = (g.master_gain_val * 100) + '%';
 
 	g.duration = 0;
 	g.channels.classList.add('empty');
@@ -882,7 +894,8 @@ async function init(initData){
 		seekProz(e.prozX);
 	}, 120);
 	ut.dragSlider(g.master_vol || g.master_slider, (e) => {
-		engine.setMasterGain(e.prozX);
+		// Slider position normalized 0..1 maps to actual gain 0..2
+		engine.setMasterGain(e.prozX * 2);
 		g.master_bar.style.width = (e.prozX * 100) + '%';
 		g.master_gain_val = e.prozX;
 	}, -1, g.master_slider);
@@ -951,7 +964,8 @@ async function init(initData){
 				if(wasLoop) g.btn_loop.classList.add('active');
 				else g.btn_loop.classList.remove('active');
 				if(masterGain !== undefined){
-					engine.setMasterGain(masterGain);
+					// masterGain stored as normalized 0..1 -> apply actual gain 0..2
+					engine.setMasterGain(masterGain * 2);
 					g.master_bar.style.width = (masterGain * 100) + '%';
 					g.master_gain_val = masterGain;
 				}
@@ -1248,6 +1262,14 @@ function renderChannel(idx, fp, total){
 	if(html.trackno){
 		const n = (total || (idx + 1)) | 0;
 		html.trackno.textContent = (n > 0 && n < 10 ? '0' : '') + n;
+	}
+
+	// Initialize slider visuals to middle (100% gain) by default
+	if(html.slider){
+		html.slider.style.top = (html.state.gain * 100) + '%';
+	}
+	if(html.slider_num){
+		html.slider_num.innerText = Math.abs((2 * html.state.gain) - 2).toFixed(2);
 	}
 
 	html.info.addEventListener('mouseenter', () => showNameTooltip(html, html.info));

@@ -11,7 +11,7 @@ ut.dragSlider = dragSlider;
 
 export const main = {
     async init(data) {
-        console.log('[Monitoring] Initializing with data:', data);
+        // Monitoring window initialized
 
         this.canvasWaveform = document.getElementById('waveformCanvas');
         this.canvasSpectrum = document.getElementById('spectrumCanvas');
@@ -181,16 +181,11 @@ export const main = {
 
         // File change notification with type
         window.bridge.on('file-change', (data) => {
-            console.log('[Monitoring] FILE-CHANGE event received:', {
-                filePath: data.filePath,
-                fileType: data.fileType,
-                isMIDI: data.isMIDI,
-                isTracker: data.isTracker
-            });
+            // File change event received - update UI accordingly
             
             // Handle MIDI files: fetch and parse timeline for visualization
             if (data.isMIDI) {
-                console.log('[Monitoring] Received MIDI file change - parsing timeline');
+                // MIDI file detected - parsing timeline
                 // Clear any existing waveform view
                 this.visualizers.clearWaveform();
                 this.fileInfo.innerText = data.filePath + ' (MIDI - loading timeline...)';
@@ -225,7 +220,6 @@ export const main = {
 
         // Progressive waveform chunks (streaming for large files)
         window.bridge.on('waveform-chunk', (chunk) => {
-            console.log('[Monitoring] Received waveform chunk. Progress:', (chunk.progress * 100).toFixed(1) + '%');
             this.visualizers.setWaveformData(chunk);
             if (chunk.filePath) {
                 this.fileInfo.innerText = chunk.filePath + (chunk.complete ? '' : ` (${(chunk.progress * 100).toFixed(0)}%)`);
@@ -234,7 +228,6 @@ export const main = {
 
         // Peak data for static waveform (complete, legacy path for small files)
         window.bridge.on('waveform-data', (data) => {
-            console.log('[Monitoring] Received waveform data:', data ? data.filePath : 'null');
             
             // Handle MIDI files specially - set null data to clear waveform
             if (data && data.isMIDI) {
@@ -294,7 +287,7 @@ export const main = {
 
         // Allow external windows to switch the active monitoring source
         window.bridge.on('set-monitoring-source', (src) => {
-            console.log('[Monitoring] set-monitoring-source received:', src);
+            // set-monitoring-source received
             this.activeSource = src || 'main';
             const titleText = this.activeSource === 'mixer' ? 'Monitoring - Mixer' : 'Monitoring - Main Player';
             document.title = titleText;
@@ -341,7 +334,7 @@ export const main = {
             const normalizedX = Math.max(0, Math.min(1, clickX / innerWidth));
             const seekTime = normalizedX * duration;
             
-            console.log('[Monitoring] Seeking to:', seekTime.toFixed(2));
+            // Seeking to new position
             window.bridge.sendToStage('player-seek', { time: seekTime });
         });
     },

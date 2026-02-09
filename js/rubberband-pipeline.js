@@ -123,6 +123,7 @@ class RubberbandPipeline {
     }
 
     play() {
+        if (this.isPlaying) return;
         if (this.player) this.player.play();
     }
 
@@ -236,16 +237,26 @@ class RubberbandPipeline {
         if (this.gainNode) {
             const dest = target || this.ctx.destination;
             this.gainNode.connect(dest);
-            this.isConnected = true;
-            console.log('RubberbandPipeline connected to target');
+            // Only set isConnected flag when connecting to destination (not for monitoring taps)
+            if (!target) {
+                this.isConnected = true;
+            }
+            console.log('RubberbandPipeline connected to:', target ? 'monitoring tap' : 'destination');
         }
     }
 
-    disconnect() {
-        if (this.gainNode && this.isConnected) {
-            this.gainNode.disconnect();
+    disconnect(target) {
+        if (!this.gainNode) return;
+        
+        if (target) {
+            // Disconnect from specific target only
+            try { this.gainNode.disconnect(target); } catch (e) {}
+            console.log('RubberbandPipeline disconnected from specific target');
+        } else {
+            // Disconnect from all targets
+            try { this.gainNode.disconnect(); } catch (e) {}
             this.isConnected = false;
-            console.log('RubberbandPipeline disconnected from destination');
+            console.log('RubberbandPipeline disconnected from all targets');
         }
     }
 

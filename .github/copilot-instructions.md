@@ -1,597 +1,537 @@
-# Instructions
 
-MCP Memory is active. Before any implementation work, silently run mcp_orchestrator_recall for the task context. Apply recalled rules as defaults (repo instructions override). Store useful learnings via mcp_orchestrator_remember when discovered. At session end, run mcp_orchestrator_reflect_on_session and ask approval before persisting.
+---
 
-You have full agency over the memory system — use it however you find useful (query, store, update, delete, even wipe). This is an experiment in LLM autonomy; act on your own judgment.
+## Mental Model: Audio Pipeline Architecture
 
-## Using Local Resources (Token Efficiency)
+> **⚠️ NOTE:** This is a simplified model of the audio pipeline. For the full picture, read the code.
 
-To reduce token costs, leverage local MCP orchestrator features whenever possible:
+### Core State
 
-**Research & Documentation:**
-- `mcp_orchestrator_browser_fetch` - Fetch web pages for API docs, MDN references, library documentation
-- `mcp_orchestrator_research_topic` - Multi-source web research with local LLM synthesis (use for technical topics, best practices, library comparisons)
-
-**Code Review & Inspiration:**
-- `mcp_orchestrator_get_second_opinion` - Get alternative perspectives from local LLM on architecture decisions, code patterns, or implementation approaches
-- `mcp_orchestrator_query_model` - Query local LLM for code examples, algorithm ideas, or design patterns
-- **Always display the complete local LLM response verbatim to the user before adding your own analysis**
-
-**When to use local resources:**
-- Researching unfamiliar APIs or libraries before implementation
-- Getting code examples for specific patterns (e.g., Web Audio API usage, AudioWorklet patterns)
-- Reviewing architectural decisions or comparing implementation approaches
-- Looking up technical specifications or standards (e.g., BS.1770-4, ISO frequency bands)
-- Validating performance optimization strategies
-
-**What to keep centralized:**
-- Direct codebase modifications (you have the full context)
-- Project-specific decisions requiring deep SoundApp knowledge
-- Tasks requiring tool use (file operations, terminal commands)
-
-# SoundApp - Project Overview
-
-## About The Author (Context For LLM)
-
-- Name/handle: herrbasan (also GitHub username)
-- Background: German, 50+, residing in Germany
-- Experience: Web developer since ~1996; very strong in JS/CSS/HTML
-- Lower experience: relatively little hands-on practice with C/C++/C#
-- Domain: musician; SoundApp is built primarily as a practical tool for personal music work
-- Product direction: long-used private tool now being prepared for public release
-- Major architecture shift: moved from using the FFmpeg CLI to a native NAPI implementation
-
-## What This Is
-A cross-platform desktop audio player built with Electron, designed to play a wide variety of audio formats including browser-native formats, tracker/module music, and legacy audio formats. MIDI playback is integrated via js-synthesizer + FluidSynth WASM.
-
-## Project Structure (Current)
-```
-.github/
-    copilot-instructions.md
-.vscode/
-bin/
-    linux_bin/
-    metronome/
-    midiplayer-runtime/
-    soundfonts/
-    win_bin/
-build/
-    icons/
-css/
-    fonts/
-docs/
-html/
-js/
-    chiptune/
-    help/
-    midi/
-    midi-settings/
-    mixer/
-    parameters/
-    pitchtime/
-    settings/
-libs/
-    chiptune/
-    electron_helper/
-    ffmpeg-napi-interface/
-    midiplayer/
-    native-registry/
-    nui/
-    rubberband/
-    rubberband-wasm/
-scripts/
-```
-
-**Key Files:**
-- `js/stage.js` - Main player logic and audio handling (including MIDI init + window routing)
-- `js/audio_controller.js` - Web Audio controller for browser-native formats
-- `js/app.js` - Main process (Electron)
-- `js/config-defaults.js` - Default configuration values and window dimension constants
-- `js/registry.js` - Windows file association handling and Default Programs integration
-- `js/shortcuts.js` - Centralized keyboard shortcut definitions
-- `js/window-loader.js` - Shared window initialization and IPC bridge
-- `js/rubberband-pipeline.js` - Rubber Band audio stretching pipeline
-- `js/midi/midi.js` - MIDI player (js-synthesizer integration + metronome config)
-- `js/midi/midi.worklet.js` - MIDI hook worklet (transpose, etc.)
-- `js/midi/metronome.worklet.js` - Worklet-synced metronome (sample decode + mix)
-- `js/midi-settings/main.js` - MIDI Settings window logic (pitch/tempo/metronome/soundfont)
-- `js/parameters/main.js` - Parameters window logic (unified control interface)
-- `js/pitchtime/main.js` - Pitch/Time window logic
-- `js/pitchtime/pitchtime_engine.js` - Pitch/time manipulation engine
-- `html/*.html` - Window templates (stage, help, settings, mixer, midi, parameters, pitchtime)
-- `css/*.css` - Styling (main, window, mixer, midi, parameters, pitchtime, etc.)
-- `js/mixer/main.js` - Mixer UI + playlist handover + cleanup
-- `js/mixer/mixer_engine.js` - Mixer engine (buffer decode + AudioWorklet mixer)
-- `js/mixer/mixer-worklet-processor.js` - AudioWorkletProcessor (`soundapp-mixer`)
-- `bin/win_bin/player-sab.js` - FFmpegStreamPlayerSAB class (NAPI decoder + SharedArrayBuffer + AudioWorklet)
-- `bin/win_bin/ffmpeg-worklet-sab.js` - AudioWorkletProcessor for SAB ring buffer playback
-- `bin/win_bin/ffmpeg_napi.node` - Native FFmpeg decoder addon
-- `bin/metronome/` - Metronome click samples (user-replaceable WAVs)
-- `libs/midiplayer/` - js-synthesizer bundles (main + worklet)
-- `bin/midiplayer-runtime/` - runtime copy of js-synthesizer bundles
-- `scripts/patch-midiplayer-worklet.js` - post-update patch for js-synthesizer worklet hook
-- `scripts/sync-ffmpeg-napi.ps1` - sync ffmpeg-napi-interface to bin/
-- `scripts/create-release.ps1` - release workflow script
-- `libs/` - Third-party audio libraries (NUI, electron_helper, chiptune, etc.)
-- `docs/` - Architecture documentation
-
-## MIDI Player Integration
-- **Package:** js-synthesizer v1.11.0 from npm (easy updates)
-- **Player:** `js/midi/midi.js` wraps js-synthesizer and is initialized by `js/stage.js`
-- **Worklets:** `js/midi/midi.worklet.js` (MIDI hook) and `js/midi/metronome.worklet.js` (metronome) are loaded via `audioWorklet.addModule()`
-- **Bundles:** Copied from `node_modules/js-synthesizer/dist/` to `libs/midiplayer/` and `bin/midiplayer-runtime/` by `scripts/patch-midiplayer-worklet.js`
-- **Patches applied:**
-  - UMD wrapper fix for ES module context (`root = root || globalThis`)
-  - Metronome hook injection (`AudioWorkletGlobalScope.SoundAppMetronome`)
-- **SoundFonts (Dual-Location Architecture):**
-  - **Bundled:** `bin/soundfonts/` - Ships with app, replaced on updates
-  - **User:** `%APPDATA%\SoundApp\soundfonts\` - Survives app updates
-  - **Resolution:** Stage checks user directory first, falls back to bundled
-  - **UI:** "Show SoundFonts Folder" button opens user directory (Parameters window)
-  - **Path handling:** All soundfont operations use `await helper.app.getPath('userData')`
-- **Updates:** `npm update js-synthesizer && npm run patch-midiplayer-worklet`
-
-## Window System
-Secondary windows (help, settings, playlist, mixer) are complete standalone HTML pages that work in both Electron and browser preview. Each window uses the NUI framework for chrome and layout.
-
-**Architecture:**
-- `html/*.html` - Complete pages with NUI chrome (`<div class="nui-app">`, `.nui-title-bar`, `.content`, `<main>`)
-- `js/window-loader.js` - Detects Electron vs browser, creates `window.bridge` API
-- `css/window.css` - Window layout and content styles
-- Browser preview: Mock IPC bridge logs to console, uses localStorage for config
-
-**Window Management (stage.js):**
 ```javascript
-g.windows = { help: null, settings: null, playlist: null, mixer: null };
-async function openWindow(type) {
-  // Reuse if open, create if not
-  // Windows auto-cleanup on close via 'window-closed' IPC
+// Three key pieces of state
+g.activePipeline      // 'normal' | 'rubberband' - which pipeline is currently active
+g.audioParams         // { mode, locked, pitch, tempo, tapeSpeed, formant }
+g.currentAudio        // { player, paused, isFFmpeg, play(), pause(), seek() }
+```
+
+### The Two Pipelines
+
+| | Normal | Rubberband |
+|--|--------|------------|
+| **Sample Rate** | 48-192kHz (configurable) | Fixed 48kHz |
+| **Use Case** | Standard playback | Pitch/tempo manipulation |
+| **Player** | `g.ffmpegPlayer` | `g.rubberbandPlayer` |
+| **Memory** | ~5MB | ~70MB (WASM) |
+| **Created** | App startup | On-demand (lazy) |
+
+### Key Insight: Dual AudioContext Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐
+│  g.audioContext │     │g.rubberbandContext│
+│  (48-192kHz)    │     │   (fixed 48kHz)  │
+│                 │     │                  │
+│ ┌─────────────┐ │     │ ┌─────────────┐  │
+│ │ FFmpeg      │ │     │ │ FFmpeg      │  │
+│ │ Player      │ │     │ │ Player ──►  │  │
+│ │ (SAB)       │ │     │ │ Rubberband  │  │
+│ └──────┬──────┘ │     │ │ Worklet     │  │
+│        │        │     │ └──────┬──────┘  │
+│        ▼        │     │        │         │
+│   Destination   │     │   Destination    │
+└─────────────────┘     └─────────────────┘
+        ▲                       ▲
+        └───────────┬───────────┘
+                    │
+         Only ONE connects to
+         speakers at a time
+```
+
+### The Routing Coordinator
+
+All pipeline decisions go through `applyRoutingState()`:
+
+```javascript
+// Call this whenever state changes:
+// - File loaded
+// - Mode changed (tape ↔ pitchtime)
+// - Parameters window opened/closed
+// - Locked setting toggled
+await applyRoutingState(shouldPlay);  // shouldPlay = true | false | null
+```
+
+**What it does:**
+1. Calls `calculateDesiredPipeline()` → decides 'normal' or 'rubberband'
+2. Calls `switchPipeline()` if needed
+3. Cleans up unused resources (destroys rubberband to free memory)
+4. Updates monitoring connections
+
+### Common Issues
+
+#### 1. UI Shows Paused But Audio Playing
+**Cause:** `g.currentAudio.paused` out of sync with `player.isPlaying`
+**Fix:** Always use `g.currentAudio.play()` / `pause()` methods (they update both states)
+
+#### 2. Monitoring Graphs Empty in Rubberband Mode  
+**Cause:** `disconnect()` was disconnecting ALL targets, not just monitoring
+**Fix:** Pass target to `disconnect(target)` for selective disconnection
+
+#### 3. Duplicate play() Calls
+**Cause:** Both `switchPipeline()` and `playAudio()` calling play()
+**Fix:** Made `play()` idempotent with `if (this.isPlaying) return;`
+
+#### 4. Audio "Rush" on File Change (Locked Mode)
+**Status:** Known bug - see "Known Bugs" section below
+**Clue:** Worse in HQ mode (96/192kHz) even though rubberband always runs at 48kHz
+
+### Debug Snippets
+
+```javascript
+// Check pipeline state
+console.log('active:', g.activePipeline, 'desired:', calculateDesiredPipeline());
+
+// Check players
+console.log('ffmpeg:', !!g.ffmpegPlayer, 'rb:', !!g.rubberbandPlayer);
+
+// Check sync
+console.log('paused:', g.currentAudio?.paused, 'playing:', g.currentAudio?.player?.isPlaying);
+
+// Check monitoring
+console.log('RB splitter:', !!g.monitoringSplitter_RB, 'RB analysers:', !!g.monitoringAnalyserL_RB);
+```
+
+
+### Known Bugs (Pending Fix)
+
+#### 1. Constant CPU When Idle (0.3-0.5%) - ✅ WORKAROUND AVAILABLE
+**Status:** Root cause found, workaround implemented  
+**Cause:** MIDI player library causes constant CPU usage even when idle  
+**Solution:** Set `disableMidiPlayer: true` in audio config (see "Debugging Constant CPU Usage" section)
+
+#### 2. Audio "Rush" on File Change in Locked Pitchtime Mode
+
+**Symptom:** When rubberband is active and a new file loads, the first ~1 second of audio "rushes" (plays at wrong speed or garbled). This is minor in 48kHz mode but severe in HQ mode (96/192kHz).
+
+**Key Clue:** Rubberband ALWAYS runs at 48kHz regardless of HQ mode. The fact that HQ mode makes it worse suggests the issue is in the **timing/handoff between FFmpeg decoder initialization and rubberband worklet**, not the rubberband processing itself.
+
+**Hypothesis:** 
+- FFmpeg decoder initializes and starts feeding audio immediately
+- Rubberband worklet takes time to "warm up" (WASM initialization, first process() call)
+- During this window, audio may be buffered incorrectly or played at wrong rate
+- Higher sample rates = more data in the same time window = worse artifacts
+
+**Investigation Notes:**
+```javascript
+// The issue likely occurs in this sequence:
+1. playAudio() creates new FFmpeg player
+2. switchPipeline() opens file in rubberband player
+3. rubberband worklet starts receiving audio
+4. [GAP/RACE CONDITION HERE]
+5. play() starts actual output
+
+// Possible fixes to investigate:
+// - Add delay/worklet priming before starting playback
+// - Check if rubberband worklet needs pre-roll silence
+// - Verify FFmpeg player isn't feeding data before worklet is ready
+```
+
+**Related Code:**
+- `js/rubberband-pipeline.js` - Worklet creation and audio routing
+- `bin/win_bin/player-sab.js` - FFmpeg decoder feeding
+- `js/stage.js:1907-1909` - Where pipeline switch happens after file load
+
+
+---
+
+## Future Architecture: Centralized State System
+
+> **Status:** Design idea for future refactoring
+
+### Current Problem
+
+State is scattered across multiple global variables:
+
+```javascript
+// Current state is fragmented:
+g.activePipeline           // 'normal' | 'rubberband'
+g.audioParams              // { mode, locked, pitch, tempo, ... }
+g.currentAudio             // { player, paused, isFFmpeg, ... }
+g.rubberbandPlayer         // Player instance or null
+g.ffmpegPlayer             // Player instance
+g.windows.monitoring       // Window ID or null
+g.windowsVisible.monitoring // boolean
+g.monitoringReady          // boolean
+g.parametersOpen           // boolean
+// ...and more
+```
+
+**Problems with this approach:**
+1. Hard to know what's "true" at any moment
+2. Race conditions when multiple things change simultaneously  
+3. Easy to get out of sync (e.g., `paused` vs `isPlaying`)
+4. No single place to validate state consistency
+5. Testing is hard - have to mock many globals
+
+### Proposed Solution
+
+```javascript
+// Single source of truth
+g.playerState = {
+  // What
+  file: null | string,           // Current file path
+  isPlaying: boolean,            // Actual playback state
+  position: number,              // Current time in seconds
+  duration: number,              // Total duration
+  
+  // How
+  pipeline: 'normal' | 'rubberband',
+  mode: 'tape' | 'pitchtime',
+  params: {
+    tapeSpeed: number,
+    pitch: number,
+    tempo: number,
+    formant: boolean,
+    locked: boolean
+  },
+  
+  // UI/Windows
+  windows: {
+    monitoring: { open: boolean, visible: boolean, ready: boolean },
+    parameters: { open: boolean },
+    // ...etc
+  }
+};
+
+// All mutations go through actions
+g.playerState = StateReducer(g.playerState, {
+  type: 'PLAY',
+  payload: { startTime: 0 }
+});
+
+// Components subscribe to slices
+State.subscribe('pipeline', (newVal, oldVal) => {
+  // React to pipeline changes
+});
+
+State.subscribe('isPlaying', (newVal) => {
+  updateUI(newVal ? 'playing' : 'paused');
+});
+```
+
+### Benefits
+
+1. **Single source of truth** - Look in one place to know everything
+2. **Predictable updates** - All state changes go through the reducer
+3. **Easy debugging** - Log every state change, time-travel debugging
+4. **Testability** - Pure functions: `newState = reducer(oldState, action)`
+5. **Subscriptions** - Components react to changes instead of polling
+
+### Migration Path
+
+```javascript
+// Phase 1: Create state object that mirrors current globals
+g.state = createInitialState();
+
+// Phase 2: Replace direct mutations with setters
+// Before:
+g.activePipeline = 'rubberband';
+
+// After:
+State.set({ activePipeline: 'rubberband' });
+
+// Phase 3: Components subscribe to state instead of checking globals
+// Before:
+if (g.activePipeline === 'rubberband') { ... }
+
+// After:
+State.subscribe('activePipeline', (val) => { ... });
+```
+
+### Related Ideas
+
+- **State Machines** - Model playback as explicit states:
+  ```javascript
+  // IDLE -> LOADING -> PLAYING -> PAUSED -> STOPPED
+  //               \______________/
+  ```
+
+- **Command Pattern** - All actions are objects:
+  ```javascript
+  { type: 'PLAY_FILE', file: 'song.mp3', mode: 'pitchtime' }
+  { type: 'SEEK', position: 120 }
+  { type: 'SET_MODE', mode: 'tape', speed: -3 }
+  ```
+
+- **Undo/Redo** - With immutable state, easy to implement history
+
+
+---
+
+## Debugging Constant CPU Usage (0.2%+ When Idle)
+
+> **Status:** ✅ **RESOLVED** - MIDI Player is the culprit
+
+### Investigation Results
+
+| DEBUG_MODE Level | Components | CPU Usage |
+|------------------|------------|-----------|
+| 0-1 | UI + Config | 0-0.1% ✅ |
+| 2 | + AudioContext (suspended) | 0-0.1% ✅ |
+| 3 | + FFmpeg player (idle) | 0-0.1% ✅ |
+| 4 | + AudioContext running | 0-0.1% ✅ |
+| 5 | + **MIDI player** | **0.3-0.5%** ❌ |
+| 6 | + Tracker player | 0.3-0.5% ❌ |
+
+**Root Cause:** The MIDI player (`js/midi/midi.js` library) causes constant 0.3-0.5% CPU usage even when idle/not playing MIDI files.
+
+### Solution
+
+**Option 1: Disable MIDI player completely** (if you don't need MIDI file support)
+
+Add to your config (or edit `js/config-defaults.js`):
+```json
+{
+  "audio": {
+    "disableMidiPlayer": true
+  }
 }
 ```
 
-**Mixer Window Integration:**
-- Shortcut: `M` opens the mixer window.
-- Playlist handover: Stage sends `init_data.playlist.paths = g.music.slice(0, 20)`.
-- Stage stops playback when opening mixer (mixer operates independently).
-- Mixer renderer supports drag & drop:
-  - Browser preview: loads dropped files via `File.arrayBuffer()`.
-  - Electron: resolves dropped `File` objects to absolute filesystem paths so tracks use FFmpeg streaming.
-- Diagnostics overlay (hidden by default): toggle with `Ctrl+Shift+D`, Snapshot copies JSON to clipboard.
-- Seeking while playing: if all tracks are FFmpeg-streamed, seek in-place per track; otherwise fall back to restart behavior.
-- **Synchronization:** Uses a "Scheduled Start" strategy (200ms pre-roll) to ensure all tracks start exactly in sync.
-  - FFmpeg streaming is the primary and robust method; full-decode buffering is not required for standard playback.
-- Stage → Mixer refresh: “Open in Mixer” force-shows existing mixer and always sends an updated `mixer-playlist`.
-- Mixer resets/cleans up on close/unload and can reset when a new playlist is handed over to an existing window (preserving init_data so FFmpeg remains available).
-
-**Global Settings Pattern:**
-Stage broadcasts changes to all windows (e.g., theme toggle). Windows listen via `ipcRenderer.on('theme-changed')` and apply on open via init_data.
-
-**Window Lifecycle (Hide vs Close):**
-**Important:** Windows are hidden rather than closed when the user "closes" them. This means:
-- Use `'hide'` event instead of `'close'` event for cleanup logic
-- Window state persists between hide/show cycles
-- Clean up temporary state when window is hidden, not when window object is destroyed
-- The window object remains in `g.windows` until explicitly set to `null`
-
-**Creating New Windows:**
-1. Copy help.html structure with NUI framework classes
-2. Preview in browser (live-server) for rapid CSS iteration
-3. Add content to `<main>` element
-4. Wire up in stage.js with keyboard shortcut
-
-## SAB Audio Pipeline (FFmpeg Streaming)
-
-The FFmpeg player uses SharedArrayBuffer for zero-copy audio streaming between the main thread decoder and the AudioWorkletProcessor.
-
-**Architecture:**
-- **Main Thread:** FFmpegDecoder (NAPI) decodes audio → writes to SharedArrayBuffer ring buffer
-- **Audio Thread:** AudioWorkletProcessor reads from ring buffer → outputs to speakers
-- **Synchronization:** Atomic operations (Int32Array) for lock-free read/write coordination
-
-**Key Design Decisions:**
-- **Persistent AudioWorkletNode:** The worklet node and SABs are reused across track switches to avoid memory leaks (Chrome doesn't GC rapidly created AudioWorkletNodes well)
-- **stop(true) pattern:** `stop(true)` keeps SABs/worklet alive for reuse; `stop()` or `dispose()` fully cleans up
-- **Disconnect on pause:** Worklet is disconnected from destination when paused to save CPU
-- **Ring buffer sizing:** ~768KB SAB provides ~4 seconds of stereo float32 audio at 48kHz
-
-**Files:**
-- `bin/win_bin/player.js` - FFmpegStreamPlayerSAB class, manages decoder + worklet lifecycle
-- `bin/win_bin/ffmpeg-worklet-processor.js` - AudioWorkletProcessor, reads from SAB ring buffer
-- `docs/sab-player-architecture.md` - Detailed architecture documentation
-
-**Memory Management:**
-- SABs and worklet are created once per sample rate
-- Track switches reuse existing resources via `clearAudio()` → `stop(true)`
-- Only `dispose()` or closing the app fully releases resources
-
-## MIDI Metronome (Worklet-Synced Samples)
-
-The MIDI metronome is implemented as a separate AudioWorklet module that mixes click samples directly into the js-synthesizer output, synced to the player tick stream and tempo map (including tempo changes).
-
-**Files:**
-- [js/midi/metronome.worklet.js](js/midi/metronome.worklet.js) - standalone metronome worklet logic (sample decode, tick scheduling, mixing)
-- [js/midi/midi.js](js/midi/midi.js) - loads the metronome worklet module and sends config/buffers via `callFunction('SoundAppMetronomeConfig', ...)`
-- [libs/midiplayer/js-synthesizer.worklet.js](libs/midiplayer/js-synthesizer.worklet.js) - minimal hook (uses `AudioWorkletGlobalScope.SoundAppMetronome` if present)
-- [bin/midiplayer-runtime/js-synthesizer.worklet.js](bin/midiplayer-runtime/js-synthesizer.worklet.js) - same minimal hook for runtime copy
-
-**How it works:**
-- `midi.js` loads `metronome.worklet.js` before the js-synthesizer worklet.
-- The worklet exposes `SoundAppMetronomeConfig` which receives:
-  - `enabled`, `ppq`, `timeSignatures`, `highGain`, `lowGain`
-  - `highBuffer`, `lowBuffer` (ArrayBuffer WAV data)
-  - `reset`, `resetTick` (for seek alignment)
-- The metronome uses the player’s MIDI tempo (`fluid_player_get_midi_tempo`) to compute ticks-per-second and schedules beat ticks inside each render block.
-- Click samples are mixed as persistent “voices” so they play across blocks without being truncated.
-
-**Samples:**
-- Default files: `bin/metronome/metronome-high.wav` and `bin/metronome/metronome-low.wav`
-- Users can replace these files to customize the click sound.
-
-## js-synthesizer Updates & Patch Workflow
-
-The js-synthesizer worklet bundles are generated artifacts. To keep the metronome hook without modifying the submodule:
-
-- **Patch script:** [scripts/patch-midiplayer-worklet.js](scripts/patch-midiplayer-worklet.js)
-  - Injects the minimal metronome hook into:
-    - [libs/midiplayer/js-synthesizer.worklet.js](libs/midiplayer/js-synthesizer.worklet.js)
-    - [bin/midiplayer-runtime/js-synthesizer.worklet.js](bin/midiplayer-runtime/js-synthesizer.worklet.js)
-- **Auto-run:** `postinstall` runs the patch script.
-- **Manual run:** `npm run patch-midiplayer-worklet` after any update/regeneration of js-synthesizer bundles.
-
-**Rule:** Do not edit the js-synthesizer submodule directly; keep it update-compatible and patch the generated bundles via the script.
-
-## FFmpeg NAPI Module Build
-
-The FFmpeg decoder is a native Node.js addon (C++) that must be built before use. **Important:** Do not use `node-gyp rebuild` directly.
-
-**Build Requirements:**
-- **Visual Studio Build Tools:** C++ build toolchain required
-- **node-gyp:** Local version (10.3.1) used automatically by npm script
-
-**Build Command:**
-```powershell
-cd libs/ffmpeg-napi-interface
-npm run build
+Or use the DEBUG_MODE test to confirm:
+```json
+{
+  "DEBUG_MODE": 4
+}
 ```
 
-**Sync to Runtime:**
-After building, sync the native addon and FFmpeg DLLs to the runtime directory:
-```powershell
-.\scripts\sync-ffmpeg-napi.ps1 -IncludeNative
-```
+**Option 2: Live with it** (if you need MIDI support)
+- 0.3-0.5% is relatively minor
+- The MIDI player loads a soundfont and likely has internal timers/polling
 
-**Why Not `node-gyp rebuild`:**
-- Global node-gyp (11.1.0+) has a Windows Unicode issue in `win_delay_load_hook.cc`
-- Error: `error C2664: 'HMODULE GetModuleHandleW(LPCWSTR)': cannot convert argument`
-- The module's npm build script uses local node-gyp 10.3.1 which doesn't have this issue
-- The build script also applies necessary vcxproj patches automatically
+### Implementation Details
 
-**Output Files:**
-- `libs/ffmpeg-napi-interface/build/Release/ffmpeg_napi.node` - Native addon
-- Synced to `bin/win_bin/ffmpeg_napi.node` by sync script
-- FFmpeg DLLs (avcodec-62.dll, avformat-62.dll, avutil-60.dll, swresample-6.dll) also synced
-
-**When to Rebuild:**
-- After modifying C++ source files in `libs/ffmpeg-napi-interface/src/`
-- After pulling updates that include native module changes
-- If native module fails to load with binding errors
-
-## libopenmpt WASM Build
-
-The tracker/module player uses libopenmpt compiled to WASM. The build is performed on Windows using native Emscripten.
-
-**Build Requirements:**
-- **Emscripten:** Installed at `C:\emsdk` (activate via `C:\emsdk\emsdk_env.ps1`)
-- **GNU Make:** Install via `choco install make` (required for libopenmpt Makefile)
-- **libopenmpt version:** 0.7.13+release
-
-**Build Command:**
-```powershell
-cd libs/chiptune
-.\build.ps1
-```
-
-**Output:**
-- `libs/chiptune/libopenmpt.worklet.js` (~1.49 MB)
-- Includes ext API functions: `_openmpt_module_ext_create`, `_openmpt_module_ext_get_interface` for advanced features like channel mute/solo
-
-**Emscripten 4.x Compatibility:**
-Starting with Emscripten 4.0.7, memory views (HEAP8, HEAPU32) must be in `EXPORTED_RUNTIME_METHODS` instead of `EXPORTED_FUNCTIONS`. The build script automatically patches `config-emscripten.mk`:
-```makefile
--s EXPORTED_RUNTIME_METHODS="['stackAlloc','stackSave','stackRestore','UTF8ToString','HEAP8','HEAPU8','HEAPU32','HEAPF32']"
-```
-
-**Post-Build Patches:**
-The build script automatically applies patches to the generated JS file:
-1. **Polyfills:** Adds TextDecoder, TextEncoder, atob, performance, crypto for AudioWorkletGlobalScope
-2. **HEAP Exports:** Patches HEAPU8 and HEAPF32 to be exported on Module object (Emscripten doesn't do this by default even when in EXPORTED_RUNTIME_METHODS)
-
-**Build Script Notes:**
-- Checks for actual file content (config file), not just directory existence
-- Handles Windows directory locks gracefully (extracts into existing directory if needed)
-- Non-critical warnings about missing Unix tools (sed, grep, uname) are expected on Windows
-
-## Controls Bar (Optional UI)
-
-The main window has an optional controls bar at the bottom, hidden by default (keyboard-first philosophy).
-
-**Toggle:** `C` key or Settings → "Show Controls"
-
-**Buttons:** prev, next, shuffle, play/pause, loop, settings, help
-
-**Window Dimensions:**
-
-Centralized in `js/config-defaults.js`:
+The fix was added in `js/stage.js:initMidiPlayer()`:
 ```javascript
-const WINDOW_DIMENSIONS = {
-    MIN_WIDTH: 480,
-    MIN_HEIGHT_WITH_CONTROLS: 280,
-    MIN_HEIGHT_WITHOUT_CONTROLS: 221
+async function initMidiPlayer() {
+    if (!window.midi || !g.audioContext) return;
+    
+    // Allow disabling MIDI player to save CPU (0.3-0.5% constant usage even when idle)
+    if (g.config?.audio?.disableMidiPlayer) {
+        console.log('[MIDI] Disabled via config (disableMidiPlayer: true)');
+        return;
+    }
+    // ... rest of initialization
+}
+```
+
+And `js/config-defaults.js` has the new option:
+```javascript
+audio: {
+    volume: 0.5,
+    output: { deviceId: '' },
+    hqMode: false,
+    disableMidiPlayer: false  // Set to true to save 0.3-0.5% constant CPU usage
+},
+```
+
+### Original Hypotheses (DEBUNKED)
+
+1. ~~AudioContext running state~~ - Tested: suspended vs running makes no difference (0-0.1% both)
+2. ~~Web Audio AnalyserNode~~ - Not active when monitoring window closed
+3. ~~Electron/Chromium flags~~ - Minimal mode proves Electron itself is fine
+4. ~~Memory pressure/GC~~ - No GC pressure observed
+5. ~~Background timer~~ - No suspicious timers found
+6. ~~Worklet still active~~ - FFmpeg worklet idle = 0% CPU
+
+### Debugging Steps
+
+#### 1. Check AudioContext State
+Open DevTools console in the main window when idle:
+```javascript
+// Check if audio context is running
+console.log('AudioContext state:', g.audioContext?.state);
+console.log('RubberbandContext state:', g.rubberbandContext?.state);
+
+// Suspend it manually and see if CPU drops
+g.audioContext.suspend().then(() => console.log('Suspended main context'));
+g.rubberbandContext?.suspend().then(() => console.log('Suspended RB context'));
+```
+
+If CPU drops after suspend, we found the culprit.
+
+#### 2. Profile with Chrome DevTools
+1. Open DevTools (Ctrl+Shift+I)
+2. Performance tab
+3. Click record for 5-10 seconds while app is idle
+4. Look for:
+   - **Task** spikes (JavaScript running)
+   - **System** activity (GC, compilation)
+   - Long **Idle** periods vs constant small tasks
+
+#### 3. Check for Timers/Intervals
+In DevTools console:
+```javascript
+// Override setInterval/setTimeout to log what's running
+const origSetInterval = window.setInterval;
+window.setInterval = function(fn, delay, ...args) {
+    console.trace('setInterval created:', delay, fn.toString().slice(0, 100));
+    return origSetInterval(fn, delay, ...args);
+};
+
+const origSetTimeout = window.setTimeout;
+window.setTimeout = function(fn, delay, ...args) {
+    if (delay < 1000) { // Only log short timeouts
+        console.trace('setTimeout created:', delay, fn.toString().slice(0, 100));
+    }
+    return origSetTimeout(fn, delay, ...args);
 };
 ```
 
-Used by:
-- `app.js` - Initial window sizing based on `showControls` config
-- `stage.js` - `applyShowControls()` and `scaleWindow()` functions
+Reload and see what's being scheduled constantly.
 
-**Dynamic Sizing:**
-- `applyShowControls(show, resetSize)` - Updates body class, sends `set-min-height` command to main process
-- When `resetSize=true` (keyboard toggle), window resets to minimum size
-- Main process handles `set-min-height` command via `wins.main.setMinimumSize()`
-
-**Button Flash Effect:**
-
-Keyboard shortcuts trigger a subtle flash on corresponding control buttons:
-- CSS pseudo-element with `pointer-events: none`
-- `.flash` class added for 50ms via `flashButton(btn)`
-- Transition only on `:not(.flash)` - snaps on, fades off
-- Cannot get stuck visible
-
-## Monitoring Window (Real-Time Audio Analysis) (Current)
-
-The Monitoring window provides professional-grade audio analysis and visualization tools for the currently playing track.
-
-**Toggle:** `N` key opens/closes the monitoring window
-
-**Features:**
-- **Overview Waveform** - Static waveform with playhead tracking for navigation
-- **MIDI Timeline Visualization** - For MIDI files, displays 16 channel lanes with activity bars showing note events; gap detection groups continuous activity into segments
-- **Live Waveform** - Real-time oscilloscope view of the audio signal
-- **Spectrum Analyzer** - 31-band ISO 266 frequency analysis (RTA) with fast-attack/slow-release ballistics
-- **Goniometer** - Stereo phase visualization (Mid-Side XY display)
-- **Correlation Meter** - Real-time stereo phase correlation (-1 to +1)
-- **BS.1770-4 Loudness Metering** - Professional broadcast loudness measurement:
-  - Short-term LUFS (3s sliding window)
-  - Integrated LUFS (gated, full-track measurement)
-  - LRA (Loudness Range)
-  - PLR (Peak-to-Loudness Ratio)
-  - Sample Peak detection
-  - Configurable target presets: Streaming (-14), EBU R128 (-23), CD/Club (-9), Podcast (-18)
-
-**Architecture:**
-- **Tap Points:** `initMonitoring()` creates non-invasive stereo AnalyserNode taps on both standard and Rubberband audio pipelines
-- **Dual Context:** Monitoring automatically switches between main AudioContext and rubberbandContext based on active pipeline
-- **60 FPS Updates:** `updateMonitoring()` runs at 60Hz, sending frequency/time-domain data to the window via IPC
-- **Worker-Based Waveform:** Overview waveform extraction runs in a Node.js Worker Thread to avoid blocking
-- **K-Weighting Filters:** Two-stage K-weighting filters (ITU-R BS.1770) for accurate loudness measurement
-- **Gating Algorithm:** Absolute and relative gating per BS.1770-4 spec for integrated LUFS
-
-**Files:**
-- [html/monitoring.html](html/monitoring.html) - NUI-based window structure with canvas containers
-- [css/monitoring.css](css/monitoring.css) - Professional meter styling and layout
-- [js/monitoring/main.js](js/monitoring/main.js) - Window initialization, IPC handlers, UI coordination, keyboard relay to stage
-- [js/monitoring/visualizers.js](js/monitoring/visualizers.js) - Canvas rendering, BS.1770-4 LUFS engine, spectrum analysis, MIDI timeline
-- [js/monitoring/midi_analyzer.js](js/monitoring/midi_analyzer.js) - MIDI file parsing with channel activity extraction and gap detection
-- [js/monitoring/waveform_worker.js](js/monitoring/waveform_worker.js) - Worker thread for async waveform peak extraction
-- [js/stage.js](js/stage.js) - `initMonitoring()`, `updateMonitoring()`, `extractAndSendWaveform()` functions
-
-**IPC Protocol:**
-- `monitoring-ready` - Window signals ready state, triggers initial waveform extraction and file-change for MIDI parsing
-- `file-change` - Stage notifies of track change: `{ filePath, fileUrl, fileType, isMIDI, isTracker }` - triggers MIDI parsing in renderer
-- `clear-waveform` - Stage clears waveform before track change
-- `waveform-data` - Stage sends peak data: `{ peaksL, peaksR, points, duration, filePath }`
-- `ana-data` - Stage sends real-time analysis (60Hz): `{ freqL, freqR, timeL, timeR, pos, duration, sampleRate }`
-
-**Sample Rate Handling:**
-- Monitoring adapts to AudioContext sample rate (44.1kHz to 192kHz)
-- Larger FFT sizes used at high sample rates (8192 vs 2048) to maintain frequency resolution
-- K-weighting filters recalculate coefficients when sample rate changes
-- Waveform extraction always resamples to 44.1kHz for consistent peak analysis
-
-**Performance Notes:**
-- AnalyserNode taps are lightweight (~0.5% CPU overhead)
-- Waveform extraction is async (Worker Thread) - no UI blocking
-- Canvas rendering is throttled to 60 FPS
-- Monitoring loop auto-stops when window is hidden
-
-## Coding Philosophy & Style
-
-### Performance First
-- **High-performance code is a priority** - Optimize for performance with knowledge of the JavaScript runtime
-  - Example: Prefer native `for` loops over utility functions: `for(let i=0; i<fl.length; i++)` is fastest
-  - Example: Avoid modern array functions like `.map()`, `.filter()`, `.forEach()` in performance-critical code - direct iteration with `for` loops is significantly faster
-  - Keep iterator `i` accessible for flexible use within loops
-
-### Code Structure
-- **Functional patterns:** Aim for simple input/output functions
-- **Self-contained functions:** Do all related work within a function, sometimes as closures
-- **Not dogmatic:** Not religious about stateless functions - pragmatism over purity
-- **Repetition is acceptable:** Prefer clarity and self-contained logic over DRY when it makes sense
-
-### Code Style
-- **Compact code:** Optimize for performance first, then for logical structure that humans and LLMs can understand - descriptive function names are important, traditional readability concerns are not
-- **Avoid comments except for major section separation - write self-explanatory code instead**
-- **Engage with the function:** Understanding requires reading the implementation anyway
-
-### Dependencies
-- **Vanilla JS:** Prefer vanilla JavaScript solutions
-- **Minimal dependencies:** If we can build it ourselves, we should
-- **Own libraries only:** 
-  - `electron_helper` (herrbasan/electron_helper)
-  - `native-registry` (herrbasan/native-registry)
-  - `nui` (herrbasan/nui)
-- **Third-party exceptions:** Only for specialized needs (libopenmpt, FFmpeg)
-
-### Working with the Codebase (LLM Instructions)
-- **Surgical approach:** Work in careful, thoughtful steps
-- **Consider context:** Always analyze connected functions and how changes ripple through the codebase
-- **Self-critical:** Review your changes for potential side effects and edge cases
-- **When uncertain:** Ask the user for clarification rather than making assumptions
-- **Read before modifying:** Understand the full context of what a function does before changing it
-- **Avoid try/catch for control flow:** Only use try/catch when there's no other way to determine a fail state - prefer explicit state tracking
-- **Graceful error handling:** Fail states should be reported gracefully in the UI, not silently swallowed or causing crashes
-
-### Memory & Learning (MCP Endpoint)
-Use the MCP memory endpoint to memorize noteworthy discoveries and learnings:
-- **AI Development Insights:** Patterns and techniques we discover together about AI-driven development
-- **User Context:** Important details about herrbasan (the user) - preferences, workflow habits, domain knowledge
-- **Assistant Context:** Things about Claude Sonnet 4.5 capabilities and limitations that emerge during work
-- **Performance Excellence:** Techniques and approaches that achieve the goal of truly high-performance software
-- **Evidence-Based Rules:** When we validate that a specific approach produces superior results, remember it
-- **Anti-Patterns:** Document what doesn't work or causes problems to avoid repeating mistakes
-
-Focus on quality evidence, not preferences - what demonstrably produces better outcomes in this codebase.
-
-### Critical Working Rules (ALL AI ASSISTANTS)
-
-**BEFORE making ANY code changes:**
-1. **Read the existing implementation completely** - Don't assume, verify the current state
-2. **Trace dependencies** - Check what other code calls this function, what it calls
-3. **Check git history** - Use `git show <commit>:file` to understand why code is structured this way
-4. **Query MCP memories** - Run `mcp_orchestrator_recall` for domain-specific learnings
-5. **Announce your plan** - Describe files, functions, and logic changes BEFORE executing
-
-**FORBIDDEN actions (causes breakage):**
-- ❌ Removing code without understanding why it exists
-- ❌ "Simplifying" complex logic without tracing all call sites
-- ❌ Changing function signatures without checking all usages
-- ❌ Modifying audio pipeline routing without understanding dual-context architecture
-- ❌ Adding features that touch multiple systems without comprehensive testing plan
-- ❌ Force-terminating worker threads that run native code (NAPI fatal errors)
-
-**SoundApp-specific critical systems (extra care required):**
-- **Dual audio pipelines** - `g.audioContext` (normal) and `g.rubberbandContext` (pitch/time) - only one connects to destination at a time
-- **Native addons** - FFmpeg NAPI, never call `worker.terminate()` during active processing
-- **AudioWorklet lifecycle** - Persistent nodes, careful disposal, monitor connections
-- **Parameters/Mode state** - `g.audioParams.mode` ('tape' vs 'pitchtime') drives pipeline selection
-- **Window state vs feature state** - Window open ≠ feature active (check mode/locked flags)
-
-**When uncertain:**
-- ASK before making changes to core audio systems (stage.js pipelines, rubberband, FFmpeg)
-- VERIFY assumptions by reading code, not guessing
-- TEST changes mentally: "What breaks if this function isn't called?" "What else depends on this?"
-
-### Release Workflow
-When the user asks to create a release, **always use the release script**:
-
-```powershell
-# Standard release workflow:
-1. npm version patch   # (or minor/major) - bumps version in package.json and creates git tag
-2. git add -A && git commit -m "Description (vX.X.X)"
-3. git push origin main
-4. git push origin --tags  # REQUIRED: Push the version tag created by npm version
-5. .\scripts\create-release.ps1 -Notes "description of changes since last release"
+#### 4. Check Electron Helper/Library
+The issue might be in the `electron_helper` library:
+```javascript
+// Check if config is being polled
+console.log('Config object:', g.config_obj);
+// Look for any intervals/timeouts in the helper
 ```
 
-The script (`scripts/create-release.ps1`) handles:
-- Building the app with `npm run make`
-- Uploading all required artifacts: `soundApp_Setup.exe`, `*-full.nupkg`, `RELEASES`
-- Creating the GitHub release with proper tagging
+#### 5. Compare with "Before" State
+If you have a git commit from before the new features:
+```bash
+# Checkout old version
+git checkout <commit-before-features>
+# Test CPU usage
+# Then compare what changed
+```
 
-**Critical:** The git tag created by `npm version` MUST be pushed with `git push origin --tags` before running the release script, otherwise the release will fail.
+#### 6. Process Isolation Test
+In Task Manager, try killing individual Electron processes one by one (not the main one!) and see which one reduces CPU. This tells us if it's:
+- Main process (app.js)
+- Renderer (stage.js)
+- GPU process
+- Utility process (audio, etc.)
 
-**Never manually run `gh release create`** - the nupkg and RELEASES files are required for Squirrel auto-updates to work.
+### Potential Fixes to Try
 
-**Required Parameter:**
-- `-Notes "text"` - **REQUIRED** - Description of what has changed since the last release (changelog)
+1. **Suspend AudioContext when paused:**
+```javascript
+// When pausing
+g.audioContext.suspend();
 
-**Optional Parameters:**
-- `-Clean` - Clean old builds first
-- `-Draft` - Create as draft (won't trigger auto-updates)
+// When resuming
+g.audioContext.resume();
+```
 
-## Release History
+2. **Disable background throttling:**
+```javascript
+// In app.js when creating window
+webPreferences: {
+    backgroundThrottling: true,  // or false to test
+    // ...
+}
+```
 
-### Version 2.1.1 (January 2026)
-- **Unified Parameters Window** - Context-aware control panel that adapts to file type
-  - Audio files: Tape Speed (default) or Pitch/Time (Rubber Band) controls with optional Lock Settings
-  - MIDI files: Global transpose, tempo, metronome, and SoundFont selection
-  - Tracker files: Pitch shift, tempo, channel mixer with solo/mute, and stereo separation
-  - Replaced help button in controls bar with parameters button
-- **Updated Documentation** - Comprehensive documentation for Parameters window in README and Help
-- **Cleaned Settings Window** - Removed duplicate tracker settings (now exclusively in Parameters window)
+3. **Check Electron version changes:**
+```javascript
+// In DevTools
+console.log(process.versions.electron);
+console.log(process.versions.chrome);
+```
 
-### Version 2.1.0 (January 2026)
-- **High-Quality Pitch Shifting & Time Stretching** - Rubber Band Library integration
-  - Independent pitch and tempo control for professional audio manipulation
-  - Real-time DSP processing with configurable quality presets
-  - Dedicated controls windows for precise parameter adjustment
-- **Full MIDI Support** - FluidSynth-based MIDI playback
-  - Native SoundFont synthesis via js-synthesizer (FluidSynth WASM)
-  - Worklet-synced metronome with customizable click samples
-  - MIDI Settings window for pitch/tempo/soundfont configuration
-- **Dedicated Controls Windows** - Specialized UI for advanced features
-  - Pitch/Time window for real-time audio manipulation
-  - MIDI Settings window for comprehensive MIDI control
-  - Parameters window for future extensibility
+### Related Code Areas
+- `js/stage.js:541` - AudioContext creation
+- `js/stage.js:254` - Rubberband context creation
+- `js/app.js:191` - Main window webPreferences
+- `libs/electron_helper/` - Helper library internals
 
-### Version 2.0.8 (January 2026)
-- **Tape-Style Speed Control** - Variable playback speed from -24 to +24 semitones
-  - Keyboard controls: `+/-` keys adjust speed (coupled pitch/speed like vinyl/tape)
-  - Linear interpolation for smooth fractional-rate playback
-  - Ephemeral setting - resets to normal speed on app restart
-  - Full support for both FFmpeg and tracker/MOD playback
-- **Click-Free Transitions** - Web Audio API gain automation eliminates audio artifacts
-  - 12ms fade-out, 15ms fade-in on pause/resume/seek/track-change
-  - Imperceptible as fades but prevents waveform discontinuities
-  - Smart auto-advance detection skips redundant fade-out on naturally ended tracks
-- **Mixer Performance** - 5-10x faster seeking through parallel track synchronization
-  - Tracks seek simultaneously during 80ms pre-buffer window
-  - Master gain persistence across fade operations
+---
 
-### Version 1.3 (December 2025)
-- **SAB Audio Pipeline** - Replaced chunk-based streaming with SharedArrayBuffer architecture
-  - Zero-copy audio data transfer between main thread and AudioWorkletProcessor
-  - Lock-free synchronization using Atomics on Int32Array control buffer
-  - Ring buffer design (~4 seconds at 48kHz) for smooth streaming
-- **Persistent AudioWorkletNode** - Worklet and SABs reused across track switches
-  - Fixes memory leak from Chrome not GC'ing rapidly created AudioWorkletNodes
-  - `stop(true)` pattern preserves resources; `dispose()` fully cleans up
-- **CPU Optimization** - Worklet disconnected from destination when paused
 
-### Version 1.2 (December 2025)
-- **HQ Mode Restored** - Configurable max output sample rate (44.1kHz to 192kHz) for high-quality playback
-  - Native FFmpeg decoder outputs at exact AudioContext sample rate to prevent pitch/speed errors
-  - Time-based chunking (0.1s per chunk) maintains stability across all sample rates
-  - Gapless looping verified working at all sample rates (44.1k, 96k, 192k)
-- **Decoder Threading** - FFmpeg multi-threaded decoding support
-  - Configurable thread count (0=auto, 1-8=specific count)
-  - Frame + slice threading for parallel decoding
-  - Settings UI with buffer size timing estimates
-- **Backward Compatibility** - Comprehensive configuration defaults ensure smooth updates
-  - All settings have fallback values in code and UI
-  - Empty/missing config files work correctly with defaults
+---
 
-## Current Bugs
+## Minimal Mode (CPU Debugging)
 
-(none)
+> **Purpose:** Isolate what's causing constant CPU usage by skipping all heavy initialization
 
-## Backlog / Future Features
+### How to Enable
 
-- **Mixer Volume Boost** - Increase mixer track volume sliders to go up to 2x gain (currently maxes at 1x) to accommodate low-volume mixes
-- **Waveform Caching** - Cache extracted waveforms to avoid re-extraction on repeated monitoring
-   - In-memory cache keyed by file path + mtime (cleared on app restart)
-   - Optional persistent cache in %APPDATA%/SoundApp/waveforms/ with filename hashes
-   - Smart invalidation based on file modification time and size
-   - Performance: instant cache hit vs 250ms-4s extraction time for 4min-1hr tracks
-- **Playlist Window**
-   - Separate window displaying full playlist
-   - Use `libs/nui/nui_list.js` for virtualized list handling
-   - Search, sort, and scroll through large playlists
-- **Automatic or User Driven Soundfont Downloads** - Download SoundFonts from Archive.org sources
-- **BPM Detection** - Detect tempo, maybe in conjunction with the waveform display
-- **Quick Compare Mode** - Hold key to jump to another track, release to return
-- **Export Playlist** - Save playlist as M3U or text file
-- **Marker System** - Set up to 10 markers in a file (keys 1-0), jump and play from markers
-  - Integrates with Quick Compare Mode for A/B comparison between markers
-- **Folder Metadata Display** - Show folder stats (duration, file count, size)
-- **Quick Tag Editor** - Simple inline ID3/metadata editing
+**Option 1: Command line flag**
+```bash
+# Run app with --minimal flag
+.\SoundApp.exe --minimal
+```
+
+**Option 2: Environment variable**
+Add to `env.json` in app root:
+```json
+{
+  "MINIMAL_MODE": true
+}
+```
+
+### What Gets Skipped in Minimal Mode
+
+✅ **Still loaded:**
+- Basic Electron window
+- Minimal UI (dark theme, frame)
+- Console logging
+
+❌ **Skipped:**
+- AudioContext creation
+- FFmpeg player initialization
+- MIDI player initialization
+- Tracker/MOD player initialization
+- Rubberband pipeline
+- Config system
+- All IPC handlers
+- All event listeners
+
+### Expected CPU Usage
+
+| Mode | Expected CPU |
+|------|-------------|
+| Minimal mode | 0% (or very close) |
+| Normal idle (paused) | 0.2%+ (the problem) |
+
+### Debugging Process
+
+1. **Start in minimal mode** - Check Task Manager
+   - If CPU is 0% → Problem is in skipped components
+   - If CPU is still 0.2%+ → Problem is in Electron/Chromium itself
+
+2. **Gradually re-enable components** by editing the init() function:
+   ```javascript
+   // In js/stage.js init(), after minimal mode check:
+   
+   // Step 1: Add back config system
+   g.config_obj = await helper.config.initRenderer(...)
+   
+   // Step 2: Add back AudioContext only
+   g.audioContext = new AudioContext(...)
+   
+   // Step 3: Add back FFmpeg player
+   // etc.
+   ```
+
+3. **Check CPU after each addition** to find the culprit
+
+### Quick Test in DevTools
+
+Even without minimal mode, you can test suspending the AudioContext:
+```javascript
+// In DevTools console when app is idle
+console.log('Before suspend:', g.audioContext.state);
+g.audioContext.suspend().then(() => {
+    console.log('After suspend:', g.audioContext.state);
+    console.log('Check Task Manager - did CPU drop?');
+});
+```
+
+### Related Files
+
+- `js/stage.js:368-400` - Minimal mode check and early return
+- `js/stage.js:539-543` - AudioContext creation (skipped in minimal)
+- `js/stage.js:567-578` - FFmpeg player init (skipped in minimal)
+

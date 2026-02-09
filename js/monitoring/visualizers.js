@@ -218,14 +218,12 @@ export class Visualizers {
     }
 
     setWaveformData(data) {
-        console.log('[Visualizers] setWaveformData received. points:', data ? data.points : 'null');
         this.waveformData = data;
         this.midiActivity = null; // Clear MIDI data when waveform is set
         this.drawWaveform();
     }
 
     setMidiActivity(data) {
-        console.log('[Visualizers] setMidiActivity received. channels:', data && data.channels ? data.channels.length : 0);
         this.midiActivity = data;
         this.waveformData = null; // clear waveform data when MIDI timeline present
         // Store duration in seconds for playhead/seeking compatibility

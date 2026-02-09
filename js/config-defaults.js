@@ -20,7 +20,8 @@ module.exports = {
 	audio: {
 		volume: 0.5,
 		output: { deviceId: '' },
-		hqMode: false
+		hqMode: false,
+		disableMidiPlayer: false  // Set to true to save 0.3-0.5% constant CPU usage (MIDI files won't play)
 	},
 
 	ffmpeg: {

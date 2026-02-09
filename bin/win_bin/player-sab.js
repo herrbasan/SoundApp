@@ -574,6 +574,7 @@ class FFmpegStreamPlayerSAB {
     if (this.isPlaying) return;
     
     this.isPlaying = true;
+    this.isPlaying = true;
     this._feedNextAtMs = 0;
     this._startFeedLoop();
   }

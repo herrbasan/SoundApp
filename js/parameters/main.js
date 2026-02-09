@@ -572,7 +572,10 @@ function initAudioControls() {
     const formantCheckbox = document.getElementById('audio_formant_mode');
     if (formantCheckbox) {
         formantCheckbox.addEventListener('change', () => {
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
+            // Only send formant changes when in pitchtime mode
+            if (audioMode === 'pitchtime') {
+                bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
+            }
         });
     }
 
