@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Engine</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #1a1a1a;
+            color: #888;
+            font-size: 12px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #333;
+        }
+        .indicator.active {
+            background: #4caf50;
+            box-shadow: 0 0 8px #4caf50;
+        }
+        .indicator.playing {
+            background: #2196f3;
+            box-shadow: 0 0 8px #2196f3;
+        }
+        .log {
+            margin-top: 10px;
+            padding: 10px;
+            background: #0d0d0d;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 2px 0;
+            opacity: 0.8;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="status">
+        <div class="indicator" id="status-indicator"></div>
+        <span id="status-text">Audio Engine Initializing...</span>
+    </div>
+    <div class="log" id="log"></div>
+
+    <!-- Required libraries -->
+    <script src="../libs/chiptune/chiptune2.js"></script>
+    <script src="../libs/midi/midi.js"></script>
+    <script src="../js/util.js"></script>
+    
+    <!-- Audio Engine -->
+    <script src="../js/engines.js"></script>
+    
+    <script>
+        // Minimal status UI for debugging
+        const indicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const logEl = document.getElementById('log');
+        
+        function log(msg) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        // Override console.log to also show in UI
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            log(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+        };
+        
+        // Status updates
+        window.updateStatus = function(state) {
+            indicator.className = 'indicator ' + state;
+            if (state === 'active') {
+                statusText.textContent = 'Audio Engine Active';
+            } else if (state === 'playing') {
+                statusText.textContent = 'Audio Engine Playing';
+            } else {
+                statusText.textContent = 'Audio Engine Idle';
+            }
+        };
+        
+        log('Audio Engine window loaded');
+    </script>
+</body>
+</html>
