@@ -496,38 +496,8 @@ async function init() {
 	if (s < 14) { s = 14; saveCnf = true; }
 	if ((g.config.windows.main.scale | 0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
 	if (saveCnf) { g.config_obj.set(g.config); }
-
-	const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
-	if (theme0 === 'dark') {
-		document.body.classList.add('dark');
-	} else {
-		document.body.classList.remove('dark');
-	}
-	tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
-
-	const showControls0 = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
-	applyShowControls(showControls0);
-
-	ut.setCssVar('--space-base', s);
-
-	let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
-	if (b) {
-		const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
-		const baseMinH = showControls0 ? MIN_HEIGHT_WITH_CONTROLS : MIN_HEIGHT_WITHOUT_CONTROLS;
-		const scale0 = _getMainScale();
-		const minW = _scaledDim(MIN_WIDTH, scale0);
-		const minH = _scaledDim(baseMinH, scale0);
-		const nb = { width: b.width | 0, height: b.height | 0 };
-		if (b.x !== undefined && b.x !== null) nb.x = b.x | 0;
-		if (b.y !== undefined && b.y !== null) nb.y = b.y | 0;
-		if (nb.width < minW) nb.width = minW;
-		if (nb.height < minH) nb.height = minH;
-		await g.win.setBounds(nb);
-		g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s | 0 };
-	}
-	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-	g.win.show();
-	if (!g.isPackaged) { g.win.toggleDevTools() }
+	
+	// Engine doesn't handle UI - app.js manages theme and window state
 
 	let fp = g.app_path;
 	if (g.isPackaged) { fp = path.dirname(fp); }
@@ -784,18 +754,6 @@ async function init() {
 			stopPropagation: () => { }
 		};
 		onKey(ev);
-	});
-
-	ipcRenderer.on('theme-changed', (e, data) => {
-		if (data.dark) {
-			document.body.classList.add('dark');
-		} else {
-			document.body.classList.remove('dark');
-		}
-		if (!g.config.ui) g.config.ui = {};
-		g.config.ui.theme = data.dark ? 'dark' : 'light';
-		g.config_obj.set(g.config);
-
 	});
 
 	ipcRenderer.on('open-soundfonts-folder', async () => {
