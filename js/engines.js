@@ -44,7 +44,7 @@ g.idx = 0;             // Current playlist index
 g.max = -1;
 
 // Engine state
-engineState = {
+const engineState = {
     file: null,
     isPlaying: false,
     position: 0,
@@ -1207,8 +1207,7 @@ async function engineReady() {
 	
 	// Notify main process that engine is ready
 	ipcRenderer.send('engine:ready');
-
-
+}
 
 function _clamp01(v) {
 	v = +v;
@@ -1356,7 +1355,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 		if (isMIDI) {
 			console.log('[playAudio] Starting MIDI playback');
 			if (!midi) {
-				g.text.innerHTML += (g.midiInitError || 'MIDI playback not initialized.') + '<br>';
+				console.error('[Engine] MIDI init error:', g.midiInitError || 'MIDI playback not initialized.');
 				g.blocky = false;
 				return false;
 			}
@@ -1398,6 +1397,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 					midi.pause();
 				} else {
 					midi.play();
+					startPositionPush();
+					ipcRenderer.send('audio:state', { isPlaying: true });
 				}
 
 				await renderInfo(fp, g.currentAudio.metadata);
@@ -1419,7 +1420,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				}
 			} catch (err) {
 				console.error('MIDI playback error:', err);
-				g.text.innerHTML += 'Error loading MIDI file!<br>';
+				console.error('[Engine] Error loading MIDI file!');
 				g.blocky = false;
 				return false;
 			}
@@ -1438,6 +1439,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 					g.currentAudio.paused = false;
 					try { player.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch (e) { }
 					player.unpause();
+					startPositionPush();
+					ipcRenderer.send('audio:state', { isPlaying: true });
 				},
 				pause: () => { g.currentAudio.paused = true; player.pause() },
 				getCurrentTime: () => player.getCurrentTime(),
@@ -1510,6 +1513,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 						}
 					} catch (e) { }
 				}, 250);
+			} else {
+				// Tracker auto-plays on load, start position push
+				startPositionPush();
+				ipcRenderer.send('audio:state', { isPlaying: true });
 			}
 			checkState();
 		}
@@ -1593,6 +1600,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 					console.log('[playAudio] Starting playback...');
 					await activePlayer.play();
 					console.log('[playAudio] Playback started, isPlaying:', activePlayer.isPlaying);
+					startPositionPush();
+					ipcRenderer.send('audio:state', { isPlaying: true });
 				}
 				else if (startPaused) {
 					console.log('[playAudio] Pausing (startPaused=true)');
@@ -1600,7 +1609,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				}
 
 				checkState();
-				await renderInfo(fp);
+				await renderInfo(fp, metadata);
 				g.blocky = false;
 
 				if (g.windows.parameters) {
@@ -1666,7 +1675,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			}
 			catch (err) {
 				console.error('FFmpeg playback error:', err);
-				g.text.innerHTML += 'Error loading file!<br>';
+				console.error('[Engine] Error loading file!');
 				g.blocky = false;
 				return false;
 			}
@@ -1712,17 +1721,19 @@ function collectMetadata(fp, metadata) {
 		result.keySignature = md.keySignature;
 	}
 	else {
-		let meta = getFileInfo(fp);
-		g.currentInfo.file = meta;
-		result.type = meta.formatLongName && meta.formatLongName.includes('Tracker') ? 'tracker' : 'ffmpeg';
-		result.format = meta.codecLongName || meta.codec || 'Unknown';
-		result.bitrate = meta.bitrate;
-		result.channels = meta.channels;
-		result.sampleRate = meta.sampleRate;
-		result.bitsPerSample = meta.bitsPerSample;
-		result.artist = meta.artist;
-		result.album = meta.album;
-		result.title = meta.title;
+		// For FFmpeg files, use metadata from ffPlayer.open() + g.getMetadata() for tags
+		let metaFromOpen = metadata || {};
+		let metaFromFile = g.getMetadata ? g.getMetadata(fp) : {};
+		g.currentInfo.file = metaFromFile;
+		result.type = 'ffmpeg';
+		result.format = metaFromFile.codecLongName || metaFromFile.codec || 'Unknown';
+		result.bitrate = metaFromFile.bitrate;
+		result.channels = metaFromOpen.channels || metaFromFile.channels;
+		result.sampleRate = metaFromOpen.sampleRate || metaFromFile.sampleRate;
+		result.bitsPerSample = metaFromFile.bitsPerSample;
+		result.artist = metaFromFile.artist;
+		result.album = metaFromFile.album;
+		result.title = metaFromFile.title;
 		// Cover art not loaded in engine (UI handles it)
 	}
 	
@@ -1886,6 +1897,25 @@ function updatePlaybackState() {
 	}
 }
 
+// Stub for UI function removed in engine
+function checkState() {
+    // No-op: UI state is handled by player.js
+}
+
+// Stub for UI function - engine collects metadata and sends via IPC
+async function renderInfo(fp, metadata) {
+    // Collect metadata for sending to UI
+    if (g.currentAudio) {
+        const meta = collectMetadata(fp, metadata);
+        // Send in format expected by app.js: { duration, metadata }
+        ipcRenderer.send('audio:metadata', { 
+            duration: meta.duration, 
+            metadata: meta,
+            fileType: meta.type 
+        });
+    }
+}
+
 function flashButton(btn) {
 	if (!btn) return;
 	btn.classList.add('flash');
@@ -2010,7 +2040,7 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 			const dur = (meta && meta.duration) ? meta.duration : tempMidi.getDuration();
 			if (dur > 0) {
 				g.currentAudio.duration = dur;
-				g.playremain.innerText = ut.playTime(dur * 1000).minsec;
+				// UI updated via IPC: g.playremain.innerText = ...
 			}
 
 			if (meta) {
@@ -2205,7 +2235,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	player.onMetadata(async (meta) => {
 		if (g.currentAudio) {
 			g.currentAudio.duration = player.duration;
-			g.playremain.innerText = ut.playTime(g.currentAudio.duration * 1000).minsec;
+			// UI updated via IPC
 			await renderInfo(g.currentAudio.fp, meta);
 		}
 		g.blocky = false;
@@ -2582,4 +2612,3 @@ function getFileInfo(fp) {
 // This file only handles audio playback
 
 module.exports.init = init;
-}

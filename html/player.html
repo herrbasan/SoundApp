@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>SoundApp</title>
+	<link media="all" rel="stylesheet" type="text/css" href="../css/reset.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../css/main.css">
+	<link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+</head>
+
+<body id="bod" class="w_main no-select dark">
+	<div id="frame" class="frame focus">
+		<div class="top">
+			<div class="content">
+				<div class="topbutton playpause"></div>
+				<div class="topbutton loop"></div>
+				<div class="topbutton shuffle"></div>
+				<div class="num"></div>
+				<div class="close">close</div>
+			</div>
+		</div>
+		
+		<div class="info">
+			<div class="cover">
+				<div class="filetype">
+					<div class="type">MP3</div>
+					<div class="icon">speaker</div>
+				</div>
+			</div>
+			<div class="text">
+				<div class="item">
+					<div class="label">Folder:</div>
+					<div class="content">-</div>
+				</div>
+				<div class="item">
+					<div class="label">File:</div>
+					<div class="content">-</div>
+				</div>
+				<div class="space"></div>
+				<div class="item">
+					<div class="label">Format:</div>
+					<div class="content">-</div>
+				</div>
+			</div>
+		</div>
+		
+		<div class="time_controls">
+			<div class="playhead">
+				<div class="prog"></div>
+			</div>
+			<div class="playtime">
+				<div class="time">00:00</div>
+				<div class="volume"><label>Volume:</label><span>50%</span></div>
+				<div class="remain">00:00</div>
+			</div>
+		</div>
+		
+		<div class="controls">
+			<div class="button settings">
+				<icon>settings</icon>
+			</div>
+			<div class="button parameters">
+				<icon>tune</icon>
+			</div>
+			<div class="volume" style="margin-left: auto;">
+				<div class="volume-icon">volume_up</div>
+				<div class="volume-bar">
+					<div class="volume-bar-inner"></div>
+				</div>
+			</div>
+			<div class="button loop" style="margin-left: auto;">
+				<icon>autorenew</icon>
+			</div>
+			<div class="button shuffle">
+				<icon>shuffle</icon>
+			</div>
+			<div class="button prev">
+				<icon style="transform: rotate(180deg);">skip_next</icon>
+			</div>
+			<div class="button play">
+				<icon class="icon-play" style="font-size: 1.3rem;">play_arrow</icon>
+				<icon class="icon-pause" style="font-size: 1.3rem;">pause</icon>
+			</div>
+			<div class="button next">
+				<icon>skip_next</icon>
+			</div>
+		</div>
+	</div>
+</body>
+
+<script language="JavaScript" type="module">
+	import ut from '../libs/nui/nui_ut.js';
+	import nui_app from '../libs/nui/nui_app.js';
+	import dragSlider from '../libs/nui/nui_drag_slider.js';
+	
+	window.ut = ut;
+	ut.dragSlider = dragSlider;
+	window.nui_app = nui_app;
+
+	// Import centralized shortcuts
+	const shortcuts = require('../js/shortcuts.js');
+	window.shortcuts = shortcuts;
+
+	// Load player.js (UI-only renderer)
+	let electron_player = require('../js/player.js');
+</script>
+
+</html>

@@ -49,6 +49,7 @@ const audioState = {
     // Engine
     engineAlive: false,
     engineInitializing: false,
+    engineDisposalTimeout: null,  // Timer for idle disposal
     
     // Playlist
     playlist: [],
@@ -246,7 +247,7 @@ async function appStart() {
 		devTools: false,
 		transparent: false,
 		backgroundColor: '#323232',
-		file: 'html/stage.html',
+		file: 'html/player.html',
 		webPreferences: {
 			navigateOnDragDrop: true
 		}
@@ -264,6 +265,8 @@ async function appStart() {
 			if (!keep) return;
 			e.preventDefault();
 			try { wins.main.hide(); } catch (err) { }
+			// Phase 4: Schedule engine disposal when hidden to tray
+			scheduleEngineDisposal();
 		});
 
 		wins.main.on('closed', () => {
@@ -274,6 +277,18 @@ async function appStart() {
 			} catch (err) { }
 			if (!keep) app.quit();
 		});
+		
+		// Phase 4: Restore engine when window becomes visible
+		wins.main.on('show', () => {
+			cancelEngineDisposal();
+			restoreEngineIfNeeded();
+		});
+		
+		wins.main.on('restore', () => {
+			cancelEngineDisposal();
+			restoreEngineIfNeeded();
+		});
+		
 	} catch (err) { }
 
 	createTray();
@@ -418,14 +433,32 @@ function createTray() {
 	tray.setToolTip('SoundApp');
 
 	const contextMenu = Menu.buildFromTemplate([
-		{ label: 'Show', click: () => { try { wins.main && wins.main.show(); wins.main && wins.main.focus(); } catch (e) { } } },
+		{ label: 'Show', click: async () => { 
+			try { 
+				if (wins.main) {
+					wins.main.show(); 
+					wins.main.focus();
+					// Phase 4: Cancel disposal and restore engine if needed
+					cancelEngineDisposal();
+					await restoreEngineIfNeeded();
+				}
+			} catch (e) { } 
+		} },
 		{ label: 'Reset Windows', click: () => { resetAllWindows(); } },
 		{ type: 'separator' },
 		{ label: 'Quit', click: () => { app.quit(); } }
 	]);
 	tray.setContextMenu(contextMenu);
-	tray.on('click', () => {
-		try { wins.main && wins.main.show(); wins.main && wins.main.focus(); } catch (e) { }
+	tray.on('click', async () => {
+		try { 
+			if (wins.main) {
+				wins.main.show(); 
+				wins.main.focus();
+				// Phase 4: Cancel disposal and restore engine if needed
+				cancelEngineDisposal();
+				await restoreEngineIfNeeded();
+			}
+		} catch (e) { }
 	});
 }
 
@@ -578,8 +611,51 @@ async function createEngineWindow() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// ENGINE DISPOSAL / RESTORATION (Phase 4: 0% CPU when idle)
+// ═══════════════════════════════════════════════════════════
+
+const IDLE_DISPOSE_TIMEOUT_MS = 5000;  // 5 seconds idle before disposal
+
+function shouldDisposeEngine() {
+    // Dispose when: window hidden to tray AND playback paused
+    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
+    return !isWindowVisible && !audioState.isPlaying;
+}
+
+function scheduleEngineDisposal() {
+    // Clear any existing timeout
+    if (audioState.engineDisposalTimeout) {
+        clearTimeout(audioState.engineDisposalTimeout);
+        audioState.engineDisposalTimeout = null;
+    }
+    
+    // Only schedule if engine exists and should be disposed
+    if (!engineWindow || !shouldDisposeEngine()) return;
+    
+    fb(`Scheduling engine disposal in ${IDLE_DISPOSE_TIMEOUT_MS}ms...`, 'engine');
+    
+    audioState.engineDisposalTimeout = setTimeout(() => {
+        audioState.engineDisposalTimeout = null;
+        if (shouldDisposeEngine()) {
+            disposeEngineWindow();
+        }
+    }, IDLE_DISPOSE_TIMEOUT_MS);
+}
+
+function cancelEngineDisposal() {
+    if (audioState.engineDisposalTimeout) {
+        clearTimeout(audioState.engineDisposalTimeout);
+        audioState.engineDisposalTimeout = null;
+        fb('Cancelled engine disposal', 'engine');
+    }
+}
+
 function disposeEngineWindow() {
     if (!engineWindow) return;
+    
+    // Cancel any pending disposal timeout
+    cancelEngineDisposal();
     
     fb('Disposing engine window...', 'engine');
     audioState.engineAlive = false;
@@ -591,6 +667,60 @@ function disposeEngineWindow() {
     }
     
     engineWindow = null;
+}
+
+async function restoreEngineIfNeeded() {
+    // Restore engine when window becomes visible and we have state to restore
+    if (audioState.engineAlive) return true;  // Already alive
+    if (!audioState.file) return false;        // Nothing to restore
+    
+    fb('Restoring engine from state...', 'engine');
+    const startTime = Date.now();
+    
+    try {
+        await createEngineWindow();
+        
+        // Wait for engine to be ready (engine:ready event sets engineAlive)
+        // Use polling with timeout instead of blocking
+        let waitMs = 0;
+        const maxWaitMs = 1000;
+        while (!audioState.engineAlive && waitMs < maxWaitMs) {
+            await new Promise(r => setTimeout(r, 10));
+            waitMs += 10;
+        }
+        
+        if (!audioState.engineAlive) {
+            fb('Engine failed to signal ready', 'engine');
+            return false;
+        }
+        
+        // Send current state to engine
+        sendToEngine('cmd:load', {
+            file: audioState.file,
+            position: audioState.position,
+            paused: !audioState.isPlaying
+        });
+        
+        // Restore audio params
+        sendToEngine('cmd:setParams', {
+            mode: audioState.mode,
+            tapeSpeed: audioState.tapeSpeed,
+            pitch: audioState.pitch,
+            tempo: audioState.tempo,
+            formant: audioState.formant,
+            locked: audioState.locked,
+            volume: audioState.volume,
+            loop: audioState.loop
+        });
+        
+        const elapsed = Date.now() - startTime;
+        fb(`Engine restored in ${elapsed}ms`, 'engine');
+        return true;
+        
+    } catch (err) {
+        fb('Failed to restore engine: ' + err.message, 'engine');
+        return false;
+    }
 }
 
 function sendToEngine(channel, data) {
@@ -605,8 +735,7 @@ function sendToEngine(channel, data) {
 }
 
 function sendToPlayer(channel, data) {
-    // For now, send to main window (stage.html)
-    // Later this will be playerWindow
+    // Send to player window (player.html)
     if (!wins.main || wins.main.isDestroyed()) return false;
     try {
         wins.main.webContents.send(channel, data);
@@ -650,6 +779,8 @@ function setupAudioIPC() {
     // Commands from player UI → forward to engine
     ipcMain.on('audio:play', async () => {
         audioState.isPlaying = true;
+        // Phase 4: Cancel any pending disposal
+        cancelEngineDisposal();
         if (!audioState.engineAlive) {
             await createEngineWindow();
         }
@@ -661,6 +792,8 @@ function setupAudioIPC() {
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
+        // Phase 4: Schedule disposal after pausing (if hidden to tray)
+        scheduleEngineDisposal();
     });
     
     ipcMain.on('audio:seek', (e, data) => {
@@ -672,6 +805,9 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:load', async (e, data) => {
         if (!data || !data.file) return;
+        
+        // Phase 4: Cancel any pending disposal when loading new content
+        cancelEngineDisposal();
         
         audioState.file = data.file;
         audioState.position = data.position || 0;
@@ -775,6 +911,11 @@ function setupAudioIPC() {
         if (data && data.type) {
             sendToEngine('window-hidden', data);
         }
+    });
+    
+    // Player requests current state (on startup)
+    ipcMain.on('audio:requestState', (e) => {
+        broadcastState();
     });
 }
 

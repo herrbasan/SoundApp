@@ -57,15 +57,18 @@
     </div>
     <div class="log" id="log"></div>
 
-    <!-- Required libraries -->
-    <script src="../libs/chiptune/chiptune2.js"></script>
-    <script src="../libs/midi/midi.js"></script>
-    <script src="../js/util.js"></script>
-    
-    <!-- Audio Engine -->
-    <script src="../js/engines.js"></script>
-    
-    <script>
+    <script language="JavaScript" type="module">
+        import ut from '../libs/nui/nui_ut.js';
+        import { ChiptuneJsPlayer } from '../libs/chiptune/chiptune3.js';
+        import { MidiPlayer } from '../js/midi/midi.js';
+        
+        window.ut = ut;
+        window.chiptune = ChiptuneJsPlayer;
+        window.midi = MidiPlayer;
+        
+        // Load audio engine
+        require('../js/engines.js');
+        
         // Minimal status UI for debugging
         const indicator = document.getElementById('status-indicator');
         const statusText = document.getElementById('status-text');
