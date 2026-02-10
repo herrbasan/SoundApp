@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * ENGINES.JS - Headless Audio Engine
@@ -70,7 +70,7 @@ g.audioParams = {
     locked: false      // lock settings across track changes
 };
 
-// Position push interval (≤15ms for smooth UI)
+// Position push interval (â‰¤15ms for smooth UI)
 let positionPushInterval = null;
 const POSITION_PUSH_MS = 15;
 
@@ -735,11 +735,6 @@ async function init() {
 		}
 	});
 
-
-			tools.sendToMain('command', { command: 'toggle-theme' });
-		}
-	});
-
 	ipcRenderer.on('stage-keydown', (e, data) => {
 		if (!data) return;
 		const ev = {
@@ -903,7 +898,7 @@ async function init() {
 			if (data.param === 'audioMode') {
 				const newMode = data.value; // 'tape' or 'pitchtime'
 				const oldMode = g.audioParams.mode;
-				console.log('[Stage] audioMode change:', oldMode, '→', newMode);
+				console.log('[Stage] audioMode change:', oldMode, 'â†’', newMode);
 				g.audioParams.mode = newMode;
 
 				// Apply routing state (centralized pipeline switching)
@@ -1190,15 +1185,15 @@ async function engineReady() {
 			if (decoder.open(filePath)) {
 				const duration = decoder.getDuration();
 				decoder.close();
-				console.log('  ✓ FFmpeg can play (duration:', duration, 's)');
+				console.log('  âœ“ FFmpeg can play (duration:', duration, 's)');
 				return duration > 0;
 			}
 			decoder.close();
-			console.log('  ✗ FFmpeg open failed');
+			console.log('  âœ— FFmpeg open failed');
 			return false;
 		} catch (e) {
 			try { decoder.close(); } catch (e2) { }
-			console.log('  ✗ FFmpeg error:', e.message);
+			console.log('  âœ— FFmpeg error:', e.message);
 			return false;
 		}
 	}
@@ -1793,7 +1788,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 				if (typeof newPlayer.setPitch === 'function') {
 					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
 					newPlayer.setPitch(pitchRatio);
-					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
+					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, 'â†’ ratio:', pitchRatio);
 				}
 				if (typeof newPlayer.setTempo === 'function') {
 					newPlayer.setTempo(g.audioParams.tempo || 1.0);
@@ -2586,358 +2581,5 @@ function getFileInfo(fp) {
 // Window management is handled by app.js in the new architecture
 // This file only handles audio playback
 
-async function notifyWindowVisibility(type, visible) {
-	console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'exists:', !!g.windows[type]);
-	async function waitForWindowClosed(t, id, timeoutMs = 2000) {
-		return await new Promise((resolve) => {
-			let done = false;
-			const to = setTimeout(() => {
-				if (done) return;
-				done = true;
-				ipcRenderer.removeListener('window-closed', onClosed);
-				resolve(false);
-			}, timeoutMs | 0);
-			function onClosed(e, data) {
-				if (done) return;
-				if (!data || data.type !== t || data.windowId !== id) return;
-				done = true;
-				clearTimeout(to);
-				ipcRenderer.removeListener('window-closed', onClosed);
-				resolve(true);
-			}
-			ipcRenderer.on('window-closed', onClosed);
-		});
-	}
-
-	if (g.windows[type] && g.windowsClosing[type]) {
-		await waitForWindowClosed(type, g.windows[type], 2000);
-	}
-
-	if (g.windows[type]) {
-		if (type === 'midi' && g.midiSettings) {
-			tools.sendToId(g.windows[type], 'update-ui', {
-				pitch: g.midiSettings.pitch,
-				speed: g.midiSettings.speed,
-				metronome: !!g.midiSettings.metronome
-			});
-		}
-
-		if (forceShow) {
-			if (type === 'mixer') {
-				if (g.currentAudio && !g.currentAudio.paused) {
-					g.currentAudio.pause();
-					checkState();
-				}
-				const playlist = await getMixerPlaylist(contextFile);
-				tools.sendToId(g.windows[type], 'mixer-playlist', {
-					paths: playlist.paths.slice(0, 20),
-					idx: playlist.idx
-				});
-				if (!g.windowsVisible[type]) {
-					tools.sendToId(g.windows[type], 'show-window');
-					g.windowsVisible[type] = true;
-				} else {
-					tools.sendToId(g.windows[type], 'show-window');
-				}
-				return;
-			} else {
-				if (!g.windowsVisible[type]) {
-					tools.sendToId(g.windows[type], 'show-window');
-					g.windowsVisible[type] = true;
-				} else {
-					tools.sendToId(g.windows[type], 'show-window');
-				}
-				if (type === 'monitoring') {
-					g.monitoringReady = true;
-					startMonitoringLoop();
-				}
-				if (type === 'pitchtime') {
-					const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-					const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
-					if (currentFile) {
-						if (g.currentAudio && !g.currentAudio.paused) {
-							g.currentAudio.pause();
-							checkState();
-						}
-						const ext = path.extname(currentFile).toLowerCase();
-						if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
-							tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
-						} else {
-							tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
-						}
-					}
-				}
-				if (type === 'parameters') {
-					g.parametersOpen = true;
-					// Only switch to rubberband if pitchtime mode is active
-					if (g.audioParams.mode === 'pitchtime' && g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
-						if (g.activePipeline !== 'rubberband') {
-							try {
-								await switchPipeline('rubberband');
-								g.rubberbandPlayer.connect();
-								console.log('[Parameters] Switched to rubberband pipeline (existing window)');
-							} catch (err) {
-								console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
-							}
-						}
-					}
-				}
-				return;
-			}
-		}
-
-		if (g.windowsVisible[type]) {
-			tools.sendToId(g.windows[type], 'hide-window');
-			g.windowsVisible[type] = false;
-
-			if (type === 'midi') {
-				g.midiSettings = { pitch: 0, speed: null };
-				if (midi) {
-					if (midi.setPitchOffset) midi.setPitchOffset(0);
-					if (midi.resetPlaybackSpeed) midi.resetPlaybackSpeed();
-					if (midi.setMetronome) midi.setMetronome(false);
-				}
-			}
-
-			g.win.focus();
-
-		} else {
-			tools.sendToId(g.windows[type], 'show-window');
-			g.windowsVisible[type] = true;
-			if (type === 'monitoring') {
-				g.monitoringReady = true;
-				startMonitoringLoop();
-			}
-			
-			// Apply routing state (handles monitoring activation, pipeline switches)
-			await applyRoutingState();
-			
-			if (type === 'monitoring') {
-				// Send file-change and waveform when reopening monitoring window
-				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-				if (currentFile) {
-					const isMIDI = g.currentAudio && g.currentAudio.isMidi;
-					const isTracker = g.currentAudio && g.currentAudio.isMod;
-					try {
-						tools.sendToId(g.windows.monitoring, 'file-change', {
-							filePath: currentFile,
-							fileUrl: tools.getFileURL(currentFile),
-							fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
-							isMIDI: isMIDI,
-							isTracker: isTracker
-						});
-					} catch (err) {
-						console.warn('[Monitoring] Failed to send file-change on show:', err && err.message);
-					}
-					// Extract and send waveform for non-MIDI files
-					if (!isMIDI) {
-						extractAndSendWaveform(currentFile);
-					}
-				}
-			}
-			if (type === 'mixer') {
-				if (g.currentAudio && !g.currentAudio.paused) {
-					g.currentAudio.pause();
-					checkState();
-				}
-				const playlist = await getMixerPlaylist(contextFile);
-				tools.sendToId(g.windows[type], 'mixer-playlist', {
-					paths: playlist.paths.slice(0, 20),
-					idx: playlist.idx
-				});
-			}
-			if (type === 'midi' && g.midiSettings) {
-				tools.sendToId(g.windows[type], 'update-ui', {
-					pitch: g.midiSettings.pitch,
-					speed: g.midiSettings.speed,
-					metronome: !!g.midiSettings.metronome
-				});
-			}
-			if (type === 'pitchtime') {
-				const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-				const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
-				if (currentFile) {
-					if (g.currentAudio && !g.currentAudio.paused) {
-						g.currentAudio.pause();
-						checkState();
-					}
-					const ext = path.extname(currentFile).toLowerCase();
-					if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
-						tools.sendToId(g.windows[type], 'pitchtime-error', { message: 'MIDI files are not supported in Pitch/Time.' });
-					} else {
-						tools.sendToId(g.windows[type], 'pitchtime-file', { currentFile, currentTime });
-					}
-				}
-			}
-			if (type === 'parameters') {
-				g.parametersOpen = true;
-				if (g.currentAudio && g.currentAudio.isFFmpeg && g.rubberbandPlayer) {
-					if (g.activePipeline !== 'rubberband') {
-						try {
-							await switchPipeline('rubberband');
-							g.rubberbandPlayer.connect();
-							console.log('[Parameters] Switched to rubberband pipeline (toggled visible)');
-						} catch (err) {
-							console.error('[Parameters] Failed to switch to rubberband pipeline:', err);
-						}
-					}
-				}
-			}
-		}
-		return;
-	}
-
-	let stageBounds = await g.win.getBounds();
-	let displays = await helper.screen.getAllDisplays();
-	let targetDisplay = displays.find(d =>
-		stageBounds.x >= d.bounds.x &&
-		stageBounds.x < d.bounds.x + d.bounds.width &&
-		stageBounds.y >= d.bounds.y &&
-		stageBounds.y < d.bounds.y + d.bounds.height
-	) || displays[0];
-
-	const configDefaults = require('./config-defaults.js');
-	const defaultWinSettings = (configDefaults && configDefaults.windows && configDefaults.windows[type]) || {};
-	const userWinSettings = (g.config.windows && g.config.windows[type]) || {};
-	const winSettings = { ...defaultWinSettings, ...userWinSettings };
-
-	let windowWidth = winSettings.width || 960;
-	let windowHeight = winSettings.height || 800;
-
-	let x = targetDisplay.workArea.x + Math.round((targetDisplay.workArea.width - windowWidth) / 2);
-	let y = targetDisplay.workArea.y + Math.round((targetDisplay.workArea.height - windowHeight) / 2);
-
-	if (winSettings.x !== null && winSettings.x !== undefined) x = winSettings.x;
-	if (winSettings.y !== null && winSettings.y !== undefined) y = winSettings.y;
-
-	const init_data = {
-		type: type,
-		stageId: await g.win.getId(),
-		configName: g.configName,
-		config: g.config,
-		maxSampleRate: g.maxSampleRate,
-		currentSampleRate: g.audioContext.sampleRate,
-		ffmpeg_napi_path: g.ffmpeg_napi_path,
-		ffmpeg_player_path: g.ffmpeg_player_path,
-		ffmpeg_worklet_path: g.ffmpeg_worklet_path
-	};
-
-	if (type === 'parameters') {
-		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-		let mode = 'audio';
-		if (currentFile) {
-			const ext = path.extname(currentFile).toLowerCase();
-			if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
-				mode = 'midi';
-			} else if (g.currentAudio && g.currentAudio.isMod) {
-				mode = 'tracker';
-			}
-		}
-		init_data.mode = mode;
-		init_data.params = {};
-
-		if (mode === 'midi') {
-			init_data.params = {
-				transpose: g.midiSettings ? g.midiSettings.pitch : 0,
-				metronome: g.midiSettings ? !!g.midiSettings.metronome : false,
-				soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2'
-			};
-			const orig = (midi && midi.getOriginalBPM) ? midi.getOriginalBPM() : 120;
-			const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
-			init_data.params.bpm = Math.round(orig * speed);
-			init_data.params.originalBPM = orig;
-			init_data.originalBPM = orig;
-		}
-		else if (mode === 'audio') {
-			init_data.params = {
-				audioMode: g.audioParams ? g.audioParams.mode : 'tape',
-				tapeSpeed: g.audioParams ? g.audioParams.tapeSpeed : 0,
-				pitch: g.audioParams ? g.audioParams.pitch : 0,
-				tempo: g.audioParams ? g.audioParams.tempo : 1.0,
-				formant: g.audioParams ? !!g.audioParams.formant : false,
-				locked: g.audioParams ? !!g.audioParams.locked : false,
-				reset: false
-			};
-		}
-	}
-
-	if (type === 'mixer') {
-		if (g.currentAudio && !g.currentAudio.paused) {
-			g.currentAudio.pause();
-			checkState();
-		}
-		const playlist = await getMixerPlaylist(contextFile);
-		init_data.playlist = {
-			paths: playlist.paths.slice(0, 20),
-			idx: playlist.idx
-		};
-	}
-
-	if (type === 'pitchtime') {
-		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-		const currentTime = g.currentAudio ? g.currentAudio.currentTime : 0;
-		const currentVolume = (g.config && g.config.audio && typeof g.config.audio.volume === 'number') ? g.config.audio.volume : 1.0;
-		if (currentFile) {
-			if (g.currentAudio && !g.currentAudio.paused) {
-				g.currentAudio.pause();
-				checkState();
-			}
-			const ext = path.extname(currentFile).toLowerCase();
-			if (g.supportedMIDI && g.supportedMIDI.includes(ext)) {
-				init_data.pitchtimeError = 'MIDI files are not supported in Pitch/Time.';
-			} else {
-				init_data.currentFile = currentFile;
-				init_data.currentTime = currentTime;
-			}
-		}
-		init_data.currentVolume = currentVolume;
-	}
-
-	if (type === 'midi') {
-		init_data.metronome = g.midiSettings ? !!g.midiSettings.metronome : false;
-		init_data.midiPitch = g.midiSettings ? g.midiSettings.pitch : 0;
-
-		if (midi && midi.getOriginalBPM) {
-			init_data.originalBPM = midi.getOriginalBPM();
-		} else {
-			init_data.originalBPM = 120;
-		}
-
-		if (g.midiSettings && g.midiSettings.speed) {
-			init_data.midiSpeed = g.midiSettings.speed;
-		} else {
-			init_data.midiSpeed = init_data.originalBPM || 120;
-		}
-	}
-
-	if (type === 'monitoring') {
-		const currentFile = (g.currentAudio && g.currentAudio.fp) ? g.currentAudio.fp : null;
-		init_data.filePath = currentFile ? path.basename(currentFile) : '';
-		// Don't extract waveform here - wait for 'monitoring-ready' signal from the window
-	}
-
-	g.windows[type] = await tools.browserWindow('frameless', {
-		file: `./html/${type}.html`,
-		show: false,
-		width: windowWidth,
-		height: windowHeight,
-		x: x,
-		y: y,
-		backgroundColor: '#323232',
-		hasShadow: true,
-		init_data: init_data
-	});
-
-	console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
-
-	g.windowsVisible[type] = true;
-
-	if (type === 'parameters') {
-		g.parametersOpen = true;
-	}
-
-	// Apply routing state (handles pipeline switch, monitoring activation, etc.)
-	await applyRoutingState();
-}
-
 module.exports.init = init;
+}
