@@ -1867,6 +1867,10 @@ function clearAudio() {
 }
 
 function audioEnded(e) {
+	// Notify app.js that track ended (app.js handles playlist advancement)
+	ipcRenderer.send('audio:ended');
+	
+	// Local handling (will be replaced by app.js response)
 	if ((g.currentAudio?.isMod || g.currentAudio?.isMidi) && g.isLoop) {
 		playAudio(g.music[g.idx], 0, false, true);
 	}
