@@ -913,6 +913,41 @@ function setupAudioIPC() {
         }
     });
     
+    // Window lifecycle - forward to engine so it can send messages to child windows
+    ipcMain.on('window-created', (e, data) => {
+        if (data && data.type) {
+            sendToEngine('window-created', data);
+        }
+    });
+    
+    ipcMain.on('window-closed', (e, data) => {
+        if (data && data.type) {
+            sendToEngine('window-closed', data);
+        }
+    });
+    
+    // Param changes from parameters window → forward to engine
+    ipcMain.on('param-change', (e, data) => {
+        sendToEngine('param-change', data);
+    });
+    
+    // Other parameter-related messages
+    ipcMain.on('midi-reset-params', (e, data) => {
+        sendToEngine('midi-reset-params', data);
+    });
+    
+    ipcMain.on('tracker-reset-params', (e, data) => {
+        sendToEngine('tracker-reset-params', data);
+    });
+    
+    ipcMain.on('open-soundfonts-folder', (e, data) => {
+        sendToEngine('open-soundfonts-folder', data);
+    });
+    
+    ipcMain.on('get-available-soundfonts', (e, data) => {
+        sendToEngine('get-available-soundfonts', data);
+    });
+    
     // Player requests current state (on startup)
     ipcMain.on('audio:requestState', (e) => {
         broadcastState();

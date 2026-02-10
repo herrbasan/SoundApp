@@ -208,6 +208,80 @@ function setupIPC() {
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
         g.win.focus();
     });
+    
+    // Forward param-change messages from child windows (parameters, etc.) to app.js
+    ipcRenderer.on('param-change', (e, data) => {
+        ipcRenderer.send('param-change', data);
+    });
+    
+    ipcRenderer.on('midi-reset-params', (e, data) => {
+        ipcRenderer.send('midi-reset-params', data);
+    });
+    
+    ipcRenderer.on('tracker-reset-params', (e, data) => {
+        ipcRenderer.send('tracker-reset-params', data);
+    });
+    
+    ipcRenderer.on('open-soundfonts-folder', (e, data) => {
+        ipcRenderer.send('open-soundfonts-folder', data);
+    });
+    
+    ipcRenderer.on('get-available-soundfonts', (e, data) => {
+        ipcRenderer.send('get-available-soundfonts', data);
+    });
+    
+    // Stage keydown from child windows - forward to app.js for global handling
+    ipcRenderer.on('stage-keydown', (e, data) => {
+        // Handle locally first for player-specific shortcuts
+        if (data.keyCode === 80) { // P - toggle parameters
+            openWindow('parameters');
+        }
+    });
+    
+    // Forward tracker VU data from engine to parameters window
+    ipcRenderer.on('tracker-vu', (e, data) => {
+        if (g.windows.parameters) {
+            tools.sendToId(g.windows.parameters, 'tracker-vu', data);
+        }
+    });
+    
+    // Forward set-mode from engine to parameters window (for initialization)
+    ipcRenderer.on('set-mode', (e, data) => {
+        if (g.windows.parameters) {
+            tools.sendToId(g.windows.parameters, 'set-mode', data);
+        }
+    });
+    
+    // Forward monitoring data from engine to monitoring window
+    ipcRenderer.on('file-change', (e, data) => {
+        if (g.windows.monitoring) {
+            tools.sendToId(g.windows.monitoring, 'file-change', data);
+        }
+    });
+    
+    ipcRenderer.on('waveform-data', (e, data) => {
+        if (g.windows.monitoring) {
+            tools.sendToId(g.windows.monitoring, 'waveform-data', data);
+        }
+    });
+    
+    ipcRenderer.on('waveform-chunk', (e, data) => {
+        if (g.windows.monitoring) {
+            tools.sendToId(g.windows.monitoring, 'waveform-chunk', data);
+        }
+    });
+    
+    ipcRenderer.on('clear-waveform', (e, data) => {
+        if (g.windows.monitoring) {
+            tools.sendToId(g.windows.monitoring, 'clear-waveform', data);
+        }
+    });
+    
+    ipcRenderer.on('ana-data', (e, data) => {
+        if (g.windows.monitoring) {
+            tools.sendToId(g.windows.monitoring, 'ana-data', data);
+        }
+    });
 
     ipcRenderer.on('theme-changed', (e, data) => {
         if (data.dark) {
@@ -1030,6 +1104,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
     console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
 
     g.windowsVisible[type] = true;
+    
+    // Notify app.js/engine.js that window was created
+    ipcRenderer.send('window-created', { type: type, windowId: g.windows[type] });
 
     setTimeout(() => {
         tools.sendToId(g.windows[type], 'show-window');

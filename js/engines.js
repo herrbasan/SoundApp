@@ -585,14 +585,34 @@ async function init() {
 		player.onMetadata(async (meta) => {
 			if (g.currentAudio) {
 				g.currentAudio.duration = player.duration;
+				// Store channel count from metadata for parameters window
+				if (meta && meta.song && meta.song.channels) {
+					g.currentAudio.channels = meta.song.channels.length;
+				}
 			}
 			g.blocky = false;
 			// Notify app.js of metadata
 			ipcRenderer.send('audio:metadata', { duration: player.duration, metadata: meta });
+			
+			// Send updated tracker params with channel count to parameters window
+			if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
+				const channelCount = g.currentAudio.channels || 0;
+				const params = {
+					pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
+					tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
+					stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
+					channels: channelCount
+				};
+				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
+			}
 		});
 		player.onProgress((e) => {
 			if (g.currentAudio) {
 				g.currentAudio.currentTime = e.pos || 0;
+			}
+			// Forward VU data to Parameters window
+			if (e.vu && g.windows.parameters) {
+				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 			}
 		});
 		player.onEnded(audioEnded);
@@ -691,6 +711,11 @@ async function init() {
 			startMonitoringLoop();
 			await applyRoutingState();
 		}
+		
+		if (data.type === 'parameters') {
+			g.windowsVisible.parameters = true;
+			g.parametersOpen = true;
+		}
 	});
 	
 	ipcRenderer.on('window-hidden', async (e, data) => {
@@ -702,6 +727,7 @@ async function init() {
 		}
 		
 		if (data.type === 'parameters') {
+			g.windowsVisible.parameters = false;
 			g.parametersOpen = false;
 			// Reset audio params to defaults
 			g.audioParams.mode = 'tape';
@@ -732,6 +758,99 @@ async function init() {
 			}
 			
 			await applyRoutingState();
+		}
+	});
+	
+	// Window lifecycle - track window IDs so we can send messages to them
+	ipcRenderer.on('window-created', (e, data) => {
+		if (data && data.type && data.windowId) {
+			g.windows[data.type] = data.windowId;
+			g.windowsVisible[data.type] = true;
+			console.log('[Engine] Window created:', data.type, 'id:', data.windowId);
+			
+			// Track parameters window state for routing decisions
+			if (data.type === 'parameters') {
+				g.parametersOpen = true;
+			}
+			
+			// Track monitoring window
+			if (data.type === 'monitoring') {
+				g.monitoringReady = true;
+				startMonitoringLoop();
+				applyRoutingState();
+				// Send current file info if available
+				if (g.currentAudio && g.currentAudio.fp) {
+					const fp = g.currentAudio.fp;
+					const ext = path.extname(fp).toLowerCase();
+					const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+					const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
+					tools.sendToId(g.windows.monitoring, 'file-change', {
+						filePath: fp,
+						fileUrl: tools.getFileURL(fp),
+						fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
+						isMIDI: isMIDI,
+						isTracker: isTracker
+					});
+					extractAndSendWaveform(fp);
+				}
+			}
+			
+			// If parameters window opened, send current params
+			if (data.type === 'parameters' && g.currentAudio) {
+				if (g.currentAudio.isMidi) {
+					const orig = midi && midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
+					const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
+					const params = {
+						transpose: g.midiSettings ? g.midiSettings.pitch : 0,
+						bpm: Math.round(orig * speed),
+						metronome: g.midiSettings ? g.midiSettings.metronome : false,
+						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2'
+					};
+					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
+				} else if (g.currentAudio.isMod) {
+					// Get channel count from player if available
+					const channelCount = player && player.numChannels ? player.numChannels : 
+					                    player && player.channels ? player.channels : 0;
+					const params = {
+						pitch: 1.0,
+						tempo: 1.0,
+						stereoSeparation: 100,
+						channels: channelCount  // Channel count for mixer display
+					};
+					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
+				} else if (g.currentAudio.isFFmpeg) {
+					const locked = g.audioParams && g.audioParams.locked;
+					const params = locked ? {
+						audioMode: g.audioParams.mode,
+						tapeSpeed: g.audioParams.tapeSpeed,
+						pitch: g.audioParams.pitch,
+						tempo: g.audioParams.tempo,
+						formant: g.audioParams.formant,
+						locked: true
+					} : {
+						audioMode: g.audioParams.mode,
+						tapeSpeed: 0,
+						pitch: 0,
+						tempo: 1.0,
+						formant: false,
+						locked: false
+					};
+					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
+				}
+			}
+		}
+	});
+	
+	ipcRenderer.on('window-closed', (e, data) => {
+		if (data && data.type && g.windows[data.type] === data.windowId) {
+			g.windows[data.type] = null;
+			g.windowsVisible[data.type] = false;
+			console.log('[Engine] Window closed:', data.type);
+			
+			// Track parameters window state for routing decisions
+			if (data.type === 'parameters') {
+				g.parametersOpen = false;
+			}
 		}
 	});
 
@@ -1073,8 +1192,12 @@ async function init() {
 
 	ipcRenderer.on('monitoring-ready', async (e, data) => {
 		console.log('[Monitoring] Window signaled ready (id:', data.windowId, ')');
-		// Mark window as ready to receive messages
+		// Store window ID and mark as ready
+		if (data.windowId) {
+			g.windows.monitoring = data.windowId;
+		}
 		g.monitoringReady = true;
+		g.windowsVisible.monitoring = true;
 		
 		// Start the monitoring update loop (only when visible)
 		startMonitoringLoop();
@@ -1466,11 +1589,15 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			}
 
 			if (g.windows.parameters) {
+				// Get channel count from player if available
+				const channelCount = player && player.numChannels ? player.numChannels : 
+				                    player && player.channels ? player.channels : 0;
 				const params = {
 					pitch: 1.0,
 					tempo: 1.0,
 					stereoSeparation: 100,
-					reset: true  // Signal new file loaded
+					reset: true,  // Signal new file loaded
+					channels: channelCount  // Channel count for mixer display
 				};
 				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
 			}
@@ -2235,10 +2362,26 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	player.onMetadata(async (meta) => {
 		if (g.currentAudio) {
 			g.currentAudio.duration = player.duration;
+			// Store channel count from metadata for parameters window
+			if (meta && meta.song && meta.song.channels) {
+				g.currentAudio.channels = meta.song.channels.length;
+			}
 			// UI updated via IPC
 			await renderInfo(g.currentAudio.fp, meta);
 		}
 		g.blocky = false;
+		
+		// Send updated tracker params with channel count to parameters window
+		if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
+			const channelCount = g.currentAudio.channels || 0;
+			const params = {
+				pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
+				tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
+				stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
+				channels: channelCount
+			};
+			tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
+		}
 	});
 	player.onProgress((e) => {
 		if (g.currentAudio) {
