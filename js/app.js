@@ -952,6 +952,20 @@ function setupAudioIPC() {
     ipcMain.on('audio:requestState', (e) => {
         broadcastState();
     });
+    
+    // DEBUG: Close engine window (for CPU testing)
+    ipcMain.on('debug:close-engine', (e) => {
+        fb('Debug: Closing engine window', 'engine');
+        disposeEngineWindow();
+    });
+    
+    // DEBUG: Reopen engine window (for CPU testing)
+    ipcMain.on('debug:open-engine', async (e) => {
+        fb('Debug: Reopening engine window', 'engine');
+        if (!engineWindow) {
+            await createEngineWindow();
+        }
+    });
 }
 
 async function handleTrackEnded() {

@@ -329,6 +329,34 @@ function setupIPC() {
         };
         onKey(ev);
     });
+    
+    // Expose debug commands to console
+    window.debugEngine = {
+        // Close engine window (0% CPU test)
+        close: () => {
+            console.log('[Debug] Closing engine window...');
+            ipcRenderer.send('debug:close-engine');
+            console.log('[Debug] Engine window closed. Check Task Manager for CPU drop.');
+        },
+        // Reopen engine window
+        open: () => {
+            console.log('[Debug] Reopening engine window...');
+            ipcRenderer.send('debug:open-engine');
+            console.log('[Debug] Engine window should reopen shortly.');
+        },
+        // Check engine status
+        status: () => {
+            console.log('[Debug] Engine window status:');
+            console.log('  State tracked in app.js');
+            console.log('  Use debugEngine.close() to dispose');
+            console.log('  Use debugEngine.open() to recreate');
+        }
+    };
+    
+    console.log('[Player] Debug commands available:');
+    console.log('  debugEngine.close()  - Close engine window (0% CPU)');
+    console.log('  debugEngine.open()   - Reopen engine window');
+    console.log('  debugEngine.status() - Show status');
 }
 
 async function appStart() {
