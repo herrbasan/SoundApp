@@ -453,8 +453,6 @@ async function appStart() {
         g.timeline_slider = ut.dragSlider(g.time_controls, timelineSlider, -1, g.playhead);
     }
 
-    // Start UI update loop
-    loop();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -627,12 +625,6 @@ function renderInfoItem(label, text) {
 
 function renderTopInfo() {
     g.top_num.innerText = (g.idx + 1) + ' of ' + (g.max + 1);
-}
-
-function loop() {
-    // UI is now updated via IPC 'position' events and updatePositionUI()
-    // This loop is kept for any future continuous animations
-    requestAnimationFrame(loop);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
