@@ -15,6 +15,45 @@ const helper = require('../libs/electron_helper/helper_new.js');
 const tools = helper.tools;
 const shortcuts = require('../js/shortcuts.js');
 
+// DEBUG: Define disposeIPC immediately at global scope
+// This allows testing IPC disposal even if setupIPC() hasn't run yet
+window.disposeIPC = {
+    all: function() {
+        console.log('[Debug] Removing ALL IPC listeners...');
+        ipcRenderer.removeAllListeners('state:update');
+        ipcRenderer.removeAllListeners('position');
+        ipcRenderer.removeAllListeners('window-closed');
+        ipcRenderer.removeAllListeners('window-hidden');
+        ipcRenderer.removeAllListeners('theme-changed');
+        ipcRenderer.removeAllListeners('shortcut');
+        ipcRenderer.removeAllListeners('log');
+        ipcRenderer.removeAllListeners('main');
+        ipcRenderer.removeAllListeners('param-change');
+        ipcRenderer.removeAllListeners('midi-reset-params');
+        ipcRenderer.removeAllListeners('tracker-reset-params');
+        ipcRenderer.removeAllListeners('tracker-vu');
+        ipcRenderer.removeAllListeners('set-mode');
+        ipcRenderer.removeAllListeners('file-change');
+        ipcRenderer.removeAllListeners('waveform-data');
+        ipcRenderer.removeAllListeners('waveform-chunk');
+        ipcRenderer.removeAllListeners('clear-waveform');
+        ipcRenderer.removeAllListeners('ana-data');
+        console.log('[Debug] All IPC listeners removed.');
+    },
+    nonEssential: function() {
+        console.log('[Debug] Removing non-essential IPC listeners...');
+        ipcRenderer.removeAllListeners('log');
+        ipcRenderer.removeAllListeners('tracker-vu');
+        ipcRenderer.removeAllListeners('waveform-chunk');
+        ipcRenderer.removeAllListeners('clear-waveform');
+        ipcRenderer.removeAllListeners('ana-data');
+        console.log('[Debug] Non-essential IPC listeners removed.');
+    },
+    status: function() {
+        console.log('[Debug] disposeIPC is ready');
+    }
+};
+
 let g = {};
 g.test = {};
 g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null };
@@ -144,44 +183,6 @@ async function init() {
 }
 
 function setupIPC() {
-    // DEBUG: Define disposeIPC immediately so it's available even if errors occur later
-    window.disposeIPC = {
-        all: function() {
-            console.log('[Debug] Removing ALL IPC listeners...');
-            ipcRenderer.removeAllListeners('state:update');
-            ipcRenderer.removeAllListeners('position');
-            ipcRenderer.removeAllListeners('window-closed');
-            ipcRenderer.removeAllListeners('window-hidden');
-            ipcRenderer.removeAllListeners('theme-changed');
-            ipcRenderer.removeAllListeners('shortcut');
-            ipcRenderer.removeAllListeners('log');
-            ipcRenderer.removeAllListeners('main');
-            ipcRenderer.removeAllListeners('param-change');
-            ipcRenderer.removeAllListeners('midi-reset-params');
-            ipcRenderer.removeAllListeners('tracker-reset-params');
-            ipcRenderer.removeAllListeners('tracker-vu');
-            ipcRenderer.removeAllListeners('set-mode');
-            ipcRenderer.removeAllListeners('file-change');
-            ipcRenderer.removeAllListeners('waveform-data');
-            ipcRenderer.removeAllListeners('waveform-chunk');
-            ipcRenderer.removeAllListeners('clear-waveform');
-            ipcRenderer.removeAllListeners('ana-data');
-            console.log('[Debug] All IPC listeners removed.');
-        },
-        nonEssential: function() {
-            console.log('[Debug] Removing non-essential IPC listeners...');
-            ipcRenderer.removeAllListeners('log');
-            ipcRenderer.removeAllListeners('tracker-vu');
-            ipcRenderer.removeAllListeners('waveform-chunk');
-            ipcRenderer.removeAllListeners('clear-waveform');
-            ipcRenderer.removeAllListeners('ana-data');
-            console.log('[Debug] Non-essential IPC listeners removed.');
-        },
-        status: function() {
-            console.log('[Debug] disposeIPC ready. Use disposeIPC.all() or disposeIPC.nonEssential()');
-        }
-    };
-    
     // Receive state updates from app.js
     ipcRenderer.on('state:update', (e, data) => {
         console.log('[Player] state:update', data);
