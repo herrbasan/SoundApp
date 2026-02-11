@@ -2754,4 +2754,83 @@ function getFileInfo(fp) {
 // Window management is handled by app.js in the new architecture
 // This file only handles audio playback
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DEBUG CONSOLE COMMANDS - For CPU testing
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Expose engine disposal functions to console for testing
+window.disposeEngines = {
+	// Dispose MIDI player (stops soundfont synthesis)
+	midi: () => {
+		if (midi) {
+			console.log('[Debug] Disposing MIDI player...');
+			midi.dispose();
+			midi = null;
+			console.log('[Debug] MIDI player disposed. Check CPU usage.');
+		} else {
+			console.log('[Debug] MIDI player not active');
+		}
+	},
+	
+	// Dispose tracker player (stops chiptune worklet)
+	tracker: () => {
+		if (player) {
+			console.log('[Debug] Stopping tracker player...');
+			player.stop();
+			console.log('[Debug] Tracker player stopped. Check CPU usage.');
+		} else {
+			console.log('[Debug] Tracker player not active');
+		}
+	},
+	
+	// Dispose FFmpeg players
+	ffmpeg: () => {
+		console.log('[Debug] Disposing FFmpeg players...');
+		if (g.ffmpegPlayer) {
+			g.ffmpegPlayer.stop(true);
+			console.log('[Debug] Normal FFmpeg player stopped');
+		}
+		if (g.rubberbandPlayer) {
+			g.rubberbandPlayer.disconnect();
+			if (typeof g.rubberbandPlayer.disposeWorklet === 'function') {
+				g.rubberbandPlayer.disposeWorklet();
+			}
+			g.rubberbandPlayer.stop(true);
+			console.log('[Debug] Rubberband player stopped');
+		}
+		console.log('[Debug] FFmpeg players disposed. Check CPU usage.');
+	},
+	
+	// Dispose all audio engines
+	all: () => {
+		console.log('[Debug] Disposing ALL engines...');
+		window.disposeEngines.midi();
+		window.disposeEngines.tracker();
+		window.disposeEngines.ffmpeg();
+		clearAudio();
+		console.log('[Debug] All engines disposed. Check CPU usage now!');
+	},
+	
+	// Check what's currently active
+	status: () => {
+		console.log('[Debug] Engine Status:');
+		console.log('  MIDI:', midi ? 'ACTIVE' : 'inactive');
+		console.log('  Tracker (chiptune):', player ? 'ACTIVE' : 'inactive');
+		console.log('  FFmpeg:', g.ffmpegPlayer ? 'ACTIVE' : 'inactive');
+		console.log('  Rubberband:', g.rubberbandPlayer ? 'ACTIVE' : 'inactive');
+		console.log('  Current file:', g.currentAudio ? g.currentAudio.fp : 'none');
+		console.log('  Current type:', g.currentAudio ? 
+			(g.currentAudio.isMidi ? 'MIDI' : 
+			 g.currentAudio.isMod ? 'Tracker' : 
+			 g.currentAudio.isFFmpeg ? 'FFmpeg' : 'Unknown') : 'none');
+	}
+};
+
+console.log('[Engine] Debug commands available:');
+console.log('  disposeEngines.midi()    - Dispose MIDI player');
+console.log('  disposeEngines.tracker() - Stop tracker player');
+console.log('  disposeEngines.ffmpeg()  - Stop FFmpeg players');
+console.log('  disposeEngines.all()     - Dispose all engines');
+console.log('  disposeEngines.status()  - Check active engines');
+
 module.exports.init = init;
