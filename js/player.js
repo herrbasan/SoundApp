@@ -330,6 +330,35 @@ function setupIPC() {
         onKey(ev);
     });
     
+    // Store IPC handler references for disposal
+    const ipcHandlers = {
+        stateUpdate: (e, data) => {
+            if (data.file !== undefined) g.uiState.file = data.file;
+            if (data.isPlaying !== undefined) g.uiState.isPlaying = data.isPlaying;
+            if (data.position !== undefined) g.uiState.position = data.position;
+            if (data.duration !== undefined) g.uiState.duration = data.duration;
+            if (data.volume !== undefined) g.uiState.volume = data.volume;
+            if (data.metadata !== undefined) g.uiState.metadata = data.metadata;
+            if (data.fileType !== undefined) g.uiState.fileType = data.fileType;
+            if (data.loop !== undefined) g.isLoop = data.loop;
+            if (data.playlist) {
+                g.music = data.playlist;
+                g.max = g.music.length - 1;
+            }
+            if (data.playlistIndex !== undefined) {
+                g.idx = data.playlistIndex;
+            }
+            updateUI();
+        },
+        position: (e, position) => {
+            g.uiState.position = position;
+            updatePositionUI();
+        }
+    };
+    
+    // Store original on handlers for removal
+    g._ipcHandlers = ipcHandlers;
+    
     // Expose debug commands to console
     window.debugEngine = {
         // Close engine window (0% CPU test)
@@ -353,10 +382,58 @@ function setupIPC() {
         }
     };
     
+    // IPC disposal for CPU testing
+    window.disposeIPC = {
+        // Remove all IPC listeners (WARNING: breaks app functionality)
+        all: () => {
+            console.log('[Debug] Removing ALL IPC listeners...');
+            ipcRenderer.removeAllListeners('state:update');
+            ipcRenderer.removeAllListeners('position');
+            ipcRenderer.removeAllListeners('window-closed');
+            ipcRenderer.removeAllListeners('window-hidden');
+            ipcRenderer.removeAllListeners('theme-changed');
+            ipcRenderer.removeAllListeners('shortcut');
+            ipcRenderer.removeAllListeners('log');
+            ipcRenderer.removeAllListeners('main');
+            ipcRenderer.removeAllListeners('param-change');
+            ipcRenderer.removeAllListeners('midi-reset-params');
+            ipcRenderer.removeAllListeners('tracker-reset-params');
+            ipcRenderer.removeAllListeners('tracker-vu');
+            ipcRenderer.removeAllListeners('set-mode');
+            ipcRenderer.removeAllListeners('file-change');
+            ipcRenderer.removeAllListeners('waveform-data');
+            ipcRenderer.removeAllListeners('waveform-chunk');
+            ipcRenderer.removeAllListeners('clear-waveform');
+            ipcRenderer.removeAllListeners('ana-data');
+            console.log('[Debug] All IPC listeners removed. Check CPU usage.');
+            console.log('[Debug] WARNING: App will not respond to updates!');
+        },
+        // Remove only non-essential listeners
+        nonEssential: () => {
+            console.log('[Debug] Removing non-essential IPC listeners...');
+            ipcRenderer.removeAllListeners('log');
+            ipcRenderer.removeAllListeners('tracker-vu');
+            ipcRenderer.removeAllListeners('set-mode');
+            ipcRenderer.removeAllListeners('waveform-chunk');
+            ipcRenderer.removeAllListeners('clear-waveform');
+            ipcRenderer.removeAllListeners('ana-data');
+            console.log('[Debug] Non-essential IPC listeners removed.');
+        },
+        status: () => {
+            console.log('[Debug] IPC Channel Status:');
+            console.log('  Use disposeIPC.all() to remove all listeners');
+            console.log('  Use disposeIPC.nonEssential() for partial removal');
+            console.log('  WARNING: This will break app functionality!');
+        }
+    };
+    
     console.log('[Player] Debug commands available:');
-    console.log('  debugEngine.close()  - Close engine window (0% CPU)');
-    console.log('  debugEngine.open()   - Reopen engine window');
-    console.log('  debugEngine.status() - Show status');
+    console.log('  debugEngine.close()         - Close engine window (0% CPU)');
+    console.log('  debugEngine.open()          - Reopen engine window');
+    console.log('  debugEngine.status()        - Show status');
+    console.log('  disposeIPC.all()            - Remove ALL IPC listeners');
+    console.log('  disposeIPC.nonEssential()   - Remove non-essential listeners');
+    console.log('  disposeIPC.status()         - Show IPC status');
 }
 
 async function appStart() {
