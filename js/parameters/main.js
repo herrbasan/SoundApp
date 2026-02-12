@@ -110,6 +110,11 @@ async function init() {
         console.log('[Parameters] set-mode received:', data);
         setMode(data.mode); // 'audio', 'midi', 'tracker'
 
+        // Update params FIRST before any resend, so local state is correct
+        if (data.params) {
+            updateParams(data.mode, data.params);
+        }
+
         if (data.mode === 'audio' && data.params && data.params.reset) {
             const lockCheckbox = document.getElementById('audio_lock_settings');
             if (lockCheckbox && lockCheckbox.checked) {
@@ -132,10 +137,6 @@ async function init() {
             if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
                 controls.midi.tempo.setDefault(Math.round(data.params.originalBPM));
             }
-        }
-        
-        if (data.params) {
-            updateParams(data.mode, data.params);
         }
     });
 

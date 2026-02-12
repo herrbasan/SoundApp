@@ -682,8 +682,8 @@ async function init() {
 		console.log('[Engine] cmd:setParams', data);
 		let modeChanged = false;
 		if (data.mode) {
+			modeChanged = g.audioParams.mode !== data.mode;
 			g.audioParams.mode = data.mode;
-			modeChanged = true;
 		}
 		if (data.tapeSpeed !== undefined) {
 			g.audioParams.tapeSpeed = data.tapeSpeed;
