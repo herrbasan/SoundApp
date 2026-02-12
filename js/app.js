@@ -935,7 +935,8 @@ function sendParamsToParametersWindow() {
                 stereoSeparation: audioState.trackerParams.stereoSeparation
             }
         };
-    } else if (fileType === 'FFmpeg') {
+    } else {
+        // Default to audio params (FFmpeg or no file loaded)
         paramsData = {
             mode: 'audio',
             params: {
@@ -1202,6 +1203,11 @@ function setupAudioIPC() {
             childWindows[data.type].windowId = data.windowId;
         }
         sendToEngine('window-visible', data);
+        
+        // Send current params to parameters window when it becomes visible
+        if (data && data.type === 'parameters') {
+            sendParamsToParametersWindow();
+        }
     });
     
     ipcMain.on('window-hidden', (e, data) => {
