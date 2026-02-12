@@ -705,8 +705,18 @@ async function init() {
 		}
 	});
 	
-	ipcRenderer.on('cmd:applyParams', (e, data) => {
+	ipcRenderer.on('cmd:applyParams', async (e, data) => {
 		console.log('[Engine] cmd:applyParams', data);
+		
+		// Update mode in engine state if provided
+		if (data.mode) {
+			const modeChanged = g.audioParams.mode !== data.mode;
+			g.audioParams.mode = data.mode;
+			// If mode changed, trigger routing state update
+			if (modeChanged) {
+				await applyRoutingState();
+			}
+		}
 		
 		if (g.currentAudio?.isFFmpeg) {
 			const player = g.currentAudio.player;

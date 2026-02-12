@@ -1231,6 +1231,7 @@ function setupAudioIPC() {
     // Param changes from parameters window → track in state and forward to engine
     ipcMain.on('param-change', (e, data) => {
         // Track format-specific params in main state so we can restore after disposal
+        let stateChanged = false;
         if (data.mode === 'midi') {
             if (data.param === 'transpose') audioState.midiParams.transpose = data.value;
             if (data.param === 'bpm') audioState.midiParams.bpm = data.value;
@@ -1247,8 +1248,14 @@ function setupAudioIPC() {
             if (data.param === 'tempo') audioState.tempo = data.value;
             if (data.param === 'formant') audioState.formant = !!data.value;
             if (data.param === 'locked') audioState.locked = !!data.value;
+            stateChanged = true;  // Audio params affect player UI state
         }
         sendToEngine('param-change', data);
+        
+        // Broadcast to player so it has current params for window initialization
+        if (stateChanged) {
+            broadcastState();
+        }
     });
     
     // Other parameter-related messages
