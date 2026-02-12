@@ -1361,8 +1361,14 @@ async function handleTrackEnded() {
     if (audioState.loop && audioState.file) {
         // Loop current track
         audioState.position = 0;
-        sendToEngine('cmd:seek', { position: 0 });
-        sendToEngine('cmd:play');
+        // Ensure engine is alive before sending commands
+        if (!audioState.engineAlive) {
+            await restoreEngineIfNeeded();
+        }
+        if (audioState.engineAlive) {
+            sendToEngine('cmd:seek', { position: 0 });
+            sendToEngine('cmd:play');
+        }
         audioState.isPlaying = true;
     } else if (audioState.playlist.length > 0) {
         // Advance to next track
@@ -1379,11 +1385,17 @@ async function handleTrackEnded() {
             audioState.duration = 0;
             audioState.metadata = null;
             
-            sendToEngine('cmd:load', {
-                file: nextFile,
-                position: 0,
-                paused: false
-            });
+            // If engine is not alive, restore it (which will load the file)
+            if (!audioState.engineAlive) {
+                await restoreEngineIfNeeded();
+            } else {
+                // Engine is alive, just load the new file
+                sendToEngine('cmd:load', {
+                    file: nextFile,
+                    position: 0,
+                    paused: false
+                });
+            }
         }
     } else {
         audioState.isPlaying = false;
