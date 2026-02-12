@@ -196,6 +196,13 @@ function setupIPC() {
         if (data.metadata !== undefined) g.uiState.metadata = data.metadata;
         if (data.fileType !== undefined) g.uiState.fileType = data.fileType;
         if (data.loop !== undefined) g.isLoop = data.loop;
+        // Audio params for parameters window
+        if (data.mode !== undefined) g.uiState.mode = data.mode;
+        if (data.tapeSpeed !== undefined) g.uiState.tapeSpeed = data.tapeSpeed;
+        if (data.pitch !== undefined) g.uiState.pitch = data.pitch;
+        if (data.tempo !== undefined) g.uiState.tempo = data.tempo;
+        if (data.formant !== undefined) g.uiState.formant = data.formant;
+        if (data.locked !== undefined) g.uiState.locked = data.locked;
         
         // Update playlist if provided
         if (data.playlist) {
@@ -239,13 +246,27 @@ function setupIPC() {
             g.windowsVisible[data.type] = false;
         }
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+        // Forward to app.js for engine tracking
+        ipcRenderer.send('window-closed', data);
         setTimeout(() => g.win.focus(), 50);
     });
 
     ipcRenderer.on('window-hidden', async (e, data) => {
         g.windowsVisible[data.type] = false;
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
+        // Forward to app.js for engine tracking
+        ipcRenderer.send('window-hidden', data);
         g.win.focus();
+    });
+    
+    // Forward window-created from child windows to app.js
+    ipcRenderer.on('window-created', (e, data) => {
+        if (data && data.type) {
+            g.windows[data.type] = data.windowId;
+            g.windowsVisible[data.type] = true;
+            // Forward to app.js for engine tracking
+            ipcRenderer.send('window-created', data);
+        }
     });
     
     // Forward param-change messages from child windows (parameters, etc.) to app.js
@@ -382,11 +403,32 @@ function setupIPC() {
             console.log('[Debug] Engine window should reopen shortly.');
         },
         status: function() {
-            console.log('[Debug] Engine window status tracked in app.js');
+            ipcRenderer.send('debug:idle-status');
         }
     };
     
-    console.log('[Player] Debug commands: debugEngine.close(), debugEngine.open(), disposeIPC.all(), disposeIPC.nonEssential()');
+    // Idle disposal debug commands
+    window.debugIdle = {
+        status: function() {
+            ipcRenderer.send('debug:idle-status');
+            console.log('[Debug] Idle status requested. Check response in console.');
+        },
+        forceDispose: function() {
+            console.log('[Debug] Forcing engine disposal...');
+            ipcRenderer.send('debug:idle-force-dispose');
+        },
+        resetTimer: function() {
+            console.log('[Debug] Resetting idle timer...');
+            ipcRenderer.send('debug:idle-reset-timer');
+        }
+    };
+    
+    // Listen for idle status response
+    ipcRenderer.on('debug:idle-status-response', (e, status) => {
+        console.log('[Debug] Idle Status:', status);
+    });
+    
+    console.log('[Player] Debug commands: debugEngine.close(), debugEngine.open(), debugIdle.status(), debugIdle.forceDispose(), disposeIPC.all()');
 }
 
 async function appStart() {
@@ -717,6 +759,11 @@ function shufflePlaylist() {
 }
 
 function seekTo(s) {
+    // Optimistic UI update - update immediately for responsiveness
+    // Engine will correct if there's any discrepancy when it restores
+    g.uiState.position = s;
+    updatePositionUI();
+    
     ipcRenderer.send('audio:seek', { position: s });
 }
 
@@ -1122,6 +1169,19 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         currentFile: g.uiState.file,
         currentTime: g.uiState.position
     };
+    
+    // Include current audio params for parameters window initialization
+    if (type === 'parameters') {
+        init_data.mode = 'audio';
+        init_data.params = {
+            audioMode: g.uiState.mode || 'tape',
+            tapeSpeed: g.uiState.tapeSpeed || 0,
+            pitch: g.uiState.pitch || 0,
+            tempo: g.uiState.tempo || 1.0,
+            formant: g.uiState.formant || false,
+            locked: g.uiState.locked || false
+        };
+    }
 
     if (type === 'mixer') {
         if (g.uiState.isPlaying) {
