@@ -619,7 +619,7 @@ async function createEngineWindow(options = {}) {
             height: 300,
             resizable: false,
             maximizable: false,
-            devTools: false, // Disabled for performance
+            devTools: true, // Enabled for debugging
             transparent: false,
             backgroundColor: '#1a1a1a',
             file: 'html/engines.html',
