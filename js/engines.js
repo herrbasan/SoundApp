@@ -267,34 +267,44 @@ function destroyMonitoring() {
 async function ensureRubberbandPipeline() {
 	// Already initialized?
 	if (g.rubberbandPlayer && g.rubberbandContext && g.rubberbandContext.state !== 'closed') {
+		console.log('[Rubberband] Already initialized, reusing existing pipeline');
 		return true;
 	}
 	
 	console.log('[Rubberband] Lazy initializing pipeline (48kHz)...');
+	console.log('[Rubberband] Current state - player exists:', !!g.rubberbandPlayer, 'context exists:', !!g.rubberbandContext, 'context state:', g.rubberbandContext?.state);
 	
 	try {
 		// Create 48kHz context for rubberband (fixed rate, ignores HQ mode)
 		if (!g.rubberbandContext || g.rubberbandContext.state === 'closed') {
+			console.log('[Rubberband] Creating new AudioContext (48kHz)...');
 			g.rubberbandContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+			console.log('[Rubberband] AudioContext created, state:', g.rubberbandContext.state);
 			
 			// Match output device to main context
 			const outDevId = (g.config && g.config.audio && g.config.audio.output) ? g.config.audio.output.deviceId : '';
 			if (outDevId) {
 				try {
 					await g.rubberbandContext.setSinkId(outDevId);
+					console.log('[Rubberband] Output device set to:', outDevId);
 				} catch (err) {
 					console.warn('[Rubberband] Failed to set output device:', err);
 				}
 			}
+		} else {
+			console.log('[Rubberband] Reusing existing AudioContext, state:', g.rubberbandContext.state);
 		}
 		
 		// Create rubberband pipeline
+		console.log('[Rubberband] Creating RubberbandPipeline...');
 		const threadCount = (g.config && g.config.ffmpeg && g.config.ffmpeg.decoder && g.config.ffmpeg.decoder.threads !== undefined) ? (g.config.ffmpeg.decoder.threads | 0) : 0;
 		const RubberbandPipeline = require('./rubberband-pipeline.js');
 		g.rubberbandPlayer = new RubberbandPipeline(g.rubberbandContext, g.FFmpegDecoder, g.ffmpeg_player_path, g.ffmpeg_worklet_path, g.rubberband_worklet_path, threadCount);
+		console.log('[Rubberband] RubberbandPipeline instance created');
 		
+		console.log('[Rubberband] Calling rubberbandPlayer.init()...');
 		await g.rubberbandPlayer.init();
-		console.log('[Rubberband] Pipeline initialized (48kHz)');
+		console.log('[Rubberband] Pipeline initialized successfully (48kHz)');
 		
 		// Re-initialize monitoring to create RB analysers now that context exists
 		if (g.windows.monitoring && g.windowsVisible.monitoring) {
@@ -1833,10 +1843,17 @@ function collectMetadata(fp, metadata) {
 }
 
 async function switchPipeline(newMode, shouldPlay = null) {
-	if (g.activePipeline === newMode) return;
-	if (!g.currentAudio || !g.currentAudio.isFFmpeg) return;
+	console.log('[switchPipeline] Called - newMode:', newMode, 'current:', g.activePipeline, 'hasPlayer:', !!g.currentAudio?.player, 'isFFmpeg:', g.currentAudio?.isFFmpeg);
+	if (g.activePipeline === newMode) {
+		console.log('[switchPipeline] Already in', newMode, 'mode, skipping');
+		return;
+	}
+	if (!g.currentAudio || !g.currentAudio.isFFmpeg) {
+		console.log('[switchPipeline] No FFmpeg audio, skipping');
+		return;
+	}
 
-	console.log('Switching pipeline:', g.activePipeline, '->', newMode);
+	console.log('[switchPipeline] Switching pipeline:', g.activePipeline, '->', newMode);
 
 	// Determine if we should continue playing after the switch
 	// If shouldPlay is explicitly provided (not null), use that value
