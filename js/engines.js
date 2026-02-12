@@ -633,9 +633,9 @@ async function init() {
 
 	// IPC Command handlers from app.js
 	ipcRenderer.on('cmd:load', async (e, data) => {
-		console.log('[Engine] cmd:load', data.file);
+		console.log('[Engine] cmd:load', data.file, data.restore ? '(restore)' : '');
 		if (data.file) {
-			await playAudio(data.file, data.position || 0, data.paused || false);
+			await playAudio(data.file, data.position || 0, data.paused || false, false, data.restore || false);
 			ipcRenderer.send('audio:loaded', { file: data.file, duration: g.currentAudio?.duration || 0 });
 		}
 	});
@@ -677,9 +677,13 @@ async function init() {
 		playPrev();
 	});
 	
-	ipcRenderer.on('cmd:setParams', (e, data) => {
+	ipcRenderer.on('cmd:setParams', async (e, data) => {
 		console.log('[Engine] cmd:setParams', data);
-		if (data.mode) g.audioParams.mode = data.mode;
+		let modeChanged = false;
+		if (data.mode) {
+			g.audioParams.mode = data.mode;
+			modeChanged = true;
+		}
 		if (data.tapeSpeed !== undefined) {
 			g.audioParams.tapeSpeed = data.tapeSpeed;
 			applyTapeSpeed(data.tapeSpeed);
@@ -694,6 +698,42 @@ async function init() {
 			if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 				g.currentAudio.player.setLoop(data.loop);
 			}
+		}
+		// Apply routing state if mode changed - this ensures rubberband activates for pitchtime
+		if (modeChanged) {
+			await applyRoutingState();
+		}
+	});
+	
+	ipcRenderer.on('cmd:applyParams', (e, data) => {
+		console.log('[Engine] cmd:applyParams', data);
+		
+		if (g.currentAudio?.isFFmpeg) {
+			const player = g.currentAudio.player;
+			if (data.mode === 'tape' && data.tapeSpeed !== 0) {
+				player.setPlaybackRate(data.tapeSpeed);
+			} else if (data.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
+				if (typeof player.setPitch === 'function') {
+					player.setPitch(Math.pow(2, (data.pitch || 0) / 12.0));
+				}
+				if (typeof player.setTempo === 'function') {
+					player.setTempo(data.tempo || 1.0);
+				}
+				if (typeof player.setOptions === 'function') {
+					player.setOptions({ formantPreserved: !!data.formant });
+				}
+			}
+		} else if (g.currentAudio?.isMidi && midi) {
+			if (data.transpose !== undefined) midi.setPitchOffset(data.transpose);
+			if (data.bpm !== undefined && midi.getOriginalBPM) {
+				const ratio = data.bpm / midi.getOriginalBPM();
+				midi.setPlaybackSpeed(ratio);
+			}
+			if (data.metronome !== undefined) midi.setMetronome(data.metronome);
+		} else if (g.currentAudio?.isMod && player) {
+			if (data.pitch !== undefined) player.setPitch(data.pitch);
+			if (data.tempo !== undefined) player.setTempo(data.tempo);
+			if (data.stereoSeparation !== undefined) player.setStereoSeparation(data.stereoSeparation);
 		}
 	});
 	
@@ -729,34 +769,8 @@ async function init() {
 		if (data.type === 'parameters') {
 			g.windowsVisible.parameters = false;
 			g.parametersOpen = false;
-			// Reset audio params to defaults
-			g.audioParams.mode = 'tape';
-			g.audioParams.tapeSpeed = 0;
-			g.audioParams.pitch = 0;
-			g.audioParams.tempo = 1.0;
-			g.audioParams.formant = false;
-			g.audioParams.locked = false;
-			
-			// Reset tape speed on current player if it was applied
-			if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
-				g.currentAudio.player.setPlaybackRate(0);
-			}
-			if (g.currentAudio?.isMod && player) {
-				player.setTempo(1.0);
-			}
-			
-			if (g.currentAudio && g.currentAudio.isFFmpeg && g.activePipeline === 'rubberband') {
-				try {
-					g.rubberbandPlayer.reset();
-					g.rubberbandPlayer.disconnect();
-					await switchPipeline('normal');
-				} catch (err) {
-					console.error('Failed to switch to normal pipeline:', err);
-				}
-			} else if (g.rubberbandPlayer) {
-				g.rubberbandPlayer.reset();
-			}
-			
+			// Note: Do NOT reset g.audioParams here - state is managed by app.js
+			// Pipeline routing is handled by applyRoutingState based on locked state
 			await applyRoutingState();
 		}
 	});
@@ -795,49 +809,9 @@ async function init() {
 				}
 			}
 			
-			// If parameters window opened, send current params
-			if (data.type === 'parameters' && g.currentAudio) {
-				if (g.currentAudio.isMidi) {
-					const orig = midi && midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
-					const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
-					const params = {
-						transpose: g.midiSettings ? g.midiSettings.pitch : 0,
-						bpm: Math.round(orig * speed),
-						metronome: g.midiSettings ? g.midiSettings.metronome : false,
-						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2'
-					};
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
-				} else if (g.currentAudio.isMod) {
-					// Get channel count from player if available
-					const channelCount = player && player.numChannels ? player.numChannels : 
-					                    player && player.channels ? player.channels : 0;
-					const params = {
-						pitch: 1.0,
-						tempo: 1.0,
-						stereoSeparation: 100,
-						channels: channelCount  // Channel count for mixer display
-					};
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
-				} else if (g.currentAudio.isFFmpeg) {
-					const locked = g.audioParams && g.audioParams.locked;
-					const params = locked ? {
-						audioMode: g.audioParams.mode,
-						tapeSpeed: g.audioParams.tapeSpeed,
-						pitch: g.audioParams.pitch,
-						tempo: g.audioParams.tempo,
-						formant: g.audioParams.formant,
-						locked: true
-					} : {
-						audioMode: g.audioParams.mode,
-						tapeSpeed: 0,
-						pitch: 0,
-						tempo: 1.0,
-						formant: false,
-						locked: false
-					};
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
-				}
-			}
+			// Note: Parameters window state is managed by app.js
+			// app.js will send set-mode after engine restoration with correct values
+			// (Engine's local state may be defaults after recreate)
 		}
 	});
 	
@@ -1428,7 +1402,7 @@ function playListFromMulti(ar, add = false, rec = false) {
 	})
 }
 
-async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
+async function playAudio(fp, n, startPaused = false, autoAdvance = false, restore = false) {
 	if (!g.blocky) {
 		if (fp && g.music && g.music.length > 0) {
 			const idx = g.music.indexOf(fp);
@@ -1528,7 +1502,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				g.blocky = false;
 				checkState();
 
-				if (g.windows.parameters) {
+				if (g.windows.parameters && !restore) {
 					console.log('[playAudio] Updating parameters window for MIDI');
 					const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
 					const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
@@ -1579,7 +1553,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 			await updateMonitoringConnections();
 
 			// Reset tracker params on new file (no lock feature for tracker)
-			g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+			// Skip reset during restore to preserve saved parameters
+			if (!restore) {
+				g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+			}
 
 			// Apply tape speed if locked and in tape mode (overrides tracker params)
 			const locked = g.audioParams && g.audioParams.locked;
@@ -1588,7 +1565,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				player.setTempo(tempoFactor);
 			}
 
-			if (g.windows.parameters) {
+			if (g.windows.parameters && !restore) {
 				// Get channel count from player if available
 				const channelCount = player && player.numChannels ? player.numChannels : 
 				                    player && player.channels ? player.channels : 0;
@@ -1702,9 +1679,17 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				const activePlayer = g.currentAudio.player;
 				activePlayer.volume = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 
+				// Seek to position if resuming from a specific time
+				if (n > 0) {
+					console.log('[playAudio] Seeking to position:', n);
+					activePlayer.seek(n);
+					g.currentAudio.currentTime = n;
+				}
+
 				// Apply locked settings based on mode
+				// During restore, always apply (params were pre-set by app.js cmd:setParams)
 				const locked = g.audioParams && g.audioParams.locked;
-				if (locked) {
+				if (locked || restore) {
 					if (g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
 						// Tape mode: apply playback rate
 						activePlayer.setPlaybackRate(g.audioParams.tapeSpeed);
@@ -1740,64 +1725,19 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false) {
 				g.blocky = false;
 
 				if (g.windows.parameters) {
-					// If locked, preserve all settings; otherwise reset to defaults
-					const locked = g.audioParams && g.audioParams.locked;
-					const params = locked ? {
-						audioMode: g.audioParams.mode,
-						tapeSpeed: g.audioParams.tapeSpeed,
-						pitch: g.audioParams.pitch,
-						tempo: g.audioParams.tempo,
-						formant: g.audioParams.formant,
-						locked: true,
-						reset: false
-					} : {
-						audioMode: 'tape',
-						tapeSpeed: 0,
-						pitch: 0,
-						tempo: 1.0,
-						formant: false,
-						locked: false,
-						reset: true
-					};
-
-					// If not locked, also reset to tape mode and normal pipeline
-					if (!locked) {
-						g.audioParams.mode = 'tape';
-						g.audioParams.tapeSpeed = 0;
-						g.audioParams.pitch = 0;
-						g.audioParams.tempo = 1.0;
-						if (g.activePipeline === 'rubberband') {
-							await switchPipeline('normal');
+					// Just notify UI of current state, don't reset
+					tools.sendToId(g.windows.parameters, 'set-mode', { 
+						mode: 'audio',
+						params: {
+							audioMode: g.audioParams.mode,
+							tapeSpeed: g.audioParams.tapeSpeed,
+							pitch: g.audioParams.pitch,
+							tempo: g.audioParams.tempo,
+							formant: g.audioParams.formant,
+							locked: g.audioParams.locked,
+							reset: false
 						}
-						// Explicitly reset tape speed to 0 on the player
-						applyTapeSpeed(0);
-					} else {
-						// If locked, apply the appropriate settings for the current mode
-						if (g.audioParams.mode === 'tape') {
-							// Tape mode: apply tape speed
-							if (g.audioParams.tapeSpeed !== 0) {
-								applyTapeSpeed(g.audioParams.tapeSpeed);
-							}
-						} else if (g.audioParams.mode === 'pitchtime') {
-							// Pitchtime mode: switch to rubberband and apply pitch/tempo
-							if (g.activePipeline !== 'rubberband') {
-								await switchPipeline('rubberband');
-							} else {
-								// Already on rubberband, just apply the settings
-								if (g.rubberbandPlayer) {
-									if (typeof g.rubberbandPlayer.setPitch === 'function') {
-										const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
-										g.rubberbandPlayer.setPitch(pitchRatio);
-									}
-									if (typeof g.rubberbandPlayer.setTempo === 'function') {
-										g.rubberbandPlayer.setTempo(g.audioParams.tempo || 1.0);
-									}
-								}
-							}
-						}
-					}
-
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
+					});
 				}
 			}
 			catch (err) {
@@ -2694,6 +2634,21 @@ async function extractAndSendWaveform(fp) {
 		return;
 	}
 
+	// Check cache first
+	try {
+		const cached = await ipcRenderer.invoke('waveform:get', fp);
+		if (cached) {
+			console.log('[Monitoring] Using cached waveform for:', path.basename(fp));
+			tools.sendToId(g.windows.monitoring, 'waveform-data', {
+				...cached,
+				filePath: path.basename(fp)
+			});
+			return;
+		}
+	} catch (err) {
+		console.warn('[Monitoring] Failed to check waveform cache:', err.message);
+	}
+
 	console.log('[Monitoring] Requesting async waveform for:', path.basename(fp));
 
 	try {
@@ -2724,6 +2679,17 @@ async function extractAndSendWaveform(fp) {
 
 		const hasData = peaks.peaksL && peaks.peaksL.some(p => p > 0);
 		console.log('[Monitoring] Waveform received. Points:', peaks.points, 'hasData:', hasData, 'duration:', peaks.duration);
+
+		// Cache the waveform for future use
+		if (hasData) {
+			ipcRenderer.send('waveform:set', {
+				filePath: fp,
+				peaksL: peaks.peaksL,
+				peaksR: peaks.peaksR,
+				points: peaks.points,
+				duration: peaks.duration
+			});
+		}
 
 		if (g.windows.monitoring) {
 			try {

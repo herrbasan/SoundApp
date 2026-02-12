@@ -43,6 +43,19 @@ const audioState = {
     volume: 0.5,
     loop: false,
     
+    // Format-specific params (preserved across engine restore)
+    midiParams: {
+        transpose: 0,
+        bpm: null,          // null = use original BPM
+        metronome: false,
+        soundfont: null     // null = use default
+    },
+    trackerParams: {
+        pitch: 1.0,
+        tempo: 1.0,
+        stereoSeparation: 100
+    },
+    
     // Pipeline
     activePipeline: 'normal',   // 'normal' | 'rubberband'
     
@@ -63,6 +76,22 @@ const audioState = {
 // Engine window reference
 let engineWindow = null;
 let playerWindow = null;
+
+// Child window tracking (monitoring, parameters, etc.)
+// These need to be re-notified to engine after restoration
+const childWindows = {
+    monitoring: { open: false, windowId: null },
+    parameters: { open: false, windowId: null },
+    settings: { open: false, windowId: null },
+    playlist: { open: false, windowId: null },
+    help: { open: false, windowId: null },
+    mixer: { open: false, windowId: null }
+};
+
+// Waveform cache - survives engine disposal
+// Key: file path, Value: { peaksL, peaksR, points, duration, timestamp }
+const waveformCache = new Map();
+const WAVEFORM_CACHE_MAX_SIZE = 10; // Keep last 10 waveforms
 
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
@@ -287,6 +316,15 @@ async function appStart() {
 		wins.main.on('restore', () => {
 			cancelEngineDisposal();
 			restoreEngineIfNeeded();
+		});
+		
+		// Track user activity to prevent idle disposal
+		wins.main.on('focus', () => {
+			recordUserActivity();
+		});
+		
+		wins.main.webContents.on('did-focus', () => {
+			recordUserActivity();
 		});
 		
 	} catch (err) { }
@@ -551,7 +589,7 @@ function mainCommand(e, data) {
 // AUDIO ENGINE LIFECYCLE
 // ═══════════════════════════════════════════════════════════
 
-async function createEngineWindow() {
+async function createEngineWindow(options = {}) {
     if (engineWindow) return;
     if (audioState.engineInitializing) return;
     
@@ -566,7 +604,7 @@ async function createEngineWindow() {
             height: 300,
             resizable: false,
             maximizable: false,
-            devTools: !isPackaged, // Allow devtools in dev mode
+            devTools: false, // Disabled for performance
             transparent: false,
             backgroundColor: '#1a1a1a',
             file: 'html/engines.html',
@@ -594,8 +632,8 @@ async function createEngineWindow() {
             audioState.engineInitializing = false;
             fb('Engine signaled ready', 'engine');
             
-            // If we have a file loaded, tell engine to load it
-            if (audioState.file) {
+            // Skip auto-load when restoreEngineIfNeeded will handle it
+            if (!options.skipAutoLoad && audioState.file) {
                 sendToEngine('cmd:load', {
                     file: audioState.file,
                     position: audioState.position,
@@ -615,12 +653,43 @@ async function createEngineWindow() {
 // ENGINE DISPOSAL / RESTORATION (Phase 4: 0% CPU when idle)
 // ═══════════════════════════════════════════════════════════
 
-const IDLE_DISPOSE_TIMEOUT_MS = 5000;  // 5 seconds idle before disposal
+// ═══════════════════════════════════════════════════════════════════════════
+// IDLE DISPOSAL CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+const IDLE_DISPOSE_TIMEOUT_MS = 5000;        // 5s when hidden to tray
+const IDLE_DISPOSE_VISIBLE_TIMEOUT_MS = 10000; // 10s when visible but paused
+
+// Idle state tracking
+let idleState = {
+    lastActivityTime: Date.now(),
+    visibleDisposeTimeout: null
+};
 
 function shouldDisposeEngine() {
-    // Dispose when: window hidden to tray AND playback paused
+    // Dispose when: (window hidden to tray OR idle timeout reached) AND playback paused
+    if (audioState.isPlaying) return false;
+    
     const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-    return !isWindowVisible && !audioState.isPlaying;
+    
+    // Always dispose when hidden to tray
+    if (!isWindowVisible) return true;
+    
+    // Dispose when visible but idle for too long
+    const idleTime = Date.now() - idleState.lastActivityTime;
+    return idleTime >= IDLE_DISPOSE_VISIBLE_TIMEOUT_MS;
+}
+
+function recordUserActivity() {
+    // Called on any user interaction that should reset idle timer
+    idleState.lastActivityTime = Date.now();
+    
+    // If we have a visible-idle timeout pending, cancel and reschedule
+    if (idleState.visibleDisposeTimeout) {
+        clearTimeout(idleState.visibleDisposeTimeout);
+        idleState.visibleDisposeTimeout = null;
+        scheduleVisibleIdleDisposal();
+    }
 }
 
 function scheduleEngineDisposal() {
@@ -633,14 +702,38 @@ function scheduleEngineDisposal() {
     // Only schedule if engine exists and should be disposed
     if (!engineWindow || !shouldDisposeEngine()) return;
     
-    fb(`Scheduling engine disposal in ${IDLE_DISPOSE_TIMEOUT_MS}ms...`, 'engine');
+    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
+    const timeoutMs = isWindowVisible ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
+    
+    fb(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`, 'engine');
     
     audioState.engineDisposalTimeout = setTimeout(() => {
         audioState.engineDisposalTimeout = null;
         if (shouldDisposeEngine()) {
             disposeEngineWindow();
         }
-    }, IDLE_DISPOSE_TIMEOUT_MS);
+    }, timeoutMs);
+}
+
+function scheduleVisibleIdleDisposal() {
+    // Schedule disposal for visible-but-idle state
+    if (!engineWindow || audioState.isPlaying) return;
+    
+    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
+    if (!isWindowVisible) return; // Only for visible window
+    
+    // Cancel any existing visible timeout
+    if (idleState.visibleDisposeTimeout) {
+        clearTimeout(idleState.visibleDisposeTimeout);
+    }
+    
+    idleState.visibleDisposeTimeout = setTimeout(() => {
+        idleState.visibleDisposeTimeout = null;
+        if (shouldDisposeEngine()) {
+            fb('Visible idle timeout reached, disposing engine', 'engine');
+            disposeEngineWindow();
+        }
+    }, IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
 }
 
 function cancelEngineDisposal() {
@@ -648,6 +741,10 @@ function cancelEngineDisposal() {
         clearTimeout(audioState.engineDisposalTimeout);
         audioState.engineDisposalTimeout = null;
         fb('Cancelled engine disposal', 'engine');
+    }
+    if (idleState.visibleDisposeTimeout) {
+        clearTimeout(idleState.visibleDisposeTimeout);
+        idleState.visibleDisposeTimeout = null;
     }
 }
 
@@ -678,10 +775,10 @@ async function restoreEngineIfNeeded() {
     const startTime = Date.now();
     
     try {
-        await createEngineWindow();
+        // skipAutoLoad: we control the cmd:load with restore flag
+        await createEngineWindow({ skipAutoLoad: true });
         
         // Wait for engine to be ready (engine:ready event sets engineAlive)
-        // Use polling with timeout instead of blocking
         let waitMs = 0;
         const maxWaitMs = 1000;
         while (!audioState.engineAlive && waitMs < maxWaitMs) {
@@ -694,14 +791,9 @@ async function restoreEngineIfNeeded() {
             return false;
         }
         
-        // Send current state to engine
-        sendToEngine('cmd:load', {
-            file: audioState.file,
-            position: audioState.position,
-            paused: !audioState.isPlaying
-        });
-        
-        // Restore audio params
+        // ── Step 1: Pre-set audio params on engine BEFORE file load ──
+        // This ensures g.audioParams has the correct values (including locked)
+        // when playAudio() runs, so pipeline routing and settings are correct.
         sendToEngine('cmd:setParams', {
             mode: audioState.mode,
             tapeSpeed: audioState.tapeSpeed,
@@ -712,6 +804,78 @@ async function restoreEngineIfNeeded() {
             volume: audioState.volume,
             loop: audioState.loop
         });
+        
+        // ── Step 2: Re-register child windows BEFORE file load ──
+        // This sets g.parametersOpen and g.windows.parameters on the engine,
+        // so calculateDesiredPipeline() makes the correct routing decision.
+        const newEngineId = engineWindow.id;
+        for (const [type, state] of Object.entries(childWindows)) {
+            if (state.open && state.windowId) {
+                fb(`Re-registering ${type} window with restored engine`, 'engine');
+                sendToEngine('window-created', { type, windowId: state.windowId });
+                sendToEngine('window-visible', { type, windowId: state.windowId });
+                
+                // Update child window's stageId to point to the new engine
+                const childWin = BrowserWindow.fromId(state.windowId);
+                if (childWin && !childWin.isDestroyed()) {
+                    childWin.webContents.send('update-stage-id', { stageId: newEngineId });
+                }
+            }
+        }
+        
+        // ── Step 3: Load file with restore flag ──
+        // The restore flag tells playAudio() to:
+        // - Use pre-set g.audioParams as-is (no reset)
+        // - Apply settings regardless of locked state
+        // - Skip sending set-mode to params window (we handle that)
+        const fileLoadedPromise = new Promise((resolve) => {
+            const onLoaded = (e, data) => {
+                if (data.file === audioState.file) {
+                    ipcMain.removeListener('audio:loaded', onLoaded);
+                    resolve(data);
+                }
+            };
+            ipcMain.once('audio:loaded', onLoaded);
+            setTimeout(() => {
+                ipcMain.removeListener('audio:loaded', onLoaded);
+                resolve(null);
+            }, 2000);
+        });
+        
+        sendToEngine('cmd:load', {
+            file: audioState.file,
+            position: audioState.position,
+            paused: !audioState.isPlaying
+        });
+        
+        fb('Waiting for file to load before applying params...', 'params');
+        await fileLoadedPromise;
+        
+        // ── Step 4: Apply params to active players after load ──
+        // cmd:applyParams applies state to players (unlike cmd:setParams which sets globals)
+        sendToEngine('cmd:applyParams', {
+            mode: audioState.mode,
+            tapeSpeed: audioState.tapeSpeed,
+            pitch: audioState.pitch,
+            tempo: audioState.tempo,
+            formant: audioState.formant,
+            transpose: audioState.midiParams.transpose,
+            bpm: audioState.midiParams.bpm,
+            metronome: audioState.midiParams.metronome
+        });
+        
+        // Tracker params applied via cmd:applyParams
+        if (audioState.fileType === 'Tracker') {
+            fb('Restoring Tracker params', 'params');
+            sendToEngine('cmd:applyParams', {
+                pitch: audioState.trackerParams.pitch,
+                tempo: audioState.trackerParams.tempo,
+                stereoSeparation: audioState.trackerParams.stereoSeparation
+            });
+        }
+        
+        // ── Step 5: Update parameters window UI ──
+        sendParamsToParametersWindow();
         
         const elapsed = Date.now() - startTime;
         fb(`Engine restored in ${elapsed}ms`, 'engine');
@@ -742,6 +906,57 @@ function sendToPlayer(channel, data) {
         return true;
     } catch (err) {
         return false;
+    }
+}
+
+function sendParamsToParametersWindow() {
+    // Send current params directly to parameters window if it's open
+    if (!childWindows.parameters.open || !childWindows.parameters.windowId) return;
+    
+    const fileType = audioState.fileType;
+    let paramsData = null;
+    
+    if (fileType === 'MIDI') {
+        paramsData = {
+            mode: 'midi',
+            params: {
+                transpose: audioState.midiParams.transpose,
+                bpm: audioState.midiParams.bpm,
+                metronome: audioState.midiParams.metronome,
+                soundfont: audioState.midiParams.soundfont
+            }
+        };
+    } else if (fileType === 'Tracker') {
+        paramsData = {
+            mode: 'tracker',
+            params: {
+                pitch: audioState.trackerParams.pitch,
+                tempo: audioState.trackerParams.tempo,
+                stereoSeparation: audioState.trackerParams.stereoSeparation
+            }
+        };
+    } else if (fileType === 'FFmpeg') {
+        paramsData = {
+            mode: 'audio',
+            params: {
+                audioMode: audioState.mode,
+                tapeSpeed: audioState.tapeSpeed,
+                pitch: audioState.pitch,
+                tempo: audioState.tempo,
+                formant: audioState.formant,
+                locked: audioState.locked
+            }
+        };
+    }
+    
+    if (paramsData) {
+        fb(`Sending params to parameters window: ${paramsData.mode}`, 'params');
+        // Send directly to parameters window using tools helper
+        try {
+            tools.sendToId(childWindows.parameters.windowId, 'set-mode', paramsData);
+        } catch (err) {
+            fb(`Failed to send params to parameters window: ${err.message}`, 'params');
+        }
     }
 }
 
@@ -778,12 +993,25 @@ function broadcastState(excludeEngine = false) {
 function setupAudioIPC() {
     // Commands from player UI → forward to engine
     ipcMain.on('audio:play', async () => {
+        // Record activity to reset idle timers
+        recordUserActivity();
+        
         audioState.isPlaying = true;
         // Phase 4: Cancel any pending disposal
         cancelEngineDisposal();
+        
+        // If engine was disposed, restore it first
         if (!audioState.engineAlive) {
-            await createEngineWindow();
+            fb('Engine not alive, restoring before play...', 'engine');
+            const restored = await restoreEngineIfNeeded();
+            if (!restored) {
+                fb('Failed to restore engine for play', 'engine');
+                audioState.isPlaying = false;
+                broadcastState();
+                return;
+            }
         }
+        
         sendToEngine('cmd:play');
         broadcastState();
     });
@@ -792,13 +1020,32 @@ function setupAudioIPC() {
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
-        // Phase 4: Schedule disposal after pausing (if hidden to tray)
+        // Phase 4: Schedule disposal after pausing
         scheduleEngineDisposal();
+        // Also schedule visible idle disposal (in case window stays visible)
+        scheduleVisibleIdleDisposal();
     });
     
-    ipcMain.on('audio:seek', (e, data) => {
+    ipcMain.on('audio:seek', async (e, data) => {
+        // Record activity
+        recordUserActivity();
+        
         if (data && typeof data.position === 'number') {
             audioState.position = data.position;
+            
+            // If engine was disposed, restore it first
+            if (!audioState.engineAlive && audioState.file) {
+                fb('Engine not alive, restoring before seek...', 'engine');
+                const restored = await restoreEngineIfNeeded();
+                if (!restored) {
+                    fb('Failed to restore engine for seek', 'engine');
+                    return;
+                }
+                // After restoration, the engine loads at the current position
+                // No need to send separate seek
+                return;
+            }
+            
             sendToEngine('cmd:seek', { position: data.position });
         }
     });
@@ -828,11 +1075,48 @@ function setupAudioIPC() {
         broadcastState();
     });
     
-    ipcMain.on('audio:next', () => {
+    ipcMain.on('audio:next', async () => {
+        recordUserActivity();
+        
+        // If engine was disposed, we need to handle next track differently
+        if (!audioState.engineAlive) {
+            fb('Engine not alive, handling next track...', 'engine');
+            // Let the track-end handler manage the next track logic
+            await handleTrackEnded();
+            return;
+        }
+        
         sendToEngine('cmd:next');
     });
     
-    ipcMain.on('audio:prev', () => {
+    ipcMain.on('audio:prev', async () => {
+        recordUserActivity();
+        
+        // If engine was disposed, we need to handle prev track differently
+        if (!audioState.engineAlive) {
+            fb('Engine not alive, handling prev track...', 'engine');
+            // Decrement playlist index and load previous file
+            if (audioState.playlist.length > 0) {
+                audioState.playlistIndex--;
+                if (audioState.playlistIndex < 0) {
+                    audioState.playlistIndex = audioState.playlist.length - 1;
+                }
+                const prevFile = audioState.playlist[audioState.playlistIndex];
+                if (prevFile) {
+                    audioState.file = prevFile;
+                    audioState.position = 0;
+                    audioState.isPlaying = true;
+                    
+                    const restored = await restoreEngineIfNeeded();
+                    if (restored) {
+                        sendToEngine('cmd:play');
+                    }
+                    broadcastState();
+                }
+            }
+            return;
+        }
+        
         sendToEngine('cmd:prev');
     });
     
@@ -900,43 +1184,75 @@ function setupAudioIPC() {
         broadcastState();
     });
     
-    // Window visibility (for monitoring)
-    ipcMain.on('window-visible', (e, data) => {
-        if (data && data.type) {
-            sendToEngine('window-visible', data);
-        }
-    });
-    
-    ipcMain.on('window-hidden', (e, data) => {
-        if (data && data.type) {
-            sendToEngine('window-hidden', data);
-        }
-    });
-    
-    // Window lifecycle - forward to engine so it can send messages to child windows
+    // Window lifecycle - track in main and forward to engine
     ipcMain.on('window-created', (e, data) => {
         if (data && data.type) {
+            // Track in main state for engine restoration
+            if (childWindows[data.type]) {
+                childWindows[data.type].open = true;
+                childWindows[data.type].windowId = data.windowId;
+            }
             sendToEngine('window-created', data);
         }
     });
     
+    ipcMain.on('window-visible', (e, data) => {
+        if (data && data.type && childWindows[data.type]) {
+            childWindows[data.type].open = true;
+            childWindows[data.type].windowId = data.windowId;
+        }
+        sendToEngine('window-visible', data);
+    });
+    
+    ipcMain.on('window-hidden', (e, data) => {
+        if (data && data.type && childWindows[data.type]) {
+            // Window is hidden but not closed - keep tracking it
+        }
+        sendToEngine('window-hidden', data);
+    });
+    
     ipcMain.on('window-closed', (e, data) => {
         if (data && data.type) {
+            // Remove from tracking
+            if (childWindows[data.type]) {
+                childWindows[data.type].open = false;
+                childWindows[data.type].windowId = null;
+            }
             sendToEngine('window-closed', data);
         }
     });
     
-    // Param changes from parameters window → forward to engine
+    // Param changes from parameters window → track in state and forward to engine
     ipcMain.on('param-change', (e, data) => {
+        // Track format-specific params in main state so we can restore after disposal
+        if (data.mode === 'midi') {
+            if (data.param === 'transpose') audioState.midiParams.transpose = data.value;
+            if (data.param === 'bpm') audioState.midiParams.bpm = data.value;
+            if (data.param === 'metronome') audioState.midiParams.metronome = data.value;
+            if (data.param === 'soundfont') audioState.midiParams.soundfont = data.value;
+        } else if (data.mode === 'tracker') {
+            if (data.param === 'pitch') audioState.trackerParams.pitch = data.value;
+            if (data.param === 'tempo') audioState.trackerParams.tempo = data.value;
+            if (data.param === 'stereoSeparation') audioState.trackerParams.stereoSeparation = data.value;
+        } else if (data.mode === 'audio') {
+            if (data.param === 'audioMode') audioState.mode = data.value;
+            if (data.param === 'tapeSpeed') audioState.tapeSpeed = data.value;
+            if (data.param === 'pitch') audioState.pitch = data.value;
+            if (data.param === 'tempo') audioState.tempo = data.value;
+            if (data.param === 'formant') audioState.formant = !!data.value;
+            if (data.param === 'locked') audioState.locked = !!data.value;
+        }
         sendToEngine('param-change', data);
     });
     
     // Other parameter-related messages
     ipcMain.on('midi-reset-params', (e, data) => {
+        audioState.midiParams = { transpose: 0, bpm: null, metronome: false, soundfont: null };
         sendToEngine('midi-reset-params', data);
     });
     
     ipcMain.on('tracker-reset-params', (e, data) => {
+        audioState.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
         sendToEngine('tracker-reset-params', data);
     });
     
@@ -965,6 +1281,64 @@ function setupAudioIPC() {
         if (!engineWindow) {
             await createEngineWindow();
         }
+    });
+    
+    // Waveform cache IPC handlers
+    ipcMain.handle('waveform:get', (e, filePath) => {
+        const cached = waveformCache.get(filePath);
+        if (cached) {
+            fb(`Waveform cache hit for: ${path.basename(filePath)}`, 'cache');
+            return cached;
+        }
+        return null;
+    });
+    
+    ipcMain.on('waveform:set', (e, data) => {
+        if (!data || !data.filePath) return;
+        
+        // Enforce cache size limit (LRU eviction)
+        if (waveformCache.size >= WAVEFORM_CACHE_MAX_SIZE) {
+            const oldestKey = waveformCache.keys().next().value;
+            waveformCache.delete(oldestKey);
+            fb('Evicted oldest waveform from cache', 'cache');
+        }
+        
+        waveformCache.set(data.filePath, {
+            peaksL: data.peaksL,
+            peaksR: data.peaksR,
+            points: data.points,
+            duration: data.duration,
+            timestamp: Date.now()
+        });
+        fb(`Cached waveform for: ${path.basename(data.filePath)}`, 'cache');
+    });
+    
+    // DEBUG: Idle disposal testing
+    ipcMain.on('debug:idle-status', (e) => {
+        const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
+        const idleTime = Date.now() - idleState.lastActivityTime;
+        const status = {
+            engineAlive: audioState.engineAlive,
+            isPlaying: audioState.isPlaying,
+            isWindowVisible,
+            idleTimeMs: idleTime,
+            idleTimeSec: Math.round(idleTime / 1000),
+            shouldDispose: shouldDisposeEngine(),
+            pendingTimeouts: !!audioState.engineDisposalTimeout || !!idleState.visibleDisposeTimeout,
+            waveformCacheSize: waveformCache.size
+        };
+        fb('Idle status: ' + JSON.stringify(status), 'engine');
+        e.sender.send('debug:idle-status-response', status);
+    });
+    
+    ipcMain.on('debug:idle-force-dispose', (e) => {
+        fb('Debug: Forcing engine disposal', 'engine');
+        disposeEngineWindow();
+    });
+    
+    ipcMain.on('debug:idle-reset-timer', (e) => {
+        fb('Debug: Resetting idle timer', 'engine');
+        recordUserActivity();
     });
 }
 
