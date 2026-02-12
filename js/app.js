@@ -1084,6 +1084,19 @@ function setupAudioIPC() {
         
         if (!audioState.engineAlive) {
             await createEngineWindow();
+            
+            // Wait for engine to be ready before sending cmd:load
+            let waitMs = 0;
+            const maxWaitMs = 1000;
+            while (!audioState.engineAlive && waitMs < maxWaitMs) {
+                await new Promise(r => setTimeout(r, 10));
+                waitMs += 10;
+            }
+            
+            if (!audioState.engineAlive) {
+                fb('Engine failed to signal ready for audio:load', 'engine');
+                return;
+            }
         }
         
         sendToEngine('cmd:load', {
