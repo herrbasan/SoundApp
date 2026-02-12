@@ -809,6 +809,7 @@ async function restoreEngineIfNeeded() {
         // ── Step 1: Pre-set audio params on engine BEFORE file load ──
         // This ensures g.audioParams has the correct values (including locked)
         // when playAudio() runs, so pipeline routing and settings are correct.
+        // Include parametersOpen so rubberband activates for pitchtime mode.
         sendToEngine('cmd:setParams', {
             mode: audioState.mode,
             tapeSpeed: audioState.tapeSpeed,
@@ -817,7 +818,8 @@ async function restoreEngineIfNeeded() {
             formant: audioState.formant,
             locked: audioState.locked,
             volume: audioState.volume,
-            loop: audioState.loop
+            loop: audioState.loop,
+            parametersOpen: childWindows.parameters.open
         });
         
         // ── Step 2: Re-register child windows BEFORE file load ──
@@ -1100,6 +1102,7 @@ function setupAudioIPC() {
             }
             
             // Send params BEFORE loading file (so playAudio uses correct mode)
+            // Include parametersOpen so rubberband activates for pitchtime mode
             sendToEngine('cmd:setParams', {
                 mode: audioState.mode,
                 tapeSpeed: audioState.tapeSpeed,
@@ -1108,7 +1111,8 @@ function setupAudioIPC() {
                 formant: audioState.formant,
                 locked: audioState.locked,
                 volume: audioState.volume,
-                loop: audioState.loop
+                loop: audioState.loop,
+                parametersOpen: childWindows.parameters.open
             });
         }
         

@@ -655,6 +655,17 @@ async function init() {
 				g.currentAudio.player.setLoop(data.loop);
 			}
 		}
+		// Handle parametersOpen - crucial for rubberband activation on restore
+		if (data.parametersOpen !== undefined) {
+			g.parametersOpen = data.parametersOpen;
+			console.log('[Engine] parametersOpen set to:', g.parametersOpen);
+			// If parameters window is open and mode is pitchtime, trigger routing
+			if (g.parametersOpen && g.audioParams.mode === 'pitchtime') {
+				modeChanged = true;
+			}
+		}
+			}
+		}
 		// Apply routing state if mode changed - this ensures rubberband activates for pitchtime
 		if (modeChanged) {
 			await applyRoutingState();
