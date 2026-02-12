@@ -664,8 +664,6 @@ async function init() {
 				modeChanged = true;
 			}
 		}
-			}
-		}
 		// Apply routing state if mode changed - this ensures rubberband activates for pitchtime
 		if (modeChanged) {
 			await applyRoutingState();
