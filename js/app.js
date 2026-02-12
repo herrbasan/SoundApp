@@ -1083,9 +1083,10 @@ function setupAudioIPC() {
         audioState.metadata = null;
         
         if (!audioState.engineAlive) {
-            await createEngineWindow();
+            // skipAutoLoad: we control the cmd:load after setting params
+            await createEngineWindow({ skipAutoLoad: true });
             
-            // Wait for engine to be ready before sending cmd:load
+            // Wait for engine to be ready
             let waitMs = 0;
             const maxWaitMs = 1000;
             while (!audioState.engineAlive && waitMs < maxWaitMs) {
@@ -1097,6 +1098,18 @@ function setupAudioIPC() {
                 fb('Engine failed to signal ready for audio:load', 'engine');
                 return;
             }
+            
+            // Send params BEFORE loading file (so playAudio uses correct mode)
+            sendToEngine('cmd:setParams', {
+                mode: audioState.mode,
+                tapeSpeed: audioState.tapeSpeed,
+                pitch: audioState.pitch,
+                tempo: audioState.tempo,
+                formant: audioState.formant,
+                locked: audioState.locked,
+                volume: audioState.volume,
+                loop: audioState.loop
+            });
         }
         
         sendToEngine('cmd:load', {
