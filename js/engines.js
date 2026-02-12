@@ -1671,6 +1671,26 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 		else {
 			console.log('[playAudio] FFmpeg section - parametersOpen:', g.parametersOpen, 'audioMode:', g.audioParams?.mode, 'activePipeline:', g.activePipeline);
 			try {
+				// Reset to defaults BEFORE loading if not locked and not restore
+				// This ensures correct pipeline selection
+				const locked = g.audioParams && g.audioParams.locked;
+				if (!locked && !restore) {
+					console.log('[playAudio] Not locked - resetting to defaults BEFORE load');
+					g.audioParams.mode = 'tape';
+					g.audioParams.tapeSpeed = 0;
+					g.audioParams.pitch = 0;
+					g.audioParams.tempo = 1.0;
+					g.audioParams.formant = false;
+					
+					// Switch to normal pipeline if currently on rubberband
+					if (g.activePipeline === 'rubberband') {
+						await switchPipeline('normal');
+					}
+					
+					// Reset tape speed
+					applyTapeSpeed(0);
+				}
+				
 				// Note: applyRoutingState is called after g.currentAudio is set so calculateDesiredPipeline() works correctly
 				
 				const ffPlayer = (g.activePipeline === 'rubberband' && g.rubberbandPlayer) ? g.rubberbandPlayer : g.ffmpegPlayer;
@@ -1750,23 +1770,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 							activePlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
 						}
 					}
-				} else if (!locked && !restore) {
-					// Not locked and not restore: reset to defaults
-					console.log('[playAudio] Not locked - resetting to defaults');
-					g.audioParams.mode = 'tape';
-					g.audioParams.tapeSpeed = 0;
-					g.audioParams.pitch = 0;
-					g.audioParams.tempo = 1.0;
-					g.audioParams.formant = false;
-					
-					// Switch to normal pipeline if currently on rubberband
-					if (g.activePipeline === 'rubberband') {
-						await switchPipeline('normal');
-					}
-					
-					// Reset tape speed
-					applyTapeSpeed(0);
 				}
+				// Note: Reset happens BEFORE file load now, not here
 
 				if (!startPaused && !activePlayer.isPlaying) {
 					console.log('[playAudio] Starting playback...');
