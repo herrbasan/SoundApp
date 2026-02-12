@@ -712,24 +712,32 @@ async function init() {
 		if (data.mode) {
 			const modeChanged = g.audioParams.mode !== data.mode;
 			g.audioParams.mode = data.mode;
-			// If mode changed, trigger routing state update
+			// If mode changed, trigger routing state update FIRST
 			if (modeChanged) {
 				await applyRoutingState();
 			}
 		}
 		
+		// Apply params AFTER routing state is settled
+		// (g.currentAudio.player may have been updated by switchPipeline)
 		if (g.currentAudio?.isFFmpeg) {
 			const player = g.currentAudio.player;
 			if (data.mode === 'tape' && data.tapeSpeed !== 0) {
-				player.setPlaybackRate(data.tapeSpeed);
+				// Only apply if not already applied by switchPipeline
+				if (g.activePipeline !== 'rubberband') {
+					player.setPlaybackRate(data.tapeSpeed);
+				}
 			} else if (data.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
-				if (typeof player.setPitch === 'function') {
-					player.setPitch(Math.pow(2, (data.pitch || 0) / 12.0));
+				// Note: switchPipeline already applies params from g.audioParams
+				// Only apply here if values differ from what switchPipeline already set
+				if (typeof player.setPitch === 'function' && data.pitch !== undefined) {
+					const pitchRatio = Math.pow(2, data.pitch / 12.0);
+					player.setPitch(pitchRatio);
 				}
-				if (typeof player.setTempo === 'function') {
-					player.setTempo(data.tempo || 1.0);
+				if (typeof player.setTempo === 'function' && data.tempo !== undefined) {
+					player.setTempo(data.tempo);
 				}
-				if (typeof player.setOptions === 'function') {
+				if (typeof player.setOptions === 'function' && data.formant !== undefined) {
 					player.setOptions({ formantPreserved: !!data.formant });
 				}
 			}
