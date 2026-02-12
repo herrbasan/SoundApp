@@ -903,12 +903,16 @@ async function restoreEngineIfNeeded() {
 }
 
 function sendToEngine(channel, data) {
-    if (!engineWindow || engineWindow.isDestroyed()) return false;
+    if (!engineWindow || engineWindow.isDestroyed()) {
+        fb(`sendToEngine(${channel}): engine window not available`, 'engine');
+        return false;
+    }
     try {
         engineWindow.webContents.send(channel, data);
+        fb(`sendToEngine(${channel}): sent`, 'engine');
         return true;
     } catch (err) {
-        fb('Failed to send to engine: ' + err.message, 'engine');
+        fb(`sendToEngine(${channel}): failed - ${err.message}`, 'engine');
         return false;
     }
 }

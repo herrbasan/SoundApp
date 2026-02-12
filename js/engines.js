@@ -576,63 +576,8 @@ async function init() {
 	// (appStart() may be triggered by onInitialized before this function returns)
 	await initMidiPlayer();
 
-	if (!player) {
-		const modConfig = {
-			repeatCount: 0,
-			stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
-			context: g.audioContext
-		};
-		player = new window.chiptune(modConfig);
-		player.onMetadata(async (meta) => {
-			if (g.currentAudio) {
-				g.currentAudio.duration = player.duration;
-				// Store channel count from metadata for parameters window
-				if (meta && meta.song && meta.song.channels) {
-					g.currentAudio.channels = meta.song.channels.length;
-				}
-			}
-			g.blocky = false;
-			// Notify app.js of metadata
-			ipcRenderer.send('audio:metadata', { duration: player.duration, metadata: meta });
-			
-			// Send updated tracker params with channel count to parameters window
-			if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
-				const channelCount = g.currentAudio.channels || 0;
-				const params = {
-					pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
-					tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
-					stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
-					channels: channelCount
-				};
-				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
-			}
-		});
-		player.onProgress((e) => {
-			if (g.currentAudio) {
-				g.currentAudio.currentTime = e.pos || 0;
-			}
-			// Forward VU data to Parameters window
-			if (e.vu && g.windows.parameters) {
-				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
-			}
-		});
-		player.onEnded(audioEnded);
-		player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
-		player.onInitialized(() => {
-			console.log('Player Initialized');
-			player.gain.connect(g.audioContext.destination);
-			if (g.monitoringSplitter) {
-				player.gain.connect(g.monitoringSplitter);
-			}
-			g.blocky = false;
-			engineReady();
-		});
-	} else {
-		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
-		engineReady();
-	}
-
-	// IPC Command handlers from app.js
+	// IPC Command handlers from app.js - Register BEFORE signaling ready
+	// so we don't miss any messages sent immediately after engine:ready
 	ipcRenderer.on('cmd:load', async (e, data) => {
 		console.log('[Engine] cmd:load', data.file, data.restore ? '(restore)' : '');
 		if (data.file) {
@@ -1283,6 +1228,59 @@ async function init() {
 		}
 	});
 
+	// Initialize tracker player AFTER all IPC handlers are registered
+	// and call engineReady() when done
+	if (!player) {
+		const modConfig = {
+			repeatCount: 0,
+			stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+			context: g.audioContext
+		};
+		player = new window.chiptune(modConfig);
+		player.onMetadata(async (meta) => {
+			if (g.currentAudio) {
+				g.currentAudio.duration = player.duration;
+				if (meta && meta.song && meta.song.channels) {
+					g.currentAudio.channels = meta.song.channels.length;
+				}
+			}
+			g.blocky = false;
+			ipcRenderer.send('audio:metadata', { duration: player.duration, metadata: meta });
+			
+			if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
+				const channelCount = g.currentAudio.channels || 0;
+				const params = {
+					pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
+					tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
+					stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
+					channels: channelCount
+				};
+				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
+			}
+		});
+		player.onProgress((e) => {
+			if (g.currentAudio) {
+				g.currentAudio.currentTime = e.pos || 0;
+			}
+			if (e.vu && g.windows.parameters) {
+				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+			}
+		});
+		player.onEnded(audioEnded);
+		player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+		player.onInitialized(() => {
+			console.log('Player Initialized');
+			player.gain.connect(g.audioContext.destination);
+			if (g.monitoringSplitter) {
+				player.gain.connect(g.monitoringSplitter);
+			}
+			g.blocky = false;
+			engineReady();
+		});
+	} else {
+		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
+		engineReady();
+	}
 }
 
 async function engineReady() {
