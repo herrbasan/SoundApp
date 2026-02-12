@@ -1960,9 +1960,14 @@ function clearAudio() {
 
 		// Dispose worklet to flush internal buffers and prevent audio bleed
 		if (typeof g.rubberbandPlayer.disposeWorklet === 'function') {
-			g.rubberbandPlayer.disposeWorklet().catch(e => {
+			console.log('[clearAudio] Disposing rubberband worklet...');
+			g.rubberbandPlayer.disposeWorklet().then(() => {
+				console.log('[clearAudio] Rubberband worklet disposed');
+			}).catch(e => {
 				console.error('[clearAudio] Failed to dispose rubberband worklet:', e);
 			});
+		} else {
+			console.log('[clearAudio] disposeWorklet not available');
 		}
 
 		g.rubberbandPlayer.reset();
