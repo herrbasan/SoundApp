@@ -117,6 +117,7 @@ function calculateDesiredMonitoring() {
 async function applyRoutingState(shouldPlay = null) {
 	const desiredPipeline = calculateDesiredPipeline();
 	const desiredMonitoring = calculateDesiredMonitoring();
+	console.log('[Routing] applyRoutingState - desired:', desiredPipeline, 'current:', g.activePipeline, 'audioParams.mode:', g.audioParams?.mode, 'parametersOpen:', g.parametersOpen);
 	
 	// --- Pipeline Routing (with lazy rubberband initialization) ---
 	if (g.activePipeline !== desiredPipeline) {
@@ -722,24 +723,32 @@ async function init() {
 		// (g.currentAudio.player may have been updated by switchPipeline)
 		if (g.currentAudio?.isFFmpeg) {
 			const player = g.currentAudio.player;
+			console.log('[Engine] cmd:applyParams - activePipeline:', g.activePipeline, 'player:', player?.constructor?.name);
 			if (data.mode === 'tape' && data.tapeSpeed !== 0) {
 				// Only apply if not already applied by switchPipeline
 				if (g.activePipeline !== 'rubberband') {
+					console.log('[Engine] Applying tape speed:', data.tapeSpeed);
 					player.setPlaybackRate(data.tapeSpeed);
 				}
 			} else if (data.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
 				// Note: switchPipeline already applies params from g.audioParams
 				// Only apply here if values differ from what switchPipeline already set
+				console.log('[Engine] Applying rubberband params - pitch:', data.pitch, 'tempo:', data.tempo, 'formant:', data.formant);
 				if (typeof player.setPitch === 'function' && data.pitch !== undefined) {
 					const pitchRatio = Math.pow(2, data.pitch / 12.0);
 					player.setPitch(pitchRatio);
+					console.log('[Engine] Set pitch ratio:', pitchRatio);
 				}
 				if (typeof player.setTempo === 'function' && data.tempo !== undefined) {
 					player.setTempo(data.tempo);
+					console.log('[Engine] Set tempo:', data.tempo);
 				}
 				if (typeof player.setOptions === 'function' && data.formant !== undefined) {
 					player.setOptions({ formantPreserved: !!data.formant });
+					console.log('[Engine] Set formant:', !!data.formant);
 				}
+			} else if (data.mode === 'pitchtime' && g.activePipeline !== 'rubberband') {
+				console.warn('[Engine] Mode is pitchtime but activePipeline is', g.activePipeline, '- pipeline switch may have failed');
 			}
 		} else if (g.currentAudio?.isMidi && midi) {
 			if (data.transpose !== undefined) midi.setPitchOffset(data.transpose);
