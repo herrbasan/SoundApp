@@ -1750,6 +1750,22 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 							activePlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
 						}
 					}
+				} else if (!locked && !restore) {
+					// Not locked and not restore: reset to defaults
+					console.log('[playAudio] Not locked - resetting to defaults');
+					g.audioParams.mode = 'tape';
+					g.audioParams.tapeSpeed = 0;
+					g.audioParams.pitch = 0;
+					g.audioParams.tempo = 1.0;
+					g.audioParams.formant = false;
+					
+					// Switch to normal pipeline if currently on rubberband
+					if (g.activePipeline === 'rubberband') {
+						await switchPipeline('normal');
+					}
+					
+					// Reset tape speed
+					applyTapeSpeed(0);
 				}
 
 				if (!startPaused && !activePlayer.isPlaying) {
@@ -1769,7 +1785,8 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				g.blocky = false;
 
 				if (g.windows.parameters) {
-					// Just notify UI of current state, don't reset
+					// Notify UI of current state
+					// If not locked and not restore, this will be the reset values
 					tools.sendToId(g.windows.parameters, 'set-mode', { 
 						mode: 'audio',
 						params: {
@@ -1779,7 +1796,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 							tempo: g.audioParams.tempo,
 							formant: g.audioParams.formant,
 							locked: g.audioParams.locked,
-							reset: false
+							reset: (!locked && !restore)  // Signal reset when not locked
 						}
 					});
 				}
