@@ -681,6 +681,39 @@ let idleState = {
     visibleDisposeTimeout: null
 };
 
+// State-debug action tracking
+const stateDebugActions = [];
+const MAX_STATE_DEBUG_ACTIONS = 50;
+
+// Last logged action for deduplication
+let lastLoggedAction = { action: '', detail: '', time: 0 };
+
+function logStateDebugAction(action, detail = '') {
+    const now = Date.now();
+    // Deduplicate: skip if same action+detail within 500ms
+    if (action === lastLoggedAction.action && detail === lastLoggedAction.detail && (now - lastLoggedAction.time) < 500) {
+        return;
+    }
+    lastLoggedAction = { action, detail, time: now };
+    
+    const timestamp = new Date().toLocaleTimeString('en-US', { 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit',
+        fractionalSecondDigits: 3
+    });
+    stateDebugActions.unshift({
+        timestamp,
+        source: 'main',
+        action,
+        detail
+    });
+    if (stateDebugActions.length > MAX_STATE_DEBUG_ACTIONS) {
+        stateDebugActions.pop();
+    }
+}
+
 function shouldDisposeEngine() {
     // Dispose when: (window hidden to tray OR idle timeout reached) AND playback paused
     if (audioState.isPlaying) return false;
@@ -770,6 +803,7 @@ function disposeEngineWindow() {
     cancelEngineDisposal();
     
     fb('Disposing engine window...', 'engine');
+    logStateDebugAction('engine-disposed', 'Engine disposed (0% CPU mode)');
     audioState.engineAlive = false;
     
     try {
@@ -804,6 +838,18 @@ async function restoreEngineIfNeeded() {
         if (!audioState.engineAlive) {
             fb('Engine failed to signal ready', 'engine');
             return false;
+        }
+        
+        // ── Step 0: Reset audioState to defaults if locked=false ──
+        // When locked is OFF, file change should reset UI to tape/speed 0
+        const didResetParams = !audioState.locked;
+        if (didResetParams) {
+            fb('Resetting audioState to defaults (locked=false)', 'params');
+            audioState.mode = 'tape';
+            audioState.tapeSpeed = 0;
+            audioState.pitch = 0;
+            audioState.tempo = 1.0;
+            audioState.formant = false;
         }
         
         // ── Step 1: Pre-set audio params on engine BEFORE file load ──
@@ -892,7 +938,8 @@ async function restoreEngineIfNeeded() {
         }
         
         // ── Step 5: Update parameters window UI ──
-        sendParamsToParametersWindow();
+        // Pass reset=true if we reset params in Step 0
+        sendParamsToParametersWindow(didResetParams);
         
         const elapsed = Date.now() - startTime;
         fb(`Engine restored in ${elapsed}ms`, 'engine');
@@ -930,7 +977,7 @@ function sendToPlayer(channel, data) {
     }
 }
 
-function sendParamsToParametersWindow() {
+function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it's open
     if (!childWindows.parameters.open || !childWindows.parameters.windowId) return;
     
@@ -944,7 +991,8 @@ function sendParamsToParametersWindow() {
                 transpose: audioState.midiParams.transpose,
                 bpm: audioState.midiParams.bpm,
                 metronome: audioState.midiParams.metronome,
-                soundfont: audioState.midiParams.soundfont
+                soundfont: audioState.midiParams.soundfont,
+                reset
             }
         };
     } else if (fileType === 'Tracker') {
@@ -953,7 +1001,8 @@ function sendParamsToParametersWindow() {
             params: {
                 pitch: audioState.trackerParams.pitch,
                 tempo: audioState.trackerParams.tempo,
-                stereoSeparation: audioState.trackerParams.stereoSeparation
+                stereoSeparation: audioState.trackerParams.stereoSeparation,
+                reset
             }
         };
     } else {
@@ -966,7 +1015,8 @@ function sendParamsToParametersWindow() {
                 pitch: audioState.pitch,
                 tempo: audioState.tempo,
                 formant: audioState.formant,
-                locked: audioState.locked
+                locked: audioState.locked,
+                reset
             }
         };
     }
@@ -1017,6 +1067,7 @@ function setupAudioIPC() {
     ipcMain.on('audio:play', async () => {
         // Record activity to reset idle timers
         recordUserActivity();
+        logStateDebugAction('play', audioState.engineAlive ? 'Play (engine alive)' : 'Play (engine was disposed, restoring...)');
         
         audioState.isPlaying = true;
         // Phase 4: Cancel any pending disposal
@@ -1039,6 +1090,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:pause', () => {
+        logStateDebugAction('pause', 'Playback paused');
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
@@ -1101,6 +1153,17 @@ function setupAudioIPC() {
                 return;
             }
             
+            // ── Reset params if locked=false ──
+            // When locked is OFF, file change should reset to tape/speed 0
+            if (!audioState.locked) {
+                fb('Resetting audioState to defaults (locked=false)', 'params');
+                audioState.mode = 'tape';
+                audioState.tapeSpeed = 0;
+                audioState.pitch = 0;
+                audioState.tempo = 1.0;
+                audioState.formant = false;
+            }
+            
             // Send params BEFORE loading file (so playAudio uses correct mode)
             // Include parametersOpen so rubberband activates for pitchtime mode
             sendToEngine('cmd:setParams', {
@@ -1114,6 +1177,11 @@ function setupAudioIPC() {
                 loop: audioState.loop,
                 parametersOpen: childWindows.parameters.open
             });
+            
+                // Update parameters window UI if we reset
+            if (!audioState.locked && childWindows.parameters.open) {
+                sendParamsToParametersWindow(true);
+            }
         }
         
         sendToEngine('cmd:load', {
@@ -1127,6 +1195,7 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:next', async () => {
         recordUserActivity();
+        logStateDebugAction('next-track', audioState.engineAlive ? 'Next track (engine alive)' : 'Next track (engine was disposed)');
         
         // If engine was disposed, we need to handle next track differently
         if (!audioState.engineAlive) {
@@ -1141,6 +1210,7 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:prev', async () => {
         recordUserActivity();
+        logStateDebugAction('prev-track', audioState.engineAlive ? 'Previous track (engine alive)' : 'Previous track (engine was disposed)');
         
         // If engine was disposed, we need to handle prev track differently
         if (!audioState.engineAlive) {
@@ -1330,6 +1400,63 @@ function setupAudioIPC() {
     // Player requests current state (on startup)
     ipcMain.on('audio:requestState', (e) => {
         broadcastState();
+    });
+    
+    // State debugger: Send main state and forward to engine
+    ipcMain.on('state-debug:request', (e, data) => {
+        const windowId = data?.windowId;
+        const action = data?.action;  // Specific action to log (optional)
+        const detail = data?.detail;
+        if (!windowId) return;
+        
+        // Log specific action if provided
+        if (action && action !== 'request') {
+            logStateDebugAction(action, detail);
+        }
+        
+        // Send main state to state-debug window (include recent actions)
+        const mainState = {
+            audioState: {
+                file: audioState.file ? path.basename(audioState.file) : null,
+                isPlaying: audioState.isPlaying,
+                position: audioState.position,
+                duration: audioState.duration,
+                fileType: audioState.fileType,
+                mode: audioState.mode,
+                tapeSpeed: audioState.tapeSpeed,
+                pitch: audioState.pitch,
+                tempo: audioState.tempo,
+                formant: audioState.formant,
+                locked: audioState.locked,
+                volume: audioState.volume,
+                loop: audioState.loop,
+                activePipeline: audioState.activePipeline,
+                engineAlive: audioState.engineAlive
+            },
+            midiParams: audioState.midiParams,
+            trackerParams: audioState.trackerParams,
+            childWindows: {
+                parameters: { open: childWindows.parameters.open },
+                monitoring: { open: childWindows.monitoring.open },
+                mixer: { open: childWindows.mixer.open }
+            },
+            idleState: {
+                lastActivityTime: new Date(idleState.lastActivityTime).toLocaleTimeString(),
+                engineDisposalTimeout: !!audioState.engineDisposalTimeout,
+                visibleDisposeTimeout: !!idleState.visibleDisposeTimeout
+            }
+        };
+        
+        // Send state along with any pending actions
+        tools.sendToId(windowId, 'state-debug:main', { 
+            state: mainState,
+            actions: stateDebugActions.slice()  // Send copy of actions
+        });
+        
+        // Forward to engine if alive
+        if (engineWindow && !engineWindow.isDestroyed()) {
+            engineWindow.webContents.send('state-debug:request', { windowId });
+        }
     });
     
     // DEBUG: Close engine window (for CPU testing)

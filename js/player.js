@@ -56,9 +56,9 @@ window.disposeIPC = {
 
 let g = {};
 g.test = {};
-g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null };
-g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
-g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false };
+g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null, 'state-debug': null };
+g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false, 'state-debug': false };
+g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false, 'state-debug': false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 g.music = [];          // Local playlist cache (synced with app.js)
@@ -185,8 +185,6 @@ async function init() {
 function setupIPC() {
     // Receive state updates from app.js
     ipcRenderer.on('state:update', (e, data) => {
-        console.log('[Player] state:update', data);
-        
         // Update local UI state
         if (data.file !== undefined) g.uiState.file = data.file;
         if (data.isPlaying !== undefined) g.uiState.isPlaying = data.isPlaying;
@@ -196,13 +194,6 @@ function setupIPC() {
         if (data.metadata !== undefined) g.uiState.metadata = data.metadata;
         if (data.fileType !== undefined) g.uiState.fileType = data.fileType;
         if (data.loop !== undefined) g.isLoop = data.loop;
-        // Audio params for parameters window
-        if (data.mode !== undefined) g.uiState.mode = data.mode;
-        if (data.tapeSpeed !== undefined) g.uiState.tapeSpeed = data.tapeSpeed;
-        if (data.pitch !== undefined) g.uiState.pitch = data.pitch;
-        if (data.tempo !== undefined) g.uiState.tempo = data.tempo;
-        if (data.formant !== undefined) g.uiState.formant = data.formant;
-        if (data.locked !== undefined) g.uiState.locked = data.locked;
         
         // Update playlist if provided
         if (data.playlist) {
@@ -272,6 +263,30 @@ function setupIPC() {
     // Forward param-change messages from child windows (parameters, etc.) to app.js
     ipcRenderer.on('param-change', (e, data) => {
         ipcRenderer.send('param-change', data);
+    });
+    
+    // Forward state-debug requests to app.js
+    ipcRenderer.on('state-debug:request', (e, data) => {
+        ipcRenderer.send('state-debug:request', { ...data, windowId: g.windows['state-debug'] });
+    });
+    
+    // Forward state-debug responses from app.js/engine.js back to state-debug window
+    ipcRenderer.on('state-debug:main', (e, data) => {
+        if (g.windows['state-debug']) {
+            tools.sendToId(g.windows['state-debug'], 'state-debug:main', data);
+        }
+    });
+    
+    ipcRenderer.on('state-debug:engine', (e, data) => {
+        if (g.windows['state-debug']) {
+            tools.sendToId(g.windows['state-debug'], 'state-debug:engine', data);
+        }
+    });
+    
+    ipcRenderer.on('state-debug:audio', (e, data) => {
+        if (g.windows['state-debug']) {
+            tools.sendToId(g.windows['state-debug'], 'state-debug:audio', data);
+        }
     });
     
     ipcRenderer.on('midi-reset-params', (e, data) => {
@@ -482,6 +497,7 @@ async function appStart() {
         if (g.music.length > 0) {
             sendPlaylistToApp();
             ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+            ipcRenderer.send('cmdline-open', { count: 1, initial: true });
         }
     } else {
         const dir = (g.config && g.config.ui && g.config.ui.defaultDir) ? g.config.ui.defaultDir : '';
@@ -961,6 +977,7 @@ function setupDragDrop() {
             const wasEmpty = g.music.length === 0;
             await playListFromMulti(files, true, !e.ctrlKey);
             sendPlaylistToApp();
+            ipcRenderer.send('drag-drop', { action: 'add', count: files.length });
             if (wasEmpty && g.music[g.idx]) {
                 ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
             }
@@ -970,6 +987,7 @@ function setupDragDrop() {
             let files = fileListArray(e.dataTransfer.files);
             await playListFromMulti(files, false, !e.ctrlKey);
             sendPlaylistToApp();
+            ipcRenderer.send('drag-drop', { action: 'replace', count: files.length });
             if (g.music[g.idx]) {
                 ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
             }
@@ -1169,19 +1187,6 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         currentFile: g.uiState.file,
         currentTime: g.uiState.position
     };
-    
-    // Include current audio params for parameters window initialization
-    if (type === 'parameters') {
-        init_data.mode = 'audio';
-        init_data.params = {
-            audioMode: g.uiState.mode || 'tape',
-            tapeSpeed: g.uiState.tapeSpeed || 0,
-            pitch: g.uiState.pitch || 0,
-            tempo: g.uiState.tempo || 1.0,
-            formant: g.uiState.formant || false,
-            locked: g.uiState.locked || false
-        };
-    }
 
     if (type === 'mixer') {
         if (g.uiState.isPlaying) {
@@ -1220,6 +1225,27 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
     setTimeout(() => {
         tools.sendToId(g.windows[type], 'show-window');
+        
+        // For parameters window, also send set-mode to initialize controls
+        if (type === 'parameters') {
+            const fileType = g.uiState.fileType;
+            let mode = 'audio';
+            let params = {};
+            
+            if (fileType === 'MIDI') {
+                mode = 'midi';
+                params = { transpose: 0, bpm: 120, metronome: false };
+            } else if (fileType === 'Tracker') {
+                mode = 'tracker';
+                params = { pitch: 0, tempo: 1.0, stereoSeparation: 100 };
+            } else {
+                mode = 'audio';
+                params = { audioMode: 'tape', tapeSpeed: 0, pitch: 0, tempo: 1.0, formant: false, locked: false };
+            }
+            
+            console.log('[openWindow] Sending set-mode to parameters window:', mode);
+            tools.sendToId(g.windows[type], 'set-mode', { mode, params });
+        }
     }, 100);
 }
 
@@ -1344,6 +1370,12 @@ async function onKey(e) {
         toggleControls();
     } else if (shortcutAction === 'toggle-monitoring') {
         openWindow('monitoring');
+    }
+    
+    // Debug: Ctrl+Shift+D to open state debugger
+    if (e.ctrlKey && e.shiftKey && e.keyCode === 68) { // D
+        e.preventDefault();
+        openWindow('state-debug');
     }
 
     if (e.keyCode == 123) {

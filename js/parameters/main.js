@@ -110,17 +110,27 @@ async function init() {
         console.log('[Parameters] set-mode received:', data);
         setMode(data.mode); // 'audio', 'midi', 'tracker'
 
-        // Update params FIRST before any resend, so local state is correct
-        if (data.params) {
-            updateParams(data.mode, data.params);
-        }
-
         if (data.mode === 'audio' && data.params && data.params.reset) {
             const lockCheckbox = document.getElementById('audio_lock_settings');
+            console.log('[Parameters] Reset flag set, lockCheckbox=' + (lockCheckbox ? lockCheckbox.checked : 'null'));
             if (lockCheckbox && lockCheckbox.checked) {
+                console.log('[Parameters] Lock is ON - resending params');
                 resendAudioParams();
                 return;
             }
+            // Lock is not checked - reset UI to defaults (tape mode, zero values)
+            console.log('[Parameters] Reset flag set, lock OFF - resetting audio params UI');
+            resetAudioParams(false);  // Reset sliders UI (don't send to stage, it already reset)
+            // Also reset tape speed
+            resetTapeParams(false);
+            // Switch to tape mode visually
+            audioMode = 'tape';
+            const tapeSection = document.getElementById('tape-section');
+            const pitchtimeSection = document.getElementById('pitchtime-section');
+            if (tapeSection) tapeSection.classList.remove('disabled');
+            if (pitchtimeSection) pitchtimeSection.classList.add('disabled');
+            console.log('[Parameters] Reset complete - audioMode=' + audioMode);
+            return;  // Don't call updateParams since we already reset
         }
         
         // Reset tracker solo state when a new file loads
@@ -137,6 +147,10 @@ async function init() {
             if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
                 controls.midi.tempo.setDefault(Math.round(data.params.originalBPM));
             }
+        }
+        
+        if (data.params) {
+            updateParams(data.mode, data.params);
         }
     });
 
@@ -184,36 +198,6 @@ async function init() {
     document.querySelector('main').classList.add('ready');
 }
 
-// Wait for bridge-ready event which provides init_data
-window.addEventListener('bridge-ready', async (e) => {
-    const data = e.detail;
-    g.init_data = data;
-    console.log('[Parameters] bridge-ready, init_data received:', data);
-    
-    // Initialize soundfont selector now that we have init_data
-    await initSoundfontSelector();
-    
-    if (data.mode) {
-        console.log('[Parameters] Setting mode:', data.mode);
-        setMode(data.mode);
-    }
-    
-    // Display original BPM for MIDI mode
-    if (data.mode === 'midi' && typeof data.originalBPM === 'number') {
-        const origElem = document.getElementById('midi_original_bpm');
-        if (origElem) origElem.textContent = `(Original: ${Math.round(data.originalBPM)})`;
-        // Set the default value for the tempo slider
-        if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
-            controls.midi.tempo.setDefault(Math.round(data.originalBPM));
-        }
-    }
-    
-    if (data.params) {
-        console.log('[Parameters] Updating params:', data.params);
-        updateParams(data.mode || 'audio', data.params);
-    }
-});
-
 // Ensure DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -221,6 +205,47 @@ if (document.readyState === 'loading') {
     init();
 }
 
+// Handle bridge-ready event - this may fire before or after DOM is ready
+// We handle both cases by checking readyState
+window.addEventListener('bridge-ready', async (e) => {
+    const data = e.detail;
+    console.log('[Parameters] bridge-ready received, init_data:', data);
+    
+    // Store init_data globally
+    g.init_data = data;
+    
+    // Wait for DOM to be ready if it isn't already
+    if (document.readyState === 'loading') {
+        console.log('[Parameters] DOM still loading, waiting for DOMContentLoaded...');
+        await new Promise(resolve => {
+            document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        });
+    }
+    
+    // Initialize soundfont selector
+    await initSoundfontSelector();
+    
+    // Set mode if provided
+    if (data.mode) {
+        console.log('[Parameters] Setting mode from bridge-ready:', data.mode);
+        setMode(data.mode);
+    }
+    
+    // Display original BPM for MIDI mode
+    if (data.mode === 'midi' && typeof data.originalBPM === 'number') {
+        const origElem = document.getElementById('midi_original_bpm');
+        if (origElem) origElem.textContent = `(Original: ${Math.round(data.originalBPM)})`;
+        if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
+            controls.midi.tempo.setDefault(Math.round(data.originalBPM));
+        }
+    }
+    
+    // Update params if provided
+    if (data.params) {
+        console.log('[Parameters] Updating params from bridge-ready:', data.params);
+        updateParams(data.mode || 'audio', data.params);
+    }
+}, { once: true });
 
 // --- Logic ---
 
@@ -340,6 +365,7 @@ function updateParams(mode, params) {
         
         // Handle tape speed
         if (typeof params.tapeSpeed !== 'undefined' && controls.tape && controls.tape.speed) {
+            if (tapeSpeedTimeout) clearTimeout(tapeSpeedTimeout);
             controls.tape.speed.update(params.tapeSpeed, true);
             const speedVal = document.getElementById('tape_speed_value');
             const rounded = Math.round(params.tapeSpeed);
@@ -347,13 +373,16 @@ function updateParams(mode, params) {
         }
         
         // Handle pitch/time params
+        // Clear any pending debounced callbacks before updating to prevent old values being sent back
         if (typeof params.pitch !== 'undefined') {
+            if (audioPitchTimeout) clearTimeout(audioPitchTimeout);
             controls.audio.pitch.update(params.pitch, true);
             const pitchVal = document.getElementById('audio_pitch_value');
             const rounded = Math.round(params.pitch);
             if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         }
         if (typeof params.tempo !== 'undefined') {
+            if (audioTempoTimeout) clearTimeout(audioTempoTimeout);
             controls.audio.tempo.update(params.tempo, true);
             const tempoVal = document.getElementById('audio_tempo_value');
             const pct = Math.round(params.tempo * 100);
