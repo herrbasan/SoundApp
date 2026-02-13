@@ -3762,6 +3762,15 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
 	setTimeout(() => {
 		tools.sendToId(g.windows[type], 'show-window');
+		
+		// For parameters window, also send set-mode to initialize controls
+		if (type === 'parameters' && init_data.mode) {
+			console.log('[openWindow] Sending set-mode to parameters window:', init_data.mode);
+			tools.sendToId(g.windows[type], 'set-mode', { 
+				mode: init_data.mode, 
+				params: init_data.params || {} 
+			});
+		}
 	}, 100);
 }
 

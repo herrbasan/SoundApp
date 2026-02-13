@@ -1,0 +1,214 @@
+/* State Debugger Window Styles */
+
+.nui-app .content > main {
+    position: absolute;
+    padding: 0;
+    inset: 0;
+    background: rgb(var(--color-bg1));
+}
+
+.debug-container {
+     position: absolute;
+    padding: 0;
+    inset: 0;
+   display: grid;
+   grid-template-rows: auto 1fr;
+}
+
+.debug-header {
+    background: rgb(var(--color-shade3));
+    padding: 8px 12px;
+    border-bottom: 1px solid rgb(var(--color-shade4));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.debug-header h1 {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgb(var(--color-fg1));
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-action {
+    background: rgb(var(--color-accent));
+    color: rgb(var(--color-fg1));
+    border: none;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.btn-action:hover {
+    background: rgb(var(--color-accent-hover, var(--color-accent)));
+    filter: brightness(1.1);
+}
+
+.btn-action.secondary {
+    background: rgb(var(--color-shade4));
+}
+
+.btn-action.secondary:hover {
+    background: rgb(var(--color-shade5));
+}
+
+.debug-content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.left-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    margin-right: 1rem;
+    background: rgb(var(--color-bg1));
+}
+
+.right-panel {
+    width: 25rem;
+    border-left: 1px solid rgb(var(--color-shade4));
+    display: flex;
+    flex-direction: column;
+    background: rgb(var(--color-shade2));
+    overflow-y: auto;
+}
+
+.section {
+    background: rgb(var(--color-shade2));
+    border: 1px solid rgb(var(--color-shade4));
+    border-radius: 4px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.section-header {
+    background: rgb(var(--color-shade3));
+    padding: 6px 10px;
+    font-weight: 600;
+    color: rgb(var(--color-fg1));
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.section-body {
+    padding: 1rem;
+}
+
+.state-row {
+    display: flex;
+    padding: 3px 0;
+    border-bottom: 1px solid rgb(var(--color-shade3));
+}
+
+.state-row:last-child {
+    border-bottom: none;
+}
+
+.state-key {
+    color: rgb(var(--color-info, 100 180 255));
+    width: 140px;
+    flex-shrink: 0;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+}
+
+.state-value {
+    color: rgb(var(--color-string, 200 150 120));
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+
+.state-value.boolean-true {
+    color: rgb(var(--color-success, 80 200 150));
+}
+
+.state-value.boolean-false {
+    color: rgb(var(--color-error, 240 70 70));
+}
+
+.state-value.number {
+    color: rgb(var(--color-number, 180 200 150));
+}
+
+.state-value.string {
+    color: rgb(var(--color-string, 200 150 120));
+}
+
+.state-value.null {
+    color: rgb(var(--color-shade6));
+}
+
+.timestamp {
+    color: rgb(var(--color-shade6));
+    font-size: 10px;
+}
+
+.action-log {
+    flex: 1;
+    padding: 1rem;
+    margin-right: 1rem;
+}
+
+.action-item {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: rgb(var(--color-bg1));
+    border-radius: 3px;
+    border-left: 3px solid rgb(var(--color-accent));
+}
+
+.action-item.error {
+    border-left-color: rgb(var(--color-error, 240 70 70));
+}
+
+.action-item.warning {
+    border-left-color: rgb(var(--color-warning, 220 200 150));
+}
+
+.action-item.success {
+    border-left-color: rgb(var(--color-success, 80 200 150));
+}
+
+.action-time {
+    color: rgb(var(--color-shade6));
+    font-size: 10px;
+    margin-right: 8px;
+}
+
+.action-name {
+    color: rgb(var(--color-warning, 220 200 150));
+    font-weight: 600;
+    font-size: 11px;
+}
+
+.action-detail {
+    color: rgb(var(--color-info, 100 180 255));
+    font-size: 11px;
+    margin-top: 2px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    word-break: break-all;
+}
+
+.panel-header {
+    background: rgb(var(--color-shade3));
+    padding: 8px 12px;
+    font-weight: 600;
+    border-bottom: 1px solid rgb(var(--color-shade4));
+    font-size: 12px;
+    color: rgb(var(--color-fg1));
+}

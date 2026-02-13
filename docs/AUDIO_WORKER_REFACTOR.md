@@ -1,96 +1,64 @@
 # Audio Worker Refactor
 
-> **Status:** ✅ **PHASE 4 COMPLETE**  
+> **Status:** ⚠️ **PHASE 4 INCOMPLETE** - State preservation needs completion  
 > **Branch:** `feature/audio-worker`  
 > **Goal:** 0% CPU when idle/tray by separating UI from audio engine
 
 ---
 
-## ✅ Completion Summary
+## Current Status
 
-### What Was Accomplished
+### What Works ✅
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Audio Engine (engines.js) | ✅ | Headless, all formats working (FFmpeg, MIDI, Tracker) |
+| Audio Engine (engines.js) | ✅ | Headless, all formats playing |
 | Player UI (player.js) | ✅ | UI-only, communicates via IPC |
-| State Machine (app.js) | ✅ | Ground truth, outlives both renderers |
-| Parameters Window | ✅ | All controls functional (tape/pitchtime, MIDI transpose/BPM, Tracker channels) |
-| Audio Monitoring | ✅ | Waveforms, VU meters, MIDI timeline |
-| Engine Disposal/Restore | ✅ | Confirmed working - see findings below |
+| State Machine (app.js) | ✅ | Basic state (file, position, playing) preserved |
+| Engine Disposal/Restore | ✅ | Window destroy/recreate works, <300ms restore |
+| CPU 0% when idle | ✅ | Confirmed working via window disposal |
 
-**All 69 integration tests pass.**
+### What's Broken ❌
 
-### 🔬 CPU Disposal Findings (Confirmed)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Parameter Preservation | ❌ | Pitch, tempo, formant, locked lost on restore |
+| MIDI/Tracker Params | ❌ | Transpose, BPM, stereo separation lost on restore |
+| Engine State Ownership | ❌ | engines.js still resets params (old stage.js behavior) |
 
-Through systematic testing with console commands (`debugEngine.close()`, `disposeIPC.all()`), we confirmed:
-
-| Configuration | CPU Usage | Finding |
-|--------------|-----------|---------|
-| Full app running | 0.3-1.1% | Normal operation |
-| Engine window closed | ~0-0.3% | **Major reduction** |
-| Engine + IPC disposed | ~0% + GC spikes | **Near zero** |
-| Player window alone | ~0% | UI is not the culprit |
-
-**Conclusion:** The audio engines (FFmpeg, MIDI, Tracker) are the CPU consumers. The player window itself uses negligible CPU.
-
-### Hard-Reset Approach Confirmed Working
-
-The refactor successfully enables **clean disposal via window destruction**:
-
-1. **Close engine window** → `engineWindow.destroy()` immediately frees all resources
-2. **Result:** CPU drops to near 0%
-3. **Restore:** `createEngineWindow()` recreates from scratch in <300ms
-4. **State preservation:** `audioState` in app.js maintains playback position, file, params
-
-This validates the architecture: by separating engines into their own window, we can achieve true 0% CPU when idle (tray + paused) by simply closing that window.
-
-### Minor CPU Spikes After Disposal
-
-After full disposal, occasional 0.1-0.2% spikes remain:
-- **Cause:** V8 garbage collection + config auto-save interval (3s)
-- **Impact:** Negligible
-- **Not from:** Player window RAF (removed), IPC overhead, or audio engines
+**See:** [IDLE_DISPOSAL_IMPLEMENTATION.md](./IDLE_DISPOSAL_IMPLEMENTATION.md) for detailed analysis of the state preservation problem.
 
 ---
 
-## Architecture Inversion
+## The Core Problem
+
+The refactor architecture is correct, but the implementation is incomplete. The engine (`engines.js`) was derived from `stage.js` by stripping UI code, but it **still thinks it owns state**:
+
+```javascript
+// engines.js - PROBLEM: Engine resets params on file load
+if (!restore) {
+    g.audioParams.mode = 'tape';      // ← Should NOT reset
+    g.audioParams.tapeSpeed = 0;       // ← Should use what main sent
+    g.audioParams.pitch = 0;
+    // ... etc
+}
+```
+
+The `locked` parameter exists as a **crutch** because the engine resets params. If the engine didn't reset, params would naturally persist.
+
+### Why This Blocks Resource Management
+
+The entire point of the refactor is resource management:
+
+1. **Dispose engine when idle** → 0% CPU
+2. **Restore when needed** → <300ms restore
+3. **State preserved across restore** → Seamless user experience
+
+If params are lost on restore, users must manually re-adjust every time the engine disposes. This makes the idle disposal feature unusable for anyone using parameters.
 
 ---
 
-## Architecture Inversion
-
-Instead of moving audio to a new hidden worker, we **move UI out** and let the existing `stage.js` become the hidden audio engine.
-
-**Before:**
-```
-app.js (main)
-    └── stage.js (renderer) ──► UI + Audio (visible)
-```
-
-**After:**
-```
-app.js (main) ──► State Machine (ground truth)
-    ├── engines.js (renderer) ──► Audio Engine (hidden, was stage.js)
-    └── player.js (renderer) ───► UI Only (visible, from stage.js copy)
-```
-
----
-
-## Build Strategy: Copy-and-Strip
-
-Both new files come from the same source — `stage.js`:
-
-| New File | Source | Strip | Keep |
-|----------|--------|-------|------|
-| `engines.js` | `stage.js` (renamed) | DOM refs, UI rendering, key handlers, drag-drop, window setup | Audio init, players, pipelines, routing, monitoring analysers |
-| `player.js` | `stage.js` (copied) | AudioContext, players, pipeline logic, NAPI decoder | DOM refs, controls, timeline, cover art, metadata, drag-drop, playlist, shortcuts |
-
-HTML and CSS stay in place — `player.html` is essentially `stage.html` pointing at the new script. No visual redesign.
-
----
-
-## Communication Flow
+## Architecture (Correct Design)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -98,299 +66,209 @@ HTML and CSS stay in place — `player.html` is essentially `stage.html` pointin
 │                                                                   │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │                 STATE MACHINE (ground truth)                │  │
-│  │  • file, isPlaying, duration, params, volume, pipeline     │  │
-│  │  • window visibility, engine alive status                  │  │
+│  │  • file, isPlaying, position                               │  │
+│  │  • mode, tapeSpeed, pitch, tempo, formant, locked          │  │
+│  │  • midiParams: transpose, bpm, metronome                   │  │
+│  │  • trackerParams: pitch, tempo, stereoSeparation           │  │
 │  └────────────────────────┬───────────────────────────────────┘  │
 │                           │                                       │
 │         ┌─────────────────┼─────────────────┐                    │
 │         │                 │                 │                    │
 │         ▼                 ▼                 ▼                    │
 │  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐             │
-│  │ engines.js  │  │ player.js   │  │ params/      │             │
+│  │ engines.js  │  │ player.js   │  │ parameters/  │             │
 │  │ AUDIO       │  │ UI          │  │ settings/    │             │
-│  │ (hidden)    │  │ (visible)   │  │ etc.         │             │
+│  │ (stateless) │  │ (renders)   │  │ etc.         │             │
 │  └─────────────┘  └─────────────┘  └──────────────┘             │
 │                                                                   │
-│  State changes: broadcast to ALL windows (each filters its own)  │
-│  Position (currentTime): targeted send to player + monitoring    │
+│  Command flow: player → app.js → engines                         │
+│  State flow:   engines → app.js → broadcast to all               │
 │                                                                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
+### Key Principle: Engine is Stateless
+
+The engine should be a **dumb executor**:
+- Receives commands from main process
+- Applies commands to audio players
+- Reports state changes back to main
+- **Never decides to reset or change params on its own**
+
 ---
 
-## IPC Design
+## Completion Plan
 
-### Two channels
+### Phase 4A: Fix State Preservation (CRITICAL)
 
-**State channel (broadcast):** All state changes — play/pause, file loaded, params changed, pipeline switched — are broadcast by app.js to every window. Each window filters for what it cares about. Low frequency (user actions, a few per second at most).
+**Problem:** Engine resets params on file load and window hide.
 
-**Position channel (targeted):** `currentTime` updates at ≤15ms resolution. Engine pushes position to app.js, which forwards specifically to player.js and monitoring.js. Not broadcast — only the two windows that need it receive it.
+**Solution:** Make engine truly stateless.
 
-### IPC latency budget
+#### Step 1: Add `cmd:applyParams` IPC Command
 
-```
-Engine → app.js → player.js  ≈  1ms + 1ms  =  2ms
-Budget per frame:                              16ms
-Headroom:                                      14ms  ✓
-```
-
-Position updates are fire-and-forget. The UI renders whatever the latest received value is. No request-response, no synchronous reads needed.
-
-### Example flow
+New command to apply params to active players (players exist at this point):
 
 ```javascript
-// player.js: user clicks play
-ipcRenderer.send('audio:play');
-
-// app.js: routes command to engine, updates state
-engines.send('cmd:play');
-state.isPlaying = true;
-broadcast('state:update', { isPlaying: true });
-
-// engines.js: starts playback, pushes position continuously
-setInterval(() => {
-    ipcRenderer.send('audio:position', currentTime);
-}, 15);
-
-// app.js: targeted forward (not broadcast)
-playerWindow.send('position', currentTime);
-monitoringWindow?.send('position', currentTime);
+// engines.js - NEW handler
+ipcRenderer.on('cmd:applyParams', (e, data) => {
+    // Apply to CURRENT player (players now exist)
+    if (g.currentAudio?.isFFmpeg) {
+        applyFFmpegParams(data);
+    } else if (g.currentAudio?.isMidi) {
+        applyMidiParams(data);
+    } else if (g.currentAudio?.isMod) {
+        applyTrackerParams(data);
+    }
+});
 ```
+
+#### Step 2: Remove Param Resets from `playAudio()`
+
+**Remove:** The entire block that resets `g.audioParams` to defaults when `!restore`.
+
+**Remove:** The `window-hidden` handler that resets params when parameters window closes.
+
+**Keep:** Only pipeline routing logic (`applyRoutingState()`).
+
+#### Step 3: Fix `restoreEngineIfNeeded()` Sequence
+
+Current:
+```
+1. sendToEngine('cmd:setParams')  // Sets globals
+2. sendToEngine('cmd:load')       // playAudio resets them 😠
+```
+
+Fixed:
+```
+1. sendToEngine('cmd:setParams')  // Set globals
+2. sendToEngine('cmd:load')       // Load file (NO RESET)
+3. Wait for 'audio:loaded'
+4. sendToEngine('cmd:applyParams') // Apply to players
+```
+
+#### Step 4: Fix Param Change Flow
+
+| Command | When to Use | Action |
+|---------|-------------|--------|
+| `cmd:setParams` | Before load, during restore | Set `g.audioParams` globals |
+| `cmd:applyParams` | After load completes | Apply to active player |
+| `param-change` | User adjusts slider | Update globals + apply to active player |
+
+### Phase 4B: Remove "Locked" Crutch (Optional)
+
+Once params persist naturally, `locked` becomes unnecessary:
+
+1. Params always persist across file changes
+2. User resets manually via "Reset" button
+3. Remove `locked` from state, UI, and logic
+
+**Decision needed:** Keep locked as explicit user choice, or remove?
+
+### Phase 5: Lazy Engine Initialization
+
+Once state preservation works, implement lazy engine init as described in [IDLE_DISPOSAL_IMPLEMENTATION.md](./IDLE_DISPOSAL_IMPLEMENTATION.md):
+
+**Normal Mode:**
+- Keep initialized engines alive
+- Lazy-init new engines on format change
+- Memory: 15-50MB depending on usage
+
+**Resource-Saving Mode:**
+- Dispose all engines on format change
+- Init only the needed engine
+- Memory: ~15MB max, but 200-300ms delay on format switch
 
 ---
 
-## State Machine (app.js)
+## Implementation Order
 
-app.js is the single source of truth. Both renderers are projections of this state.
+### Week 1: State Preservation Core
 
-```javascript
-const audioState = {
-    // Playback
-    file: null,             // Current file path
-    isPlaying: false,
-    position: 0,            // Seconds (updated from engine)
-    duration: 0,
+1. **Add `cmd:applyParams`** handler in engines.js
+2. **Remove param resets** from `playAudio()` 
+3. **Update `restoreEngineIfNeeded()`** to use new flow
+4. **Test:** Params survive dispose/restore cycle
 
-    // Audio params
-    mode: 'tape',           // 'tape' | 'pitchtime'
-    tapeSpeed: 0,
-    pitch: 0,
-    tempo: 1.0,
-    formant: false,
-    locked: false,
-    volume: 0.5,
-    loop: false,
+### Week 2: Polish & Edge Cases
 
-    // Pipeline
-    activePipeline: 'normal',   // 'normal' | 'rubberband'
+1. Fix MIDI param restoration (player created async)
+2. Fix Tracker param restoration
+3. Rubberband pipeline params on restore
+4. Child window routing (update stageId correctly)
 
-    // Engine
-    engineAlive: false,
+### Week 3: Lazy Engine Init (Optional)
 
-    // Playlist (owned by main, not by UI)
-    playlist: [],
-    playlistIndex: 0
-};
-```
-
-### Why playlist lives in app.js
-
-Playlist determines "what plays next" — a decision that persists across UI show/hide and engine dispose/restore. If the user is in tray mode and the track ends, app.js must know what to play next without asking the UI window (which may be hidden).
-
-### Track-end and advance
-
-When a track finishes, engines.js sends `audio:ended` to app.js. app.js owns the advance logic:
-
-1. Check loop → if looping, send `cmd:seek(0)` + `cmd:play` to engine
-2. Check shuffle → pick next index accordingly
-3. Determine next file, send `cmd:load(nextFile)` + `cmd:play` to engine
-4. Broadcast `state:update` with new file/metadata to all windows
-
-The engine is never playlist-aware. It plays what it's told.
-
-**Same-format optimization:** If the next file uses the same pipeline/module as the current one, the engine skips reinit. FFmpeg → FFmpeg: just `open()` + `play()`. MIDI → MIDI: same. Tracker → Tracker: same. Reinit only happens on pipeline change (e.g., normal → rubberband, or sample rate change for HQ mode).
+1. Modularize engine initialization
+2. Add `init-engine` IPC command
+3. Implement lazy init on format change
+4. Add "Resource-Saving Mode" toggle
 
 ---
 
-## Engine Lifecycle
+## Resource Management Goals
 
-| Event | Action | CPU Impact |
-|-------|--------|------------|
-| App start | Engine window created, hidden, loads engines.js | ~0.3-0.5% baseline |
-| First play | Engine initializes AudioContext + FFmpeg player | Increases temporarily |
-| File skip | Engine stays alive, `open()` + `play()` — zero overhead | Unchanged |
-| Format switch | Lazy init MIDI/Tracker in engine as needed | May spike briefly |
-| **Tray (paused)** | **Dispose engine window** | **→ ~0% CPU** ✅ |
-| Tray (playing) | Engine stays alive, UI hidden | Normal playback CPU |
-| **Restore from tray** | **Recreate engine + restore state** | **<300ms restore** ✅ |
-| Idle timeout (paused) | Auto-dispose after 5s → 0% CPU | Configurable |
-
-### Disposal Confirmation
-
-**Tested via console commands:**
-```javascript
-// In player window DevTools:
-debugEngine.close()   // CPU drops to ~0%
-debugEngine.open()    // Restores in <300ms
-```
-
-**The hard-reset (window destroy/recreate) is the only reliable path to 0% CPU.**
-Individual engine disposal (player.stop(), midi.dispose()) leaves residual overhead.
-This validates the window-based architecture decision.
-
-### Restore sequence (when engine was disposed)
-
-```
-create engine window → init → load(state.file) → seek(state.position) → pause
-```
-
-Expected restore time: well under 300ms. AudioContext creation is ~10ms, FFmpeg `open()` + `seek()` is ~20-50ms for typical files. State in app.js means nothing is lost.
-
-### Monitoring (VU data)
-
-Monitoring stays unchanged. engines.js reads AnalyserNodes in-process (same renderer, same AudioContext) and sends VU data directly to the monitoring window via IPC — exactly as stage.js does today. The monitoring data path does not route through app.js. Position data for the monitoring timeline comes via the targeted position channel from app.js.
+| Scenario | Behavior | CPU | Memory |
+|----------|----------|-----|--------|
+| Playing, visible | Engine alive | Normal | Normal |
+| Paused, visible | Engine alive, idle | ~0.3% | Normal |
+| Paused, tray 5s | Engine disposed | **~0%** | Minimal |
+| Restore from tray | Engine recreate + restore | Brief spike | Normal |
+| File change (same format) | Engine stays, players swap | No change | No change |
+| File change (diff format) | Lazy-init new player | Brief spike | +5-10MB |
+| Resource-saving mode | Full reset + init one engine | Brief spike | **Minimal** |
 
 ---
 
-## File Structure
+## Testing Checklist
 
-```
-html/
-  player.html             # Visible UI (was stage.html)
-  engines.html            # Hidden audio engine (minimal HTML)
+### State Preservation
+- [ ] FFmpeg tape speed survives dispose/restore
+- [ ] FFmpeg pitch/tempo/formant survives (pitchtime mode)
+- [ ] MIDI transpose/BPM/metronome survives
+- [ ] Tracker pitch/tempo/stereo survives
+- [ ] Locked mode behavior (if kept)
 
-js/
-  app.js                  # State machine, IPC router, engine lifecycle
-  engines.js              # Audio engine (stage.js with UI stripped)
-  player.js               # UI (stage.js copy with audio stripped)
+### Engine Lifecycle
+- [ ] 0% CPU when tray+paused after 5s
+- [ ] Restore in <300ms
+- [ ] File skip speed unchanged when engine alive
+- [ ] Position correct after restore
 
-  rubberband-pipeline.js  # Unchanged (used by engines.js)
-  midi/midi.js            # Unchanged (used by engines.js)
-  monitoring/             # Unchanged
-  parameters/             # Unchanged
-  settings/               # Unchanged
-```
-
-No new subdirectories needed. The child windows (parameters, settings, monitoring, help, mixer) continue unchanged — they already communicate via IPC through app.js.
-
----
-
-## Implementation Phases
-
-### Phase 1: Headless Engine
-
-Copy `stage.js` → `engines.js`. Strip all DOM manipulation, UI rendering, element refs, key handlers, drag-drop, window setup. Add IPC command handlers (`cmd:play`, `cmd:pause`, `cmd:seek`, `cmd:load`, `cmd:setParams`). Add position push (`audio:position`). Create `engines.html` (minimal: load scripts, no UI).
-
-**Test:** Launch engines.html as hidden window. Send commands from devtools via IPC. Audio plays. Position events flow.
-
-### Phase 2: State Machine in app.js
-
-Add `audioState` object. Add IPC routing: receive commands from any renderer, forward to engine, receive events from engine, broadcast state updates, targeted position sends.
-
-**Test:** State in app.js reflects engine state. Commands from devtools update both state and engine.
-
-### Phase 3: Player UI
-
-Copy `stage.js` → `player.js`. Strip all audio code (AudioContext, players, pipeline, NAPI). Replace with IPC: `send('audio:play')`, `on('state:update')`, `on('position')`. Create `player.html` (essentially `stage.html` with new script src).
-
-**Test:** Full app works: player.js visible, engines.js hidden, app.js mediating. All controls functional.
-
-### Phase 4: Disposal ✅ COMPLETE
-
-Implement engine disposal on tray+paused and idle timeout. Implement engine restoration from `audioState`.
-
-**Status:** ✅ Confirmed working
-
-**Implementation:**
-- `disposeEngineWindow()` - Force destroy hidden engine window
-- `restoreEngineIfNeeded()` - Recreate + restore state from `audioState`
-- 5-second idle timeout when tray+paused
-- Automatic restore on window show/tray click
-
-**Test Results:**
-- ✅ 0% CPU when tray+paused (engine disposed)
-- ✅ Engine restores cleanly in <300ms
-- ✅ File skip speed unchanged when engine alive
-- ✅ State preservation works (file, position, params)
-
-**Key Finding:** The "hard-reset" approach (window destroy/recreate) is the only reliable way to achieve true 0% CPU. Individual engine disposal (stop/disconnect) doesn't fully release resources.
-
-### Phase 5: Polish
-
-Error recovery: detect engine crash via `render-process-gone` event, recreate once, restore from `audioState`. Config flow. Audit child windows (parameters, settings, monitoring) for any direct calls to stage.js globals — replace with IPC through app.js where found.
+### Parameter Window
+- [ ] Params window shows correct values after restore
+- [ ] Changing params applies immediately after restore
+- [ ] No duplicate reset-to-defaults flicker
 
 ---
 
-## Design Decisions
-
-### engines.js is stage.js, not a rewrite
-
-The proven audio code stays. We strip UI from it; we don't rewrite audio logic.
-
-### player.js is stage.js copy, not written from scratch
-
-The UI code (controls, timeline, cover art, metadata, playlist rendering, shortcuts, drag-drop) is copied from stage.js with audio calls replaced by IPC sends. HTML/CSS unchanged.
-
-### app.js is ground truth
-
-All state lives in the main process. It outlives both renderers. Engine disposal doesn't lose state. UI hide doesn't lose state. This is the centralized state system the architecture docs describe.
-
-### Broadcast + targeted position
-
-State changes: `broadcast()` to all windows. Every window filters for what it needs. Simple, no routing logic per message type.
-
-Position updates: `send()` specifically to player.js and monitoring.js only. At ≤15ms intervals, broadcasting to windows that don't need it (settings, help, parameters) is wasteful. Two targeted sends is cleaner.
-
-### Drag-drop routing
-
-player.js keeps drag-drop handling. On file drop, player.js sends the file path to app.js via `audio:load`. app.js updates state and forwards `cmd:load` to engines.js. Same for playlist drops — player.js resolves paths, sends them to app.js to update `audioState.playlist`.
-
-### Monitoring: no change
-
-engines.js reads AnalyserNodes locally (same renderer process, same AudioContext) and pushes VU data directly to the monitoring window. This is identical to what stage.js does today. The AnalyserNode reads are zero-cost in-process calls, not IPC. Only the timeline position comes via app.js.
-
-### Mixer unchanged
-
-Independent window, separate AudioContext, not part of this refactor.
-
----
-
-## Related Files
-
-| File | Role |
-|------|------|
-| [js/stage.js](js/stage.js) | Source for both engines.js and player.js. Removed when done. |
-| [js/app.js](js/app.js) | Gains state machine, IPC router, engine lifecycle |
-| [js/rubberband-pipeline.js](js/rubberband-pipeline.js) | Used by engines.js, unchanged |
-| [js/midi/midi.js](js/midi/midi.js) | Used by engines.js, unchanged |
-| [html/stage.html](html/stage.html) | Becomes player.html (new script src) |
-| [bin/win_bin/player-sab.js](bin/win_bin/player-sab.js) | Used by engines.js, unchanged |
-
----
-
-## Success Criteria - ✅ ALL ACHIEVED
+## Success Criteria
 
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | **File skip** | ✅ Same latency | Engine stays alive, direct IPC call |
-| 2 | **Tray + paused** | ✅ ~0% CPU | Engine window disposed, state in app.js |
-| 3 | **Tray + playing** | ✅ Works | Audio continues, UI hidden |
-| 4 | **Restore** | ✅ <300ms | Engine recreate + load + seek |
-| 5 | **No regressions** | ✅ All working | All formats, pipeline switching, monitoring, child windows |
+| 1 | File skip latency | ✅ | Same as before (engine stays alive) |
+| 2 | Tray + paused CPU | ✅ | ~0% CPU (engine disposed) |
+| 3 | Tray + playing | ✅ | Audio continues, UI hidden |
+| 4 | Restore time | ✅ | <300ms engine recreate |
+| 5 | **State preservation** | ❌ | **Params lost - FIX IN PROGRESS** |
+| 6 | No regressions | ⚠️ | Blocked by #5 |
 
-### Bonus Achievements
+**The refactor is not complete until #5 is fixed.**
 
-- **Rubberband pipeline switching** works correctly
-- **Parameters window** fully functional for all formats
-- **Tracker channel mixer** with VU meters
-- **Debug commands** for CPU testing (`debugEngine.close()`, `disposeIPC.all()`)
+---
+
+## Related Documents
+
+| Document | Purpose |
+|----------|---------|
+| [IDLE_DISPOSAL_IMPLEMENTATION.md](./IDLE_DISPOSAL_IMPLEMENTATION.md) | Detailed state preservation analysis, lazy engine init design |
+| [AGENTS.md](./AGENTS.md) | Mental models, debugging notes, future architecture |
 
 ---
 
 ## Notes
 
-- Branch experiment. Delete if it fails.
-- Measure at each phase: file skip time, position update latency, idle CPU.
-- Both engines.js and player.js are derived from stage.js by stripping, not by writing new code.
-- stage.js is the reference during development, deleted at the end.
+- **Don't write new code** - Fix existing architecture
+- **Engine should be stateless** - Main process owns all state
+- **Test dispose/restore cycle** - This is the core feature
+- **Phase 4 must complete before Phase 5** - Lazy init depends on working state preservation

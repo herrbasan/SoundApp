@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        html, body { background-color: #323232 !important; }
+        main { opacity: 0; }
+        main.ready { opacity: 1; transition: opacity 0.1s ease-in; }
+    </style>
+    <title>State Debugger - SoundApp</title>
+    <link media="all" rel="stylesheet" type="text/css" href="../css/fonts.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_main.css">
+    <link media="all" rel="stylesheet" type="text/css" href="../libs/nui/css/nui_app.css">
+    <link rel="stylesheet" href="../css/window.css">
+    <link rel="stylesheet" href="../css/state-debug.css">
+</head>
+<body class="dark no-select" style="background-color:#323232">
+    <div class="nui-app" style="background-color:#323232">
+        <div class="nui-title-bar window-chrome">
+            <div class="title">
+                <div class="nui-icon-container">
+                    <i>bug_report</i>
+                </div>
+                <div class="label">State Debugger</div>
+            </div>
+            <div class="controls">
+                <div class="nui-icon-container close"><i>close</i></div>
+            </div>
+        </div>
+        <div class="content">
+            <main>
+                <div class="debug-container">
+                    <div class="debug-header">
+                        <h1>State Debugger</h1>
+                        <div class="header-actions">
+                            <button id="btn-copy" class="btn-action secondary">Copy JSON</button>
+                            <button id="btn-export" class="btn-action">Export JSON</button>
+                            <button id="btn-refresh" class="btn-action secondary">Refresh</button>
+                        </div>
+                    </div>
+                    
+                    <div class="debug-content">
+                        <div class="left-panel">
+                            <!-- Main Process State -->
+                            <div class="section">
+                                <div class="section-header">
+                                    <span>Main Process (app.js)</span>
+                                    <span class="timestamp" id="main-timestamp"></span>
+                                </div>
+                                <div class="section-body" id="main-state"></div>
+                            </div>
+                            
+                            <!-- Engine State -->
+                            <div class="section">
+                                <div class="section-header">
+                                    <span>Engine (engines.js)</span>
+                                    <span class="timestamp" id="engine-timestamp"></span>
+                                </div>
+                                <div class="section-body" id="engine-state"></div>
+                            </div>
+                            
+                            <!-- Current Audio -->
+                            <div class="section">
+                                <div class="section-header">
+                                    <span>Current Audio</span>
+                                    <span class="timestamp" id="audio-timestamp"></span>
+                                </div>
+                                <div class="section-body" id="audio-state"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="right-panel">
+                            <div class="panel-header">Recent Actions</div>
+                            <div class="action-log" id="action-log"></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+        <div class="nui-status-bar"></div>
+    </div>
+    <script src="../js/window-loader.js"></script>
+    <script type="module" src="../js/state-debug/main.js"></script>
+</body>
+</html>

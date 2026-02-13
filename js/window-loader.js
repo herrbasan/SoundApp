@@ -54,6 +54,14 @@ if (isElectron) {
 		}
 	});
 	
+	// Listen for engine recreation - update stageId so messages reach the new engine
+	ipcRenderer.on('update-stage-id', (e, data) => {
+		if (data && data.stageId) {
+			stageId = data.stageId;
+			console.log('[window-loader] Updated stageId to', stageId);
+		}
+	});
+
 	// Listen for show window command
 	ipcRenderer.on('show-window', () => {
 		console.log('[window-loader] show-window received');
