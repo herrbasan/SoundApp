@@ -75,7 +75,7 @@ const DEFAULTS = {
  * @returns {object} The new parameter values after reset
  */
 function resetParamsToDefaults(fileType, options = {}) {
-    console.log(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`, 'params');
+    console.log(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`);
     
     if (fileType === 'MIDI') {
         audioState.midiParams = {
@@ -721,7 +721,7 @@ async function createEngineWindow(options = {}) {
         });
         
     } catch (err) {
-        console.log('Failed to create engine window: ' + err.message, 'engine');
+        console.log('Failed to create engine window: ' + err.message);
         audioState.engineInitializing = false;
         engineWindow = null;
     }
@@ -789,7 +789,7 @@ function scheduleEngineDisposal() {
     const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
     const timeoutMs = isWindowVisible ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
     
-    console.log(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`, 'engine');
+    console.log(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`);
     
     audioState.engineDisposalTimeout = setTimeout(() => {
         audioState.engineDisposalTimeout = null;
@@ -849,7 +849,7 @@ function disposeEngineWindow() {
     try {
         engineWindow.destroy();  // Force close without events
     } catch (err) {
-        console.log('Error disposing engine: ' + err.message, 'engine');
+        console.log('Error disposing engine: ' + err.message);
     }
     
     engineWindow = null;
@@ -857,7 +857,7 @@ function disposeEngineWindow() {
 
 async function restoreEngineIfNeeded() {
     // Restore engine when window becomes visible and we have state to restore
-    console.log(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`, 'engine');
+    console.log(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`);
     if (audioState.engineAlive) {
         console.log('[] ');
         return true;
@@ -898,7 +898,7 @@ async function restoreEngineIfNeeded() {
         // MIDI/Tracker: always reset (no lock feature)
         const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
         if (shouldReset) {
-            console.log(`Resetting ${audioState.fileType} params to defaults`, 'params');
+            console.log(`Resetting ${audioState.fileType} params to defaults`);
             resetParamsToDefaults(audioState.fileType, audioState.metadata);
         }
         
@@ -938,7 +938,7 @@ async function restoreEngineIfNeeded() {
         }
         
         // Single IPC call to register all windows with engine
-        console.log(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`, 'engine');
+        console.log(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`);
         sendToEngine('windows:init', { windows: existingWindows });
         
         // ── Step 3: Load file with restore flag ──
@@ -973,7 +973,7 @@ async function restoreEngineIfNeeded() {
         // This ensures the correct tab is shown in the parameters window after engine restoration
         if (loadedData && loadedData.fileType) {
             audioState.fileType = loadedData.fileType;
-            console.log(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`, 'params');
+            console.log(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`);
         }
         
         // ── Step 4: Apply params to active players after load ──
@@ -1010,17 +1010,17 @@ async function restoreEngineIfNeeded() {
         // This ensures single source of truth for parameters window tab switching
         // We only need to pass reset flag if we reset params in Step 0
         if (didResetParams) {
-            console.log(`[DEBUG] Sending reset=true to parameters window after restoration`, 'params');
+            console.log(`[DEBUG] Sending reset=true to parameters window after restoration`);
             sendParamsToParametersWindow(true);
         }
         
         const elapsed = Date.now() - startTime;
-        console.log(`Engine restored in ${elapsed}ms`, 'engine');
+        console.log(`Engine restored in ${elapsed}ms`);
         audioState.isRestoration = false; // Clear restoration flag on success
         return true;
         
     } catch (err) {
-        console.log('Failed to restore engine: ' + err.message, 'engine');
+        console.log('Failed to restore engine: ' + err.message);
         audioState.isRestoration = false; // Clear restoration flag on failure
         return false;
     }
@@ -1028,15 +1028,15 @@ async function restoreEngineIfNeeded() {
 
 function sendToEngine(channel, data) {
     if (!engineWindow || engineWindow.isDestroyed()) {
-        console.log(`sendToEngine(${channel}): engine window not available`, 'engine');
+        console.log(`sendToEngine(${channel}): engine window not available`);
         return false;
     }
     try {
         engineWindow.webContents.send(channel, data);
-        console.log(`sendToEngine(${channel}): sent`, 'engine');
+        console.log(`sendToEngine(${channel}): sent`);
         return true;
     } catch (err) {
-        console.log(`sendToEngine(${channel}): failed - ${err.message}`, 'engine');
+        console.log(`sendToEngine(${channel}): failed - ${err.message}`);
         return false;
     }
 }
@@ -1055,17 +1055,17 @@ function sendToPlayer(channel, data) {
 function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it exists
     // Window may be hidden (open=false) but still exist - send params anyway
-    console.log(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`, 'params');
-    console.log(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`, 'params');
-    console.log(`[DEBUG] audioState.fileType: ${audioState.fileType}`, 'params');
+    console.log(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`);
+    console.log(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`);
+    console.log(`[DEBUG] audioState.fileType: ${audioState.fileType}`);
     
     if (!childWindows.parameters.windowId) {
-        console.log(`[DEBUG] Early return: no windowId (window doesn't exist)`, 'params');
+        console.log(`[DEBUG] Early return: no windowId (window doesn't exist)`);
         return;
     }
     
     const fileType = audioState.fileType;
-    console.log(`[DEBUG] Sending params for fileType: ${fileType}`, 'params');
+    console.log(`[DEBUG] Sending params for fileType: ${fileType}`);
     let paramsData = null;
     
     if (fileType === 'MIDI') {
@@ -1112,12 +1112,12 @@ function sendParamsToParametersWindow(reset = false) {
     }
     
     if (paramsData) {
-        console.log(`Sending params to parameters window: ${paramsData.mode}`, 'params');
+        console.log(`Sending params to parameters window: ${paramsData.mode}`);
         // Send directly to parameters window using tools helper
         try {
             tools.sendToId(childWindows.parameters.windowId, 'set-mode', paramsData);
         } catch (err) {
-            console.log(`Failed to send params to parameters window: ${err.message}`, 'params');
+            console.log(`Failed to send params to parameters window: ${err.message}`);
         }
     }
 }
@@ -1378,7 +1378,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:loaded', (e, data) => {
-        console.log(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`, 'engine');
+        console.log(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`);
         
         const previousFileType = audioState.fileType;
         const isRestorationFlow = audioState.isRestoration; // True during engine restoration
@@ -1387,7 +1387,7 @@ function setupAudioIPC() {
         if (data.file) audioState.file = data.file;
         if (data.fileType) {
             audioState.fileType = data.fileType;
-            console.log(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`, 'engine');
+            console.log(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`);
         }
         // Store metadata for parameters window (e.g., MIDI originalBPM, Tracker channels)
         if (data.metadata) {
@@ -1405,7 +1405,7 @@ function setupAudioIPC() {
         // This is the single source of truth for parameters window tab switching
         const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
         if (fileTypeChanged || isRestorationFlow) {
-            console.log(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
+            console.log(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`);
             
             // Determine if we should reset state to defaults:
             // - Audio: reset only if NOT locked
@@ -1435,13 +1435,13 @@ function setupAudioIPC() {
     
     // Window lifecycle - track in main and forward to engine
     ipcMain.on('window-created', (e, data) => {
-        console.log(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`);
         if (data && data.type) {
             // Track in main state for engine restoration
             if (childWindows[data.type]) {
                 childWindows[data.type].open = true;
                 childWindows[data.type].windowId = data.windowId;
-                console.log(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`, 'engine');
+                console.log(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`);
             }
             sendToEngine('window-created', data);
             
@@ -1453,7 +1453,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-visible', (e, data) => {
-        console.log(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`);
         if (data && data.type && childWindows[data.type]) {
             childWindows[data.type].open = true;
             childWindows[data.type].windowId = data.windowId;
@@ -1467,22 +1467,22 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-hidden', (e, data) => {
-        console.log(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`);
         if (data && data.type && childWindows[data.type]) {
             // Window is hidden but not closed - keep tracking it
-            console.log(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`, 'engine');
+            console.log(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`);
         }
         sendToEngine('window-hidden', data);
     });
     
     ipcMain.on('window-closed', (e, data) => {
-        console.log(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`);
         if (data && data.type) {
             // Remove from tracking
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;
                 childWindows[data.type].windowId = null;
-                console.log(`[DEBUG] childWindows.${data.type} cleared`, 'engine');
+                console.log(`[DEBUG] childWindows.${data.type} cleared`);
             }
             sendToEngine('window-closed', data);
         }
@@ -1616,7 +1616,7 @@ function setupAudioIPC() {
     ipcMain.handle('waveform:get', (e, filePath) => {
         const cached = waveformCache.get(filePath);
         if (cached) {
-            console.log(`Waveform cache hit for: ${path.basename(filePath)}`, 'cache');
+            console.log(`Waveform cache hit for: ${path.basename(filePath)}`);
             return cached;
         }
         return null;
@@ -1639,7 +1639,7 @@ function setupAudioIPC() {
             duration: data.duration,
             timestamp: Date.now()
         });
-        console.log(`Cached waveform for: ${path.basename(data.filePath)}`, 'cache');
+        console.log(`Cached waveform for: ${path.basename(data.filePath)}`);
     });
     
     // DEBUG: Idle disposal testing
@@ -1656,7 +1656,7 @@ function setupAudioIPC() {
             pendingTimeouts: !!audioState.engineDisposalTimeout || !!idleState.visibleDisposeTimeout,
             waveformCacheSize: waveformCache.size
         };
-        console.log('Idle status: ' + JSON.stringify(status), 'engine');
+        console.log('Idle status: ' + JSON.stringify(status));
         e.sender.send('debug:idle-status-response', status);
     });
     
@@ -1720,6 +1720,7 @@ async function handleTrackEnded() {
     
     broadcastState();
 }
+
 
 
 
