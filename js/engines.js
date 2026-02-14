@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * ENGINES.JS - Headless Audio Engine
@@ -70,7 +70,7 @@ g.audioParams = {
     locked: false      // lock settings across track changes
 };
 
-// Position push interval (â‰¤15ms for smooth UI)
+// Position push interval (≤15ms for smooth UI)
 let positionPushInterval = null;
 const POSITION_PUSH_MS = 15;
 
@@ -608,18 +608,6 @@ async function init() {
 			g.blocky = false;
 			// Notify app.js of metadata
 			ipcRenderer.send('audio:metadata', { duration: player.duration, metadata: meta });
-			
-			// Send updated tracker params with channel count to parameters window
-			if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
-				const channelCount = g.currentAudio.channels || 0;
-				const params = {
-					pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
-					tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
-					stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
-					channels: channelCount
-				};
-				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
-			}
 		});
 		player.onProgress((e) => {
 			if (g.currentAudio) {
@@ -1081,7 +1069,7 @@ async function init() {
 			if (data.param === 'audioMode') {
 				const newMode = data.value; // 'tape' or 'pitchtime'
 				const oldMode = g.audioParams.mode;
-				console.log('[Stage] audioMode change:', oldMode, 'â†’', newMode);
+				console.log('[Stage] audioMode change:', oldMode, '→', newMode);
 				g.audioParams.mode = newMode;
 
 				// Apply routing state (centralized pipeline switching)
@@ -1372,15 +1360,15 @@ async function engineReady() {
 			if (decoder.open(filePath)) {
 				const duration = decoder.getDuration();
 				decoder.close();
-				console.log('  âœ“ FFmpeg can play (duration:', duration, 's)');
+				console.log('  ✓ FFmpeg can play (duration:', duration, 's)');
 				return duration > 0;
 			}
 			decoder.close();
-			console.log('  âœ— FFmpeg open failed');
+			console.log('  ✗ FFmpeg open failed');
 			return false;
 		} catch (e) {
 			try { decoder.close(); } catch (e2) { }
-			console.log('  âœ— FFmpeg error:', e.message);
+			console.log('  ✗ FFmpeg error:', e.message);
 			return false;
 		}
 	}
@@ -1615,19 +1603,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				g.blocky = false;
 				checkState();
 
-				if (g.windows.parameters && !restore) {
-					console.log('[playAudio] Updating parameters window for MIDI');
-					const orig = midi.getOriginalBPM ? midi.getOriginalBPM() : 120;
-					const speed = (g.midiSettings && g.midiSettings.speed) ? g.midiSettings.speed : 1.0;
-					const params = {
-						transpose: g.midiSettings ? g.midiSettings.pitch : 0,
-						bpm: Math.round(orig * speed),
-						metronome: g.midiSettings ? g.midiSettings.metronome : false,
-						soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2',
-						originalBPM: orig
-					};
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
-				}
+
 			} catch (err) {
 				console.error('MIDI playback error:', err);
 				console.error('[Engine] Error loading MIDI file!');
@@ -1676,20 +1652,6 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 			if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
 				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
 				player.setTempo(tempoFactor);
-			}
-
-			if (g.windows.parameters && !restore) {
-				// Get channel count from player if available
-				const channelCount = player && player.numChannels ? player.numChannels : 
-				                    player && player.channels ? player.channels : 0;
-				const params = {
-					pitch: 1.0,
-					tempo: 1.0,
-					stereoSeparation: 100,
-					reset: true,  // Signal new file loaded
-					channels: channelCount  // Channel count for mixer display
-				};
-				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
 			}
 
 			if (n > 0) {
@@ -1907,8 +1869,6 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 							}
 						}
 					}
-
-					tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
 				}
 			}
 			catch (err) {
@@ -2037,7 +1997,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 				if (typeof newPlayer.setPitch === 'function') {
 					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
 					newPlayer.setPitch(pitchRatio);
-					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, 'â†’ ratio:', pitchRatio);
+					console.log('[switchPipeline] Applied pitch:', g.audioParams.pitch, '→ ratio:', pitchRatio);
 				}
 				if (typeof newPlayer.setTempo === 'function') {
 					newPlayer.setTempo(g.audioParams.tempo || 1.0);
@@ -2309,18 +2269,7 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 			if (tempMidi && tempMidi.setPitchOffset) tempMidi.setPitchOffset(0);
 			if (tempMidi && tempMidi.resetPlaybackSpeed) tempMidi.resetPlaybackSpeed();
 
-			if (g.windows.parameters) {
-				const originalBPM = (tempMidi.getOriginalBPM && typeof tempMidi.getOriginalBPM === 'function') ? tempMidi.getOriginalBPM() : 120;
-				const params = {
-					transpose: 0,
-					bpm: Math.round(originalBPM),
-					metronome: keepMetronome,
-					soundfont: (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'TimGM6mb.sf2',
-					originalBPM: originalBPM
-				};
-				tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'midi', params });
-				tools.sendToId(g.windows.parameters, 'update-params', { mode: 'midi', params });
-			}
+
 
 			if (g.windows['midi']) {
 				const originalBPM = (tempMidi.getOriginalBPM && typeof tempMidi.getOriginalBPM === 'function') ? tempMidi.getOriginalBPM() : 120;
@@ -2481,18 +2430,6 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 			await renderInfo(g.currentAudio.fp, meta);
 		}
 		g.blocky = false;
-		
-		// Send updated tracker params with channel count to parameters window
-		if (g.windows.parameters && g.currentAudio && g.currentAudio.isMod) {
-			const channelCount = g.currentAudio.channels || 0;
-			const params = {
-				pitch: g.trackerParams ? g.trackerParams.pitch : 1.0,
-				tempo: g.trackerParams ? g.trackerParams.tempo : 1.0,
-				stereoSeparation: g.trackerParams ? g.trackerParams.stereoSeparation : 100,
-				channels: channelCount
-			};
-			tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'tracker', params });
-		}
 	});
 	player.onProgress((e) => {
 		if (g.currentAudio) {
@@ -2516,20 +2453,6 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		if (wasPlaying && g.currentAudio && g.currentAudio.paused && g.currentAudio.play) {
 			g.currentAudio.play();
 		}
-	}
-
-	// Notify parameters window of current settings (especially important after rubberband recreation)
-	if (g.windows.parameters) {
-		const params = {
-			audioMode: g.audioParams.mode,
-			tapeSpeed: g.audioParams.tapeSpeed,
-			pitch: g.audioParams.pitch,
-			tempo: g.audioParams.tempo,
-			formant: g.audioParams.formant,
-			locked: g.audioParams.locked,
-			reset: false
-		};
-		tools.sendToId(g.windows.parameters, 'set-mode', { mode: 'audio', params });
 	}
 
 	checkState();
@@ -2891,9 +2814,9 @@ function getFileInfo(fp) {
 // Window management is handled by app.js in the new architecture
 // This file only handles audio playback
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------------------
 // DEBUG CONSOLE COMMANDS - For CPU testing
-// ═══════════════════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------------------
 
 // Expose engine disposal functions to console for testing
 window.disposeEngines = {
@@ -2971,3 +2894,4 @@ console.log('  disposeEngines.all()     - Dispose all engines');
 console.log('  disposeEngines.status()  - Check active engines');
 
 module.exports.init = init;
+

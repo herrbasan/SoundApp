@@ -32,7 +32,6 @@ window.disposeIPC = {
         ipcRenderer.removeAllListeners('midi-reset-params');
         ipcRenderer.removeAllListeners('tracker-reset-params');
         ipcRenderer.removeAllListeners('tracker-vu');
-        ipcRenderer.removeAllListeners('set-mode');
         ipcRenderer.removeAllListeners('file-change');
         ipcRenderer.removeAllListeners('waveform-data');
         ipcRenderer.removeAllListeners('waveform-chunk');
@@ -319,13 +318,6 @@ function setupIPC() {
     ipcRenderer.on('tracker-vu', (e, data) => {
         if (g.windows.parameters) {
             tools.sendToId(g.windows.parameters, 'tracker-vu', data);
-        }
-    });
-    
-    // Forward set-mode from engine to parameters window (for initialization)
-    ipcRenderer.on('set-mode', (e, data) => {
-        if (g.windows.parameters) {
-            tools.sendToId(g.windows.parameters, 'set-mode', data);
         }
     });
     
@@ -1227,27 +1219,6 @@ async function openWindow(type, forceShow = false, contextFile = null) {
 
     setTimeout(() => {
         tools.sendToId(g.windows[type], 'show-window');
-        
-        // For parameters window, also send set-mode to initialize controls
-        if (type === 'parameters') {
-            const fileType = g.uiState.fileType;
-            let mode = 'audio';
-            let params = {};
-            
-            if (fileType === 'MIDI') {
-                mode = 'midi';
-                params = { transpose: 0, bpm: 120, metronome: false };
-            } else if (fileType === 'Tracker') {
-                mode = 'tracker';
-                params = { pitch: 0, tempo: 1.0, stereoSeparation: 100 };
-            } else {
-                mode = 'audio';
-                params = { audioMode: 'tape', tapeSpeed: 0, pitch: 0, tempo: 1.0, formant: false, locked: false };
-            }
-            
-            console.log('[openWindow] Sending set-mode to parameters window:', mode);
-            tools.sendToId(g.windows[type], 'set-mode', { mode, params });
-        }
     }, 100);
 }
 
