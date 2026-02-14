@@ -940,9 +940,13 @@ async function restoreEngineIfNeeded() {
                 
                 // Only register with engine if window is open/visible
                 if (state.open) {
-                    fb(`Re-registering ${type} window with restored engine`, 'engine');
+                    fb(`Re-registering ${type} window with restored engine (windowId=${state.windowId})`, 'engine');
                     sendToEngine('window-created', { type, windowId: state.windowId });
                     sendToEngine('window-visible', { type, windowId: state.windowId });
+                } else if (state.windowId) {
+                    // Window exists but is hidden - still need to register it so the engine knows the window ID
+                    fb(`Registering hidden ${type} window with restored engine (windowId=${state.windowId})`, 'engine');
+                    sendToEngine('window-created', { type, windowId: state.windowId });
                 }
             }
         }
