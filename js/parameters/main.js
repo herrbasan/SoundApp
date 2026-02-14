@@ -6,6 +6,30 @@ window.ut = ut;
 window.superSelect = superSelect;
 ut.dragSlider = dragSlider;
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DEFAULTS - Must match DEFAULTS in app.js (single source of truth)
+// These values are used when resetting UI on file open
+// ═══════════════════════════════════════════════════════════════════════════
+const DEFAULTS = {
+    audio: {
+        mode: 'tape',
+        tapeSpeed: 0,
+        pitch: 0,
+        tempo: 1.0,
+        formant: false
+    },
+    midi: {
+        transpose: 0,
+        bpm: 120,
+        metronome: false
+    },
+    tracker: {
+        pitch: 1.0,
+        tempo: 1.0,
+        stereoSeparation: 100
+    }
+};
+
 let bridge;
 let g = {
     init_data: null
@@ -284,14 +308,19 @@ function resetMidiParams(sendStage = false) {
     const tempoVal = document.getElementById('midi_tempo_value');
     const metronomeBtn = document.getElementById('btn_metronome');
 
-    const originalBPM = (g.init_data && typeof g.init_data.originalBPM === 'number') ? Math.round(g.init_data.originalBPM) : 120;
+    // Use DEFAULTS for single source of truth
+    const { transpose, metronome } = DEFAULTS.midi;
+    // BPM comes from file's original BPM if available, otherwise DEFAULTS.midi.bpm
+    const originalBPM = (g.init_data && typeof g.init_data.originalBPM === 'number') 
+        ? Math.round(g.init_data.originalBPM) 
+        : (DEFAULTS.midi.bpm || 120);
 
-    controls.midi.pitch.update(0);
+    controls.midi.pitch.update(transpose);  // 0 = no transpose
     controls.midi.tempo.update(originalBPM);
 
-    if (pitchVal) pitchVal.textContent = '0';
-    if (tempoVal) tempoVal.textContent = '' + originalBPM;
-    if (metronomeBtn) metronomeBtn.checked = false;
+    if (pitchVal) pitchVal.textContent = String(transpose);
+    if (tempoVal) tempoVal.textContent = String(originalBPM);
+    if (metronomeBtn) metronomeBtn.checked = metronome;
 
     if (sendStage && bridge && bridge.sendToStage) {
         bridge.sendToStage('midi-reset-params', {});
@@ -305,17 +334,20 @@ function resetAudioParams(sendStage = false) {
     const tempoVal = document.getElementById('audio_tempo_value');
     const formantCheckbox = document.getElementById('audio_formant_mode');
 
-    controls.audio.pitch.update(0);
-    controls.audio.tempo.update(1.0);
+    // Use DEFAULTS for single source of truth
+    const { pitch, tempo, formant } = DEFAULTS.audio;
 
-    if (pitchVal) pitchVal.textContent = '+0';
-    if (tempoVal) tempoVal.textContent = '100';
-    if (formantCheckbox) formantCheckbox.checked = false;
+    controls.audio.pitch.update(pitch);    // 0 = no pitch shift
+    controls.audio.tempo.update(tempo);    // 1.0 = normal speed
+
+    if (pitchVal) pitchVal.textContent = (pitch >= 0 ? '+' : '') + pitch;
+    if (tempoVal) tempoVal.textContent = String(Math.round(tempo * 100));
+    if (formantCheckbox) formantCheckbox.checked = formant;
 
     if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: 0 });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: 1.0 });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: false });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: pitch });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempo });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
     }
 }
 
@@ -568,12 +600,15 @@ function resetTapeParams(sendStage = false) {
     if (!controls.tape || !controls.tape.speed) return;
 
     const speedVal = document.getElementById('tape_speed_value');
-    controls.tape.speed.update(0);
+    
+    // Use DEFAULTS for single source of truth
+    const { tapeSpeed } = DEFAULTS.audio;
+    controls.tape.speed.update(tapeSpeed);  // 0 = normal speed
 
-    if (speedVal) speedVal.textContent = '+0';
+    if (speedVal) speedVal.textContent = (tapeSpeed >= 0 ? '+' : '') + tapeSpeed;
 
     if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: 0 });
+        bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: tapeSpeed });
     }
 }
 
@@ -701,17 +736,22 @@ function initTrackerControls() {
 }
 
 function resetTrackerParams(sendStage = false) {
+    // Use DEFAULTS for single source of truth
+    const { pitch, tempo, stereoSeparation } = DEFAULTS.tracker;
+    
     const pitchVal = document.getElementById('tracker_pitch_value');
     const tempoVal = document.getElementById('tracker_tempo_value');
     const stereoVal = document.getElementById('tracker_stereo_value');
 
-    if (controls.tracker.pitch) controls.tracker.pitch.update(0);
-    if (controls.tracker.tempo) controls.tracker.tempo.update(1.0);
-    if (controls.tracker.stereo) controls.tracker.stereo.update(100);
+    // Pitch slider: range -12 to +12, default 0 (1.0 = no change)
+    // Slider shows semitones offset, so 1.0 pitch = 0 semitones
+    if (controls.tracker.pitch) controls.tracker.pitch.update(0);  // 0 semitones offset
+    if (controls.tracker.tempo) controls.tracker.tempo.update(tempo);  // 1.0 = normal speed
+    if (controls.tracker.stereo) controls.tracker.stereo.update(stereoSeparation);  // 100 = default
 
     if (pitchVal) pitchVal.textContent = '+0';
     if (tempoVal) tempoVal.textContent = '100';
-    if (stereoVal) stereoVal.textContent = '100';
+    if (stereoVal) stereoVal.textContent = String(stereoSeparation);
 
     if (sendStage && bridge && bridge.sendToStage) {
         bridge.sendToStage('tracker-reset-params', {});

@@ -41,6 +41,78 @@ function getFileType(filePath) {
 }
 
 // Ground truth state - lives in main process, outlives both renderers
+// ═══════════════════════════════════════════════════════════════════════════
+// DEFAULTS - Single source of truth for parameter reset values
+// ═══════════════════════════════════════════════════════════════════════════
+const DEFAULTS = {
+    audio: {
+        mode: 'tape',
+        tapeSpeed: 0,
+        pitch: 0,
+        tempo: 1.0,
+        formant: false,
+        locked: false
+    },
+    midi: {
+        transpose: 0,
+        bpm: null,          // null = use original BPM from file
+        metronome: false,
+        soundfont: null     // null = use default soundfont
+    },
+    tracker: {
+        pitch: 1.0,
+        tempo: 1.0,
+        stereoSeparation: 100
+    }
+};
+
+/**
+ * Reset audio parameters to defaults.
+ * Called when a new file is loaded (unless locked for audio files).
+ * 
+ * @param {string} fileType - 'MIDI', 'Tracker', or 'FFmpeg' 
+ * @param {object} options - Optional values to override defaults (e.g., { originalBPM: 140 })
+ * @returns {object} The new parameter values after reset
+ */
+function resetParamsToDefaults(fileType, options = {}) {
+    fb(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`, 'params');
+    
+    if (fileType === 'MIDI') {
+        audioState.midiParams = {
+            ...DEFAULTS.midi,
+            bpm: options.originalBPM || DEFAULTS.midi.bpm
+        };
+        return { ...audioState.midiParams };
+    } 
+    
+    if (fileType === 'Tracker') {
+        audioState.trackerParams = { ...DEFAULTS.tracker };
+        return { ...audioState.trackerParams };
+    }
+    
+    // FFmpeg audio - only reset if not locked
+    if (!audioState.locked) {
+        audioState.mode = DEFAULTS.audio.mode;
+        audioState.tapeSpeed = DEFAULTS.audio.tapeSpeed;
+        audioState.pitch = DEFAULTS.audio.pitch;
+        audioState.tempo = DEFAULTS.audio.tempo;
+        audioState.formant = DEFAULTS.audio.formant;
+        // Note: locked is preserved by design
+    }
+    
+    return {
+        mode: audioState.mode,
+        tapeSpeed: audioState.tapeSpeed,
+        pitch: audioState.pitch,
+        tempo: audioState.tempo,
+        formant: audioState.formant,
+        locked: audioState.locked
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIO STATE - Ground truth for all audio-related state
+// ═══════════════════════════════════════════════════════════════════════════
 const audioState = {
     // Playback
     file: null,             // Current file path
@@ -48,28 +120,19 @@ const audioState = {
     position: 0,            // Seconds (updated from engine)
     duration: 0,
     
-    // Audio params
-    mode: 'tape',           // 'tape' | 'pitchtime'
-    tapeSpeed: 0,
-    pitch: 0,
-    tempo: 1.0,
-    formant: false,
-    locked: false,
+    // Audio params (FFmpeg files)
+    mode: DEFAULTS.audio.mode,
+    tapeSpeed: DEFAULTS.audio.tapeSpeed,
+    pitch: DEFAULTS.audio.pitch,
+    tempo: DEFAULTS.audio.tempo,
+    formant: DEFAULTS.audio.formant,
+    locked: DEFAULTS.audio.locked,
     volume: 0.5,
     loop: false,
     
-    // Format-specific params (preserved across engine restore)
-    midiParams: {
-        transpose: 0,
-        bpm: null,          // null = use original BPM
-        metronome: false,
-        soundfont: null     // null = use default
-    },
-    trackerParams: {
-        pitch: 1.0,
-        tempo: 1.0,
-        stereoSeparation: 100
-    },
+    // Format-specific params (reset on file change unless locked for audio)
+    midiParams: { ...DEFAULTS.midi },
+    trackerParams: { ...DEFAULTS.tracker },
     
     // Pipeline
     activePipeline: 'normal',   // 'normal' | 'rubberband'
@@ -1349,10 +1412,15 @@ function setupAudioIPC() {
         if (fileTypeChanged || isRestorationFlow) {
             fb(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
             
-            // Determine if we should reset UI:
+            // Determine if we should reset state to defaults:
             // - Audio: reset only if NOT locked
             // - MIDI/Tracker: always reset (no lock feature)
             const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+            
+            // Reset state to defaults before sending to UI
+            if (shouldReset) {
+                resetParamsToDefaults(audioState.fileType, data.metadata);
+            }
             
             sendParamsToParametersWindow(shouldReset);
         }
