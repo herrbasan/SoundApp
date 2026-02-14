@@ -2449,6 +2449,9 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		// Forward VU data to Parameters window
 		if (e.vu && g.windows.parameters) {
 			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+		} else if (e.vu && !g.windows.parameters && g.windowsVisible.parameters) {
+			// VU data available but window ID not set - log once
+			console.log('[Engine] VU data ready but g.windows.parameters is null');
 		}
 	});
 	player.onEnded(audioEnded);
