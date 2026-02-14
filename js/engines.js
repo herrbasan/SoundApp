@@ -820,9 +820,10 @@ async function init() {
 	// Window lifecycle - track window IDs so we can send messages to them
 	ipcRenderer.on('window-created', (e, data) => {
 		if (data && data.type && data.windowId) {
+			const oldId = g.windows[data.type];
 			g.windows[data.type] = data.windowId;
 			g.windowsVisible[data.type] = true;
-			console.log('[Engine] Window created:', data.type, 'id:', data.windowId);
+			console.log('[Engine] Window created:', data.type, 'id:', data.windowId, oldId ? `(replaced ${oldId})` : '(new)');
 			
 			// Track parameters window state for routing decisions
 			if (data.type === 'parameters') {
