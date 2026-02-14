@@ -638,9 +638,7 @@ async function checkUpdate() {
 }
 
 function update_progress(e) {
-	if (e.type == 'state') {
-		fb('Update State: ' + e.data);
-	}
+	// Progress updates handled silently
 }
 
 function mainCommand(e, data) {
