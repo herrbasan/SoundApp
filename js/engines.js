@@ -817,7 +817,37 @@ async function init() {
 		}
 	});
 	
-	// Window lifecycle - track window IDs so we can send messages to them
+	// Batch window registration (used during engine restoration)
+	ipcRenderer.on('windows:init', (e, data) => {
+		if (data && data.windows) {
+			console.log('[Engine] Initializing window IDs:', Object.keys(data.windows));
+			for (const [type, info] of Object.entries(data.windows)) {
+				if (info.windowId) {
+					g.windows[type] = info.windowId;
+					g.windowsVisible[type] = info.open;
+					
+					// Track parameters window state
+					if (type === 'parameters' && info.open) {
+						g.parametersOpen = true;
+					}
+					
+					// Track monitoring window
+					if (type === 'monitoring') {
+						g.monitoringReady = info.open;
+						if (info.open) {
+							startMonitoringLoop();
+							applyRoutingState();
+							if (g.currentAudio && g.currentAudio.fp) {
+								extractAndSendWaveform(g.currentAudio.fp);
+							}
+						}
+					}
+				}
+			}
+		}
+	});
+
+	// Single window registration (for new windows opened after engine is alive)
 	ipcRenderer.on('window-created', (e, data) => {
 		if (data && data.type && data.windowId) {
 			const oldId = g.windows[data.type];

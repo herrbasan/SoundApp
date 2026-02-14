@@ -920,36 +920,28 @@ async function restoreEngineIfNeeded() {
             parametersOpen: childWindows.parameters.open
         });
         
-        // ── Step 2: Re-register child windows BEFORE file load ──
-        // This sets g.parametersOpen and g.windows.parameters on the engine,
-        // so calculateDesiredPipeline() makes the correct routing decision.
+        // ── Step 2: Push window IDs to engine ──
+        // Main process owns window IDs. Engine only pushes data, never queries.
+        // We send ALL existing window IDs (not just visible) so engine can push to them.
         const newEngineId = engineWindow.id;
-        fb(`[DEBUG] Re-registering child windows, newEngineId=${newEngineId}`, 'engine');
+        const existingWindows = {};
         for (const [type, state] of Object.entries(childWindows)) {
-            fb(`[DEBUG] Child window ${type}: windowId=${state.windowId}, open=${state.open}`, 'engine');
             if (state.windowId) {
+                existingWindows[type] = {
+                    windowId: state.windowId,
+                    open: state.open
+                };
                 // Update child window's stageId to point to the new engine
-                // This is needed for ALL child windows, even hidden ones
                 const childWin = BrowserWindow.fromId(state.windowId);
                 if (childWin && !childWin.isDestroyed()) {
-                    fb(`[DEBUG] Sending update-stage-id to ${type} window`, 'engine');
                     childWin.webContents.send('update-stage-id', { stageId: newEngineId });
-                } else {
-                    fb(`[DEBUG] Child window ${type} not found or destroyed`, 'engine');
-                }
-                
-                // Only register with engine if window is open/visible
-                if (state.open) {
-                    fb(`Re-registering ${type} window with restored engine (windowId=${state.windowId})`, 'engine');
-                    sendToEngine('window-created', { type, windowId: state.windowId });
-                    sendToEngine('window-visible', { type, windowId: state.windowId });
-                } else if (state.windowId) {
-                    // Window exists but is hidden - still need to register it so the engine knows the window ID
-                    fb(`Registering hidden ${type} window with restored engine (windowId=${state.windowId})`, 'engine');
-                    sendToEngine('window-created', { type, windowId: state.windowId });
                 }
             }
         }
+        
+        // Single IPC call to register all windows with engine
+        fb(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`, 'engine');
+        sendToEngine('windows:init', { windows: existingWindows });
         
         // ── Step 3: Load file with restore flag ──
         // The restore flag tells playAudio() to:
