@@ -75,7 +75,7 @@ const DEFAULTS = {
  * @returns {object} The new parameter values after reset
  */
 function resetParamsToDefaults(fileType, options = {}) {
-    fb(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`, 'params');
+    console.log(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`, 'params');
     
     if (fileType === 'MIDI') {
         audioState.midiParams = {
@@ -182,7 +182,7 @@ app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 //protocol.registerSchemesAsPrivileged([{ scheme: 'raum', privileges: { bypassCSP: true, supportFetchAPI:true } }])
 
 async function init(cmd) {
-	fb('APP INIT');
+	console.log('APP INIT');
 
 	if (isPackaged) {
 		const gotTheLock = app.requestSingleInstanceLock()
@@ -267,8 +267,8 @@ async function init(cmd) {
 
 
 function setEnv() {
-	fb('APP SET_ENV');
-	fb('--------------------------------------');
+	console.log('APP SET_ENV');
+	console.log('--------------------------------------');
 	process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = true;
 	helper.setGlobal('main_env', main_env);
 	helper.setGlobal('isPackaged', isPackaged);
@@ -276,10 +276,10 @@ function setEnv() {
 	helper.setGlobal('temp_path', path.join(app.getPath('userData'), 'temp'));
 	helper.setGlobal('start_vars', process.argv);
 
-	fb('Electron Version: ' + process.versions.electron);
-	fb('Node Version: ' + process.versions.node);
-	fb('Chrome Version: ' + process.versions.chrome);
-	fb('--------------------------------------');
+	console.log('Electron Version: ' + process.versions.electron);
+	console.log('Node Version: ' + process.versions.node);
+	console.log('Chrome Version: ' + process.versions.chrome);
+	console.log('--------------------------------------');
 
 	app.whenReady().then(appStart).catch((err) => { throw err });
 }
@@ -290,7 +290,7 @@ function setEnv() {
 // The control window stays alive while player window can be closed/reopened
 // ═══════════════════════════════════════════════════════════
 async function appStart() {
-	fb('Init Windows');
+	console.log('Init Windows');
 	app.on('before-quit', () => { isQuitting = true; });
 	// Optional config activity logging (temporary debugging aid)
 	// Enable via env.json: { "config_log": true } or env var: ELECTRON_HELPER_CONFIG_LOG=1
@@ -312,7 +312,7 @@ async function appStart() {
 	const startWithDefaults = hasDefaultsFlag || !!(main_env && (main_env.startWithDefaults || main_env.start_with_defaults));
 	const configName = startWithDefaults ? 'user_temp' : 'user';
 	if (startWithDefaults) {
-		fb('startWithDefaults enabled: using temporary config user_temp.json');
+		console.log('startWithDefaults enabled: using temporary config user_temp.json');
 	}
 	main_env.configName = configName;
 
@@ -321,9 +321,9 @@ async function appStart() {
 		const configPath = path.join(user_data, 'user_temp.json');
 		try {
 			await fs.writeFile(configPath, JSON.stringify(configDefaults, null, 2), 'utf8');
-			fb('Defaults mode: Reset user_temp.json from config-defaults.js');
+			console.log('Defaults mode: Reset user_temp.json from config-defaults.js');
 		} catch (err) {
-			fb('Warning: Could not write user_temp.json:', err.message);
+			console.log('Warning: Could not write user_temp.json:', err.message);
 		}
 	}
 
@@ -543,7 +543,7 @@ function createTray() {
 		img = null;
 	}
 	if (!img) {
-		fb('Tray icon not created (icon missing): ' + iconPath);
+		console.log('Tray icon not created (icon missing): ' + iconPath);
 		return;
 	}
 
@@ -583,7 +583,7 @@ function createTray() {
 async function resetAllWindows() {
 	try {
 		if (!user_cfg) {
-			fb('Reset Windows: config not initialized');
+			console.log('Reset Windows: config not initialized');
 			return;
 		}
 		const cnf = user_cfg.get() || {};
@@ -619,21 +619,21 @@ async function resetAllWindows() {
 
 		// Ask renderer windows to reposition themselves
 		try { tools.broadcast('windows-reset', cnf.windows); } catch (e) { }
-		fb('Reset Windows: done');
+		console.log('Reset Windows: done');
 	} catch (err) {
 		console.error('Reset Windows failed:', err);
 	}
 }
 
 async function checkUpdate() {
-	fb('Checking for updates');
+	console.log('Checking for updates');
 	let check = await update.checkVersion('herrbasan/SoundApp', 'git', true);
 	if (check.status && check.isNew) {
-		fb('Update available: v' + check.remote_version);
+		console.log('Update available: v' + check.remote_version);
 		update.init({ mode: 'splash', url: 'herrbasan/SoundApp', source: 'git', progress: update_progress, check: check, useSemVer: true })
 	}
 	else {
-		fb('No updates available');
+		console.log('No updates available');
 	}
 }
 
@@ -672,7 +672,7 @@ async function createEngineWindow(options = {}) {
     if (audioState.engineInitializing) return;
     
     audioState.engineInitializing = true;
-    fb('Creating audio engine window...', 'engine');
+    console.log('[] ');
     
     try {
         engineWindow = await helper.tools.browserWindow('default', {
@@ -697,18 +697,18 @@ async function createEngineWindow(options = {}) {
             audioState.engineAlive = false;
             audioState.engineInitializing = false;
             engineWindow = null;
-            fb('Engine window closed', 'engine');
+            console.log('[] ');
         });
         
         engineWindow.on('ready-to-show', () => {
-            fb('Engine window ready', 'engine');
+            console.log('[] ');
         });
         
         // Wait for engine:ready signal
         ipcMain.once('engine:ready', () => {
             audioState.engineAlive = true;
             audioState.engineInitializing = false;
-            fb('Engine signaled ready', 'engine');
+            console.log('[] ');
             
             // Skip auto-load when restoreEngineIfNeeded will handle it
             if (!options.skipAutoLoad && audioState.file) {
@@ -721,7 +721,7 @@ async function createEngineWindow(options = {}) {
         });
         
     } catch (err) {
-        fb('Failed to create engine window: ' + err.message, 'engine');
+        console.log('Failed to create engine window: ' + err.message, 'engine');
         audioState.engineInitializing = false;
         engineWindow = null;
     }
@@ -789,7 +789,7 @@ function scheduleEngineDisposal() {
     const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
     const timeoutMs = isWindowVisible ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
     
-    fb(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`, 'engine');
+    console.log(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`, 'engine');
     
     audioState.engineDisposalTimeout = setTimeout(() => {
         audioState.engineDisposalTimeout = null;
@@ -814,7 +814,7 @@ function scheduleVisibleIdleDisposal() {
     idleState.visibleDisposeTimeout = setTimeout(() => {
         idleState.visibleDisposeTimeout = null;
         if (shouldDisposeEngine()) {
-            fb('Visible idle timeout reached, disposing engine', 'engine');
+            console.log('[] ');
             disposeEngineWindow();
         }
     }, IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
@@ -824,7 +824,7 @@ function cancelEngineDisposal() {
     if (audioState.engineDisposalTimeout) {
         clearTimeout(audioState.engineDisposalTimeout);
         audioState.engineDisposalTimeout = null;
-        fb('Cancelled engine disposal', 'engine');
+        console.log('[] ');
     }
     if (idleState.visibleDisposeTimeout) {
         clearTimeout(idleState.visibleDisposeTimeout);
@@ -842,14 +842,14 @@ function disposeEngineWindow() {
     // Cancel any pending disposal timeout
     cancelEngineDisposal();
     
-    fb('Disposing engine window...', 'engine');
+    console.log('[] ');
     logStateDebugAction('engine-disposed', 'Engine disposed (0% CPU mode)');
     audioState.engineAlive = false;
     
     try {
         engineWindow.destroy();  // Force close without events
     } catch (err) {
-        fb('Error disposing engine: ' + err.message, 'engine');
+        console.log('Error disposing engine: ' + err.message, 'engine');
     }
     
     engineWindow = null;
@@ -857,13 +857,13 @@ function disposeEngineWindow() {
 
 async function restoreEngineIfNeeded() {
     // Restore engine when window becomes visible and we have state to restore
-    fb(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`, 'engine');
+    console.log(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`, 'engine');
     if (audioState.engineAlive) {
-        fb('[DEBUG] Engine already alive, returning true', 'engine');
+        console.log('[] ');
         return true;
     }
     if (!audioState.file) {
-        fb('[DEBUG] No file to restore, returning false', 'engine');
+        console.log('[] ');
         return false;
     }
     
@@ -873,7 +873,7 @@ async function restoreEngineIfNeeded() {
     // Reset disposal guard since we're creating a new engine
     audioState.isDisposing = false;
     
-    fb('Restoring engine from state...', 'engine');
+    console.log('[] ');
     const startTime = Date.now();
     
     try {
@@ -889,7 +889,7 @@ async function restoreEngineIfNeeded() {
         }
         
         if (!audioState.engineAlive) {
-            fb('Engine failed to signal ready', 'engine');
+            console.log('[] ');
             return false;
         }
         
@@ -898,7 +898,7 @@ async function restoreEngineIfNeeded() {
         // MIDI/Tracker: always reset (no lock feature)
         const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
         if (shouldReset) {
-            fb(`Resetting ${audioState.fileType} params to defaults`, 'params');
+            console.log(`Resetting ${audioState.fileType} params to defaults`, 'params');
             resetParamsToDefaults(audioState.fileType, audioState.metadata);
         }
         
@@ -938,7 +938,7 @@ async function restoreEngineIfNeeded() {
         }
         
         // Single IPC call to register all windows with engine
-        fb(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`, 'engine');
+        console.log(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`, 'engine');
         sendToEngine('windows:init', { windows: existingWindows });
         
         // ── Step 3: Load file with restore flag ──
@@ -966,14 +966,14 @@ async function restoreEngineIfNeeded() {
             paused: !audioState.isPlaying
         });
         
-        fb('Waiting for file to load before applying params...', 'params');
+        console.log('[] ');
         const loadedData = await fileLoadedPromise;
         
         // CRITICAL: Update audioState.fileType from the loaded data BEFORE calling sendParamsToParametersWindow
         // This ensures the correct tab is shown in the parameters window after engine restoration
         if (loadedData && loadedData.fileType) {
             audioState.fileType = loadedData.fileType;
-            fb(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`, 'params');
+            console.log(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`, 'params');
         }
         
         // ── Step 4: Apply params to active players after load ──
@@ -991,7 +991,7 @@ async function restoreEngineIfNeeded() {
         
         // Tracker params applied via cmd:applyParams
         if (audioState.fileType === 'Tracker') {
-            fb('Restoring Tracker params', 'params');
+            console.log('[] ');
             sendToEngine('cmd:applyParams', {
                 pitch: audioState.trackerParams.pitch,
                 tempo: audioState.trackerParams.tempo,
@@ -1001,7 +1001,7 @@ async function restoreEngineIfNeeded() {
         
         // ── Step 4b: Start monitoring if window is open ──
         if (childWindows.monitoring.open) {
-            fb('Starting monitoring loop after restoration', 'engine');
+            console.log('[] ');
             sendToEngine('window-visible', { type: 'monitoring', windowId: childWindows.monitoring.windowId });
         }
         
@@ -1010,17 +1010,17 @@ async function restoreEngineIfNeeded() {
         // This ensures single source of truth for parameters window tab switching
         // We only need to pass reset flag if we reset params in Step 0
         if (didResetParams) {
-            fb(`[DEBUG] Sending reset=true to parameters window after restoration`, 'params');
+            console.log(`[DEBUG] Sending reset=true to parameters window after restoration`, 'params');
             sendParamsToParametersWindow(true);
         }
         
         const elapsed = Date.now() - startTime;
-        fb(`Engine restored in ${elapsed}ms`, 'engine');
+        console.log(`Engine restored in ${elapsed}ms`, 'engine');
         audioState.isRestoration = false; // Clear restoration flag on success
         return true;
         
     } catch (err) {
-        fb('Failed to restore engine: ' + err.message, 'engine');
+        console.log('Failed to restore engine: ' + err.message, 'engine');
         audioState.isRestoration = false; // Clear restoration flag on failure
         return false;
     }
@@ -1028,15 +1028,15 @@ async function restoreEngineIfNeeded() {
 
 function sendToEngine(channel, data) {
     if (!engineWindow || engineWindow.isDestroyed()) {
-        fb(`sendToEngine(${channel}): engine window not available`, 'engine');
+        console.log(`sendToEngine(${channel}): engine window not available`, 'engine');
         return false;
     }
     try {
         engineWindow.webContents.send(channel, data);
-        fb(`sendToEngine(${channel}): sent`, 'engine');
+        console.log(`sendToEngine(${channel}): sent`, 'engine');
         return true;
     } catch (err) {
-        fb(`sendToEngine(${channel}): failed - ${err.message}`, 'engine');
+        console.log(`sendToEngine(${channel}): failed - ${err.message}`, 'engine');
         return false;
     }
 }
@@ -1055,17 +1055,17 @@ function sendToPlayer(channel, data) {
 function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it exists
     // Window may be hidden (open=false) but still exist - send params anyway
-    fb(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`, 'params');
-    fb(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`, 'params');
-    fb(`[DEBUG] audioState.fileType: ${audioState.fileType}`, 'params');
+    console.log(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`, 'params');
+    console.log(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`, 'params');
+    console.log(`[DEBUG] audioState.fileType: ${audioState.fileType}`, 'params');
     
     if (!childWindows.parameters.windowId) {
-        fb(`[DEBUG] Early return: no windowId (window doesn't exist)`, 'params');
+        console.log(`[DEBUG] Early return: no windowId (window doesn't exist)`, 'params');
         return;
     }
     
     const fileType = audioState.fileType;
-    fb(`[DEBUG] Sending params for fileType: ${fileType}`, 'params');
+    console.log(`[DEBUG] Sending params for fileType: ${fileType}`, 'params');
     let paramsData = null;
     
     if (fileType === 'MIDI') {
@@ -1112,12 +1112,12 @@ function sendParamsToParametersWindow(reset = false) {
     }
     
     if (paramsData) {
-        fb(`Sending params to parameters window: ${paramsData.mode}`, 'params');
+        console.log(`Sending params to parameters window: ${paramsData.mode}`, 'params');
         // Send directly to parameters window using tools helper
         try {
             tools.sendToId(childWindows.parameters.windowId, 'set-mode', paramsData);
         } catch (err) {
-            fb(`Failed to send params to parameters window: ${err.message}`, 'params');
+            console.log(`Failed to send params to parameters window: ${err.message}`, 'params');
         }
     }
 }
@@ -1165,10 +1165,10 @@ function setupAudioIPC() {
         
         // If engine was disposed, restore it first
         if (!audioState.engineAlive) {
-            fb('Engine not alive, restoring before play...', 'engine');
+            console.log('[] ');
             const restored = await restoreEngineIfNeeded();
             if (!restored) {
-                fb('Failed to restore engine for play', 'engine');
+                console.log('[] ');
                 audioState.isPlaying = false;
                 broadcastState();
                 return;
@@ -1199,10 +1199,10 @@ function setupAudioIPC() {
             
             // If engine was disposed, restore it first
             if (!audioState.engineAlive && audioState.file) {
-                fb('Engine not alive, restoring before seek...', 'engine');
+                console.log('[] ');
                 const restored = await restoreEngineIfNeeded();
                 if (!restored) {
-                    fb('Failed to restore engine for seek', 'engine');
+                    console.log('[] ');
                     return;
                 }
                 // After restoration, the engine loads at the current position
@@ -1239,14 +1239,14 @@ function setupAudioIPC() {
             }
             
             if (!audioState.engineAlive) {
-                fb('Engine failed to signal ready for audio:load', 'engine');
+                console.log('[] ');
                 return;
             }
             
             // ── Reset params if locked=false ──
             // When locked is OFF, file change should reset to tape/speed 0
             if (!audioState.locked) {
-                fb('Resetting audioState to defaults (locked=false)', 'params');
+                console.log('[] ');
                 audioState.mode = 'tape';
                 audioState.tapeSpeed = 0;
                 audioState.pitch = 0;
@@ -1289,7 +1289,7 @@ function setupAudioIPC() {
         
         // If engine was disposed, we need to handle next track differently
         if (!audioState.engineAlive) {
-            fb('Engine not alive, handling next track...', 'engine');
+            console.log('[] ');
             // Let the track-end handler manage the next track logic
             await handleTrackEnded();
             return;
@@ -1304,7 +1304,7 @@ function setupAudioIPC() {
         
         // If engine was disposed, we need to handle prev track differently
         if (!audioState.engineAlive) {
-            fb('Engine not alive, handling prev track...', 'engine');
+            console.log('[] ');
             // Decrement playlist index and load previous file
             if (audioState.playlist.length > 0) {
                 audioState.playlistIndex--;
@@ -1378,7 +1378,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:loaded', (e, data) => {
-        fb(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`, 'engine');
+        console.log(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`, 'engine');
         
         const previousFileType = audioState.fileType;
         const isRestorationFlow = audioState.isRestoration; // True during engine restoration
@@ -1387,7 +1387,7 @@ function setupAudioIPC() {
         if (data.file) audioState.file = data.file;
         if (data.fileType) {
             audioState.fileType = data.fileType;
-            fb(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`, 'engine');
+            console.log(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`, 'engine');
         }
         // Store metadata for parameters window (e.g., MIDI originalBPM, Tracker channels)
         if (data.metadata) {
@@ -1405,7 +1405,7 @@ function setupAudioIPC() {
         // This is the single source of truth for parameters window tab switching
         const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
         if (fileTypeChanged || isRestorationFlow) {
-            fb(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
+            console.log(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
             
             // Determine if we should reset state to defaults:
             // - Audio: reset only if NOT locked
@@ -1435,13 +1435,13 @@ function setupAudioIPC() {
     
     // Window lifecycle - track in main and forward to engine
     ipcMain.on('window-created', (e, data) => {
-        fb(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type) {
             // Track in main state for engine restoration
             if (childWindows[data.type]) {
                 childWindows[data.type].open = true;
                 childWindows[data.type].windowId = data.windowId;
-                fb(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`, 'engine');
+                console.log(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`, 'engine');
             }
             sendToEngine('window-created', data);
             
@@ -1453,7 +1453,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-visible', (e, data) => {
-        fb(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type && childWindows[data.type]) {
             childWindows[data.type].open = true;
             childWindows[data.type].windowId = data.windowId;
@@ -1467,22 +1467,22 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-hidden', (e, data) => {
-        fb(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type && childWindows[data.type]) {
             // Window is hidden but not closed - keep tracking it
-            fb(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`, 'engine');
+            console.log(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`, 'engine');
         }
         sendToEngine('window-hidden', data);
     });
     
     ipcMain.on('window-closed', (e, data) => {
-        fb(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
+        console.log(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type) {
             // Remove from tracking
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;
                 childWindows[data.type].windowId = null;
-                fb(`[DEBUG] childWindows.${data.type} cleared`, 'engine');
+                console.log(`[DEBUG] childWindows.${data.type} cleared`, 'engine');
             }
             sendToEngine('window-closed', data);
         }
@@ -1600,13 +1600,13 @@ function setupAudioIPC() {
     
     // DEBUG: Close engine window (for CPU testing)
     ipcMain.on('debug:close-engine', (e) => {
-        fb('Debug: Closing engine window', 'engine');
+        console.log('[] ');
         disposeEngineWindow();
     });
     
     // DEBUG: Reopen engine window (for CPU testing)
     ipcMain.on('debug:open-engine', async (e) => {
-        fb('Debug: Reopening engine window', 'engine');
+        console.log('[] ');
         if (!engineWindow) {
             await createEngineWindow();
         }
@@ -1616,7 +1616,7 @@ function setupAudioIPC() {
     ipcMain.handle('waveform:get', (e, filePath) => {
         const cached = waveformCache.get(filePath);
         if (cached) {
-            fb(`Waveform cache hit for: ${path.basename(filePath)}`, 'cache');
+            console.log(`Waveform cache hit for: ${path.basename(filePath)}`, 'cache');
             return cached;
         }
         return null;
@@ -1629,7 +1629,7 @@ function setupAudioIPC() {
         if (waveformCache.size >= WAVEFORM_CACHE_MAX_SIZE) {
             const oldestKey = waveformCache.keys().next().value;
             waveformCache.delete(oldestKey);
-            fb('Evicted oldest waveform from cache', 'cache');
+            console.log('[] ');
         }
         
         waveformCache.set(data.filePath, {
@@ -1639,7 +1639,7 @@ function setupAudioIPC() {
             duration: data.duration,
             timestamp: Date.now()
         });
-        fb(`Cached waveform for: ${path.basename(data.filePath)}`, 'cache');
+        console.log(`Cached waveform for: ${path.basename(data.filePath)}`, 'cache');
     });
     
     // DEBUG: Idle disposal testing
@@ -1656,23 +1656,23 @@ function setupAudioIPC() {
             pendingTimeouts: !!audioState.engineDisposalTimeout || !!idleState.visibleDisposeTimeout,
             waveformCacheSize: waveformCache.size
         };
-        fb('Idle status: ' + JSON.stringify(status), 'engine');
+        console.log('Idle status: ' + JSON.stringify(status), 'engine');
         e.sender.send('debug:idle-status-response', status);
     });
     
     ipcMain.on('debug:idle-force-dispose', (e) => {
-        fb('Debug: Forcing engine disposal', 'engine');
+        console.log('[] ');
         disposeEngineWindow();
     });
     
     ipcMain.on('debug:idle-reset-timer', (e) => {
-        fb('Debug: Resetting idle timer', 'engine');
+        console.log('[] ');
         recordUserActivity();
     });
 }
 
 async function handleTrackEnded() {
-    fb('Track ended, advancing...', 'engine');
+    console.log('[] ');
     
     if (audioState.loop && audioState.file) {
         // Loop current track
@@ -1721,13 +1721,5 @@ async function handleTrackEnded() {
     broadcastState();
 }
 
-function fb(o, context = 'main') {
-	if (!isPackaged) {
-		console.log(context + ' : ', o);
-	}
-	if (wins?.main?.webContents) {
-		wins.main.webContents.send('log', { context: context, data: o });
-	}
-}
 
-module.exports.fb = fb;
+
