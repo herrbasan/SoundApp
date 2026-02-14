@@ -16,6 +16,42 @@ const tools = helper.tools;
 const os = require('node:os');
 const RubberbandPipeline = require('./rubberband-pipeline.js');
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Direct Window Communication - Bypass main process for high-frequency data
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Send data directly to a specific window by ID.
+ * Uses ipcRenderer.sendTo for direct renderer-to-renderer communication.
+ * 
+ * @param {number|null} windowId - The target window ID (from g.windows)
+ * @param {string} channel - The IPC channel name
+ * @param {*} data - The data to send
+ */
+function sendToWindow(windowId, channel, data) {
+	if (!windowId) return;
+	try {
+		ipcRenderer.sendTo(windowId, channel, data);
+	} catch (err) {
+		// Window may not exist or be destroyed, fail silently
+	}
+}
+
+/**
+ * Broadcast data to all windows of a given type that are registered.
+ * Currently supports 'parameters' and 'monitoring' windows.
+ * 
+ * @param {string} windowType - 'parameters' or 'monitoring'
+ * @param {string} channel - The IPC channel name  
+ * @param {*} data - The data to send
+ */
+function broadcastToWindow(windowType, channel, data) {
+	const windowId = g.windows[windowType];
+	if (windowId) {
+		sendToWindow(windowId, channel, data);
+	}
+}
+
 let player;
 let midi;
 let g = {};
@@ -615,7 +651,7 @@ async function init() {
 			}
 			// Forward VU data to Parameters window
 			if (e.vu && g.windows.parameters) {
-				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+				sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 			}
 		});
 		player.onEnded(audioEnded);
@@ -866,7 +902,7 @@ async function init() {
 					const ext = path.extname(fp).toLowerCase();
 					const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
 					const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
-					tools.sendToId(g.windows.monitoring, 'file-change', {
+					sendToWindow(g.windows.monitoring, 'file-change', {
 						filePath: fp,
 						fileUrl: tools.getFileURL(fp),
 						fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
@@ -1253,19 +1289,19 @@ async function init() {
 
 	ipcRenderer.on('theme-changed', (e, data) => {
 		if (g.windows.settings) {
-			tools.sendToId(g.windows.settings, 'theme-changed', data);
+			sendToWindow(g.windows.settings, 'theme-changed', data);
 		}
 		if (g.windows.help) {
-			tools.sendToId(g.windows.help, 'theme-changed', data);
+			sendToWindow(g.windows.help, 'theme-changed', data);
 		}
 		if (g.windows.playlist) {
-			tools.sendToId(g.windows.playlist, 'theme-changed', data);
+			sendToWindow(g.windows.playlist, 'theme-changed', data);
 		}
 		if (g.windows.mixer) {
-			tools.sendToId(g.windows.mixer, 'theme-changed', data);
+			sendToWindow(g.windows.mixer, 'theme-changed', data);
 		}
 		if (g.windows.pitchtime) {
-			tools.sendToId(g.windows.pitchtime, 'theme-changed', data);
+			sendToWindow(g.windows.pitchtime, 'theme-changed', data);
 		}
 		if (g.windows['midi']) {
 			tools.sendToId(g.windows['midi'], 'theme-changed', data);
@@ -1302,7 +1338,7 @@ async function init() {
 			const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
 			const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
 			try {
-				tools.sendToId(g.windows.monitoring, 'file-change', {
+				sendToWindow(g.windows.monitoring, 'file-change', {
 					filePath: currentFile,
 					fileUrl: tools.getFileURL(currentFile),
 					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
@@ -1321,7 +1357,7 @@ async function init() {
 	ipcRenderer.on('waveform-chunk', (e, chunk) => {
 		if (!g.windows.monitoring) return;
 		try {
-			tools.sendToId(g.windows.monitoring, 'waveform-chunk', {
+			sendToWindow(g.windows.monitoring, 'waveform-chunk', {
 				...chunk,
 				filePath: g.currentAudio ? path.basename(g.currentAudio.fp) : ''
 			});
@@ -1335,7 +1371,7 @@ async function init() {
 		if (!g.windows.monitoring) return;
 		try {
 
-			tools.sendToId(g.windows.monitoring, 'ana-data', data);
+			sendToWindow(g.windows.monitoring, 'ana-data', data);
 		} catch (err) {
 			console.warn('[Stage] failed to forward ana-data', err && err.message);
 		}
@@ -1348,7 +1384,7 @@ async function init() {
 		}
 		try {
 
-			tools.sendToId(g.windows.monitoring, 'set-monitoring-source', src);
+			sendToWindow(g.windows.monitoring, 'set-monitoring-source', src);
 		} catch (err) {
 			console.warn('[Stage] failed to forward set-monitoring-source', err && err.message);
 		}
@@ -1361,7 +1397,7 @@ async function init() {
         g.lastFocusedSource = src;
 
         if (g.windows.monitoring) {
-            try { tools.sendToId(g.windows.monitoring, 'set-monitoring-source', g.lastFocusedSource); } catch (err) {}
+            try { sendToWindow(g.windows.monitoring, 'set-monitoring-source', g.lastFocusedSource); } catch (err) {}
         }
     });
 
@@ -1576,7 +1612,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 		// Notify monitoring window of file change (include file URL for renderer fetch)
 		if (g.windows.monitoring) {
 			try {
-				tools.sendToId(g.windows.monitoring, 'file-change', {
+				sendToWindow(g.windows.monitoring, 'file-change', {
 					filePath: fp,
 					fileUrl: tools.getFileURL(fp),
 					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
@@ -2475,7 +2511,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		}
 		// Forward VU data to Parameters window
 		if (e.vu && g.windows.parameters) {
-			tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+			sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
 		}
 	});
 	player.onEnded(audioEnded);
@@ -2718,7 +2754,7 @@ function updateMonitoring() {
 	const dur = (g.currentAudio && g.currentAudio.duration) ? g.currentAudio.duration : 0;
 
 		try {
-			tools.sendToId(g.windows.monitoring, 'ana-data', {
+			sendToWindow(g.windows.monitoring, 'ana-data', {
 				source: 'main',
 				freqL: Array.from(buf.freqL),
 				freqR: Array.from(buf.freqR),
@@ -2738,7 +2774,7 @@ async function extractAndSendWaveform(fp) {
 
 	// Clear existing waveform immediately to avoid visual persistence
 	try {
-		tools.sendToId(g.windows.monitoring, 'clear-waveform');
+		sendToWindow(g.windows.monitoring, 'clear-waveform');
 	} catch (err) {
 		console.warn('[Monitoring] Failed to clear waveform (window may be closing):', err.message);
 		return;
@@ -2752,7 +2788,7 @@ async function extractAndSendWaveform(fp) {
 
 		// Send file info so monitoring window shows the filename
 		try {
-			tools.sendToId(g.windows.monitoring, 'waveform-data', {
+			sendToWindow(g.windows.monitoring, 'waveform-data', {
 				peaksL: null,
 				peaksR: null,
 				points: 0,
@@ -2771,7 +2807,7 @@ async function extractAndSendWaveform(fp) {
 		const cached = await ipcRenderer.invoke('waveform:get', fp);
 		if (cached) {
 
-			tools.sendToId(g.windows.monitoring, 'waveform-data', {
+			sendToWindow(g.windows.monitoring, 'waveform-data', {
 				...cached,
 				filePath: path.basename(fp)
 			});
@@ -2825,7 +2861,7 @@ async function extractAndSendWaveform(fp) {
 
 		if (g.windows.monitoring) {
 			try {
-				tools.sendToId(g.windows.monitoring, 'waveform-data', {
+				sendToWindow(g.windows.monitoring, 'waveform-data', {
 					...peaks,
 					filePath: path.basename(fp)
 				});
@@ -2932,4 +2968,5 @@ window.disposeEngines = {
 
 
 module.exports.init = init;
+
 
