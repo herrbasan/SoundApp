@@ -690,7 +690,136 @@ async function handleFileChange(filePath) {
 | +4 | Parameter preservation (race condition fixes) |
 | Current | **Idle disposal fully working** - State preservation fixed via deferred param application |
 | +5 | Added `isDisposing` guard to prevent duplicate disposal when both timers fire simultaneously |
+| +6 | **MessagePort implementation** - Direct renderer-to-renderer communication for high-frequency data (VU meters, waveforms) |
 
 ---
 
 **Note:** The idle disposal feature is fully working, including parameter preservation. All known issues have been resolved.
+
+## MessagePort Implementation (Direct Renderer Communication)
+
+> **Status:** ✅ **Working** - Added 2025-02-14
+
+### Overview
+
+To reduce main process CPU overhead during high-frequency data streaming (VU meters, waveform data), we implemented **MessageChannelMain** for direct renderer-to-renderer communication between the engine and child windows (parameters, monitoring).
+
+### Key Implementation Details
+
+#### 1. Port Lifecycle
+
+**Creation (Main Process):**
+```javascript
+const { port1, port2 } = new MessageChannelMain();
+
+// Send ports to both renderers
+engineWindow.webContents.postMessage('message-channel', 
+    { type, windowId, role: 'engine' }, 
+    [port1]
+);
+win.webContents.postMessage('message-channel', 
+    { type, role: 'window' }, 
+    [port2]
+);
+```
+
+**Reception (Renderers):**
+```javascript
+// IMPORTANT: Must call port.start() to receive messages!
+// Without this, messages queue up causing OOM crashes.
+ipcRenderer.on('message-channel', (e, meta) => {
+    const port = e.ports[0];
+    port.start();  // ← Critical!
+    port.onmessage = (e) => { /* handle message */ };
+});
+```
+
+#### 2. Data Flow
+
+| Path | Before | After |
+|------|--------|-------|
+| VU meters | Engine → Main IPC → Window | Engine → **MessagePort** → Window (direct) |
+| Waveform data | Engine → Main IPC → Window | Engine → **MessagePort** → Window (direct) |
+| Control commands | Window → Main IPC → Engine | Window → Main IPC → Engine (unchanged) |
+
+#### 3. Disposal Handling
+
+When engine is disposed, ports must be closed cleanly to prevent crashes:
+
+```javascript
+// In disposeEngineWindow() (app.js):
+// Close all MessageChannels before destroying engine
+const channelsToClose = Array.from(messageChannels.entries());
+messageChannels.clear();
+
+for (const [windowId, channel] of channelsToClose) {
+    try { channel.enginePort.close(); } catch (e) {}
+}
+```
+
+The remote end (window) receives a `'close'` event and cleans up its port reference.
+
+#### 4. Restoration Handling
+
+After engine restoration, new MessageChannels are created:
+
+```javascript
+// In restoreEngineIfNeeded() (app.js):
+// Recreate MessageChannels for direct communication after engine restoration
+recreateAllMessageChannels();
+```
+
+Windows automatically receive new ports via the `message-channel` IPC event.
+
+### Critical Bug Fixed: Missing `port.start()`
+
+**Problem:** OOM crashes during engine disposal/restoration cycles.
+
+**Root Cause:** Not calling `port.start()` after receiving the port. Per Electron documentation: *"Messages will be queued until this method is called."* High-frequency VU data (60fps) would queue up indefinitely, causing memory exhaustion.
+
+**Solution:** Added `port.start()` in both engine and window reception handlers.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `js/app.js` | `MessageChannelMain` import, `createMessageChannel()`, `recreateAllMessageChannels()` |
+| `js/engines.js` | Port reception handler, `sendToWindow()` uses MessagePort when available |
+| `js/window-loader.js` | Port reception handler with `port.start()`, handler attachment |
+| `js/parameters/main.js` | Auto-rebuild tracker VU meters when channel count changes |
+
+### Window-Ready Handshake
+
+To prevent windows from appearing before they're fully initialized (and missing early messages), a handshake was added:
+
+```javascript
+// player.js - when creating window:
+const onReady = (e, data) => {
+    if (data.windowId == windowId) {
+        tools.sendToId(windowId, 'show-window');
+        ipcRenderer.send('window-visible', { type, windowId });
+    }
+};
+ipcRenderer.on('window-ready', onReady);
+
+// window-loader.js - when initialized:
+tools.sendToId(stageId, 'window-ready', { type: windowType, windowId });
+```
+
+### Testing MessagePort
+
+To verify MessagePort is being used (vs fallback IPC), temporarily enable debug logging in `sendToWindow()`:
+
+```javascript
+if (windowType && g.messagePorts[windowType]) {
+    console.log('[MessagePort] Direct send:', channel);
+} else {
+    console.log('[MessagePort] Fallback IPC:', channel);
+}
+```
+
+Expected: High-frequency data (tracker-vu, ana-data) should use direct path.
+
+---
+
+**Note:** The idle disposal feature is fully working, including parameter preservation and MessagePort direct communication. All known issues have been resolved.
