@@ -619,7 +619,7 @@ async function init() {
 			}
 		});
 		player.onEnded(audioEnded);
-		player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+		player.onError((err) => { console.error('[Player] Error:', err.message || err); audioEnded(); g.blocky = false; });
 		player.onInitialized(() => {
 
 			player.gain.connect(g.audioContext.destination);
@@ -2328,7 +2328,7 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 		}
 	});
 	tempMidi.onEnded(audioEnded);
-	tempMidi.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+	tempMidi.onError((err) => { console.error('[MIDI] Error:', err.message || err); audioEnded(); g.blocky = false; });
 
 	try {
 		await tempMidi.init();
