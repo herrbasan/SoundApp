@@ -1001,6 +1001,12 @@ async function restoreEngineIfNeeded() {
             });
         }
         
+        // ── Step 4b: Start monitoring if window is open ──
+        if (childWindows.monitoring.open) {
+            fb('Starting monitoring loop after restoration', 'engine');
+            sendToEngine('window-visible', { type: 'monitoring', windowId: childWindows.monitoring.windowId });
+        }
+        
         // ── Step 5: Update parameters window UI ──
         // NOTE: sendParamsToParametersWindow is now called by the unified audio:loaded handler
         // This ensures single source of truth for parameters window tab switching

@@ -826,21 +826,15 @@ async function init() {
 					g.windows[type] = info.windowId;
 					g.windowsVisible[type] = info.open;
 					
-					// Track parameters window state
+					// Track parameters window state (for pipeline routing decisions)
 					if (type === 'parameters' && info.open) {
 						g.parametersOpen = true;
 					}
 					
-					// Track monitoring window
+					// Track monitoring window state only
+					// NOTE: startMonitoringLoop and applyRoutingState are called AFTER file load
 					if (type === 'monitoring') {
 						g.monitoringReady = info.open;
-						if (info.open) {
-							startMonitoringLoop();
-							applyRoutingState();
-							if (g.currentAudio && g.currentAudio.fp) {
-								extractAndSendWaveform(g.currentAudio.fp);
-							}
-						}
 					}
 				}
 			}
