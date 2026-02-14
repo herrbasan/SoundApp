@@ -190,13 +190,8 @@ async function init() {
     });
 
     // Listen for tracker VU updates (high-frequency, from audio worklet)
-    let vuFrameCount = 0;
     bridge.on('tracker-vu', (data) => {
         if (currentMode !== 'tracker' || !data.vu) return;
-        // Log first VU frame and then every 60 frames (approx 1 second)
-        if (vuFrameCount === 0) console.log('[Parameters] First tracker-vu received, channels:', data.channels);
-        vuFrameCount++;
-        if (vuFrameCount >= 60) vuFrameCount = 0;
         updateTrackerVu(data.vu, data.channels);
     });
     
