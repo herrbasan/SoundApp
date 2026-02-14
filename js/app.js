@@ -895,16 +895,13 @@ async function restoreEngineIfNeeded() {
             return false;
         }
         
-        // ── Step 0: Reset audioState to defaults if locked=false ──
-        // When locked is OFF, file change should reset UI to tape/speed 0
-        const didResetParams = !audioState.locked;
-        if (didResetParams) {
-            fb('Resetting audioState to defaults (locked=false)', 'params');
-            audioState.mode = 'tape';
-            audioState.tapeSpeed = 0;
-            audioState.pitch = 0;
-            audioState.tempo = 1.0;
-            audioState.formant = false;
+        // ── Step 0: Reset audioState to defaults ──
+        // FFmpeg: reset only if locked=false
+        // MIDI/Tracker: always reset (no lock feature)
+        const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+        if (shouldReset) {
+            fb(`Resetting ${audioState.fileType} params to defaults`, 'params');
+            resetParamsToDefaults(audioState.fileType, audioState.metadata);
         }
         
         // ── Step 1: Pre-set audio params on engine BEFORE file load ──
