@@ -131,7 +131,6 @@ async function init() {
 
     // Listen for file type / mode changes from stage
     bridge.on('set-mode', (data) => {
-        console.log('[Parameters] set-mode received:', JSON.stringify(data));
         setMode(data.mode); // 'audio', 'midi', 'tracker'
 
         if (data.mode === 'audio' && data.params && data.params.reset) {

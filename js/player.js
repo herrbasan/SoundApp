@@ -31,7 +31,6 @@ window.disposeIPC = {
         ipcRenderer.removeAllListeners('param-change');
         ipcRenderer.removeAllListeners('midi-reset-params');
         ipcRenderer.removeAllListeners('tracker-reset-params');
-        ipcRenderer.removeAllListeners('tracker-vu');
         ipcRenderer.removeAllListeners('file-change');
         ipcRenderer.removeAllListeners('waveform-data');
         ipcRenderer.removeAllListeners('waveform-chunk');
@@ -42,7 +41,6 @@ window.disposeIPC = {
     nonEssential: function() {
         console.log('[Debug] Removing non-essential IPC listeners...');
         ipcRenderer.removeAllListeners('log');
-        ipcRenderer.removeAllListeners('tracker-vu');
         ipcRenderer.removeAllListeners('waveform-chunk');
         ipcRenderer.removeAllListeners('clear-waveform');
         ipcRenderer.removeAllListeners('ana-data');
@@ -311,13 +309,6 @@ function setupIPC() {
         // Handle locally first for player-specific shortcuts
         if (data.keyCode === 80) { // P - toggle parameters
             openWindow('parameters');
-        }
-    });
-    
-    // Forward tracker VU data from engine to parameters window
-    ipcRenderer.on('tracker-vu', (e, data) => {
-        if (g.windows.parameters) {
-            tools.sendToId(g.windows.parameters, 'tracker-vu', data);
         }
     });
     
