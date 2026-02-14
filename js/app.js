@@ -1009,6 +1009,8 @@ function sendParamsToParametersWindow(reset = false) {
     let paramsData = null;
     
     if (fileType === 'MIDI') {
+        // Include originalBPM from metadata if available (for UI display)
+        const originalBPM = audioState.metadata?.originalBPM;
         paramsData = {
             mode: 'midi',
             params: {
@@ -1016,16 +1018,20 @@ function sendParamsToParametersWindow(reset = false) {
                 bpm: audioState.midiParams.bpm,
                 metronome: audioState.midiParams.metronome,
                 soundfont: audioState.midiParams.soundfont,
+                originalBPM: originalBPM,
                 reset
             }
         };
     } else if (fileType === 'Tracker') {
+        // Include channel count from metadata if available
+        const channels = audioState.metadata?.channels;
         paramsData = {
             mode: 'tracker',
             params: {
                 pitch: audioState.trackerParams.pitch,
                 tempo: audioState.trackerParams.tempo,
                 stereoSeparation: audioState.trackerParams.stereoSeparation,
+                channels: channels,
                 reset
             }
         };
@@ -1325,6 +1331,14 @@ function setupAudioIPC() {
             audioState.fileType = data.fileType;
             fb(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`, 'engine');
         }
+        // Store metadata for parameters window (e.g., MIDI originalBPM, Tracker channels)
+        if (data.metadata) {
+            audioState.metadata = { ...audioState.metadata, ...data.metadata };
+            // Update MIDI BPM if originalBPM provided
+            if (data.metadata.originalBPM) {
+                audioState.midiParams.bpm = Math.round(data.metadata.originalBPM);
+            }
+        }
         broadcastState();
         
         // UNIFIED STATE TRANSITION: Update parameters window when:
@@ -1334,7 +1348,13 @@ function setupAudioIPC() {
         const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
         if (fileTypeChanged || isRestorationFlow) {
             fb(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
-            sendParamsToParametersWindow();
+            
+            // Determine if we should reset UI:
+            // - Audio: reset only if NOT locked
+            // - MIDI/Tracker: always reset (no lock feature)
+            const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+            
+            sendParamsToParametersWindow(shouldReset);
         }
     });
     

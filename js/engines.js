@@ -644,10 +644,21 @@ async function init() {
 			const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
 			const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
 			const fileType = isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg';
+			
+			// Gather metadata for parameters window initialization
+			let metadata = {};
+			if (isMIDI && midi && typeof midi.getOriginalBPM === 'function') {
+				metadata.originalBPM = midi.getOriginalBPM();
+			}
+			if (isTracker && g.currentAudio && g.currentAudio.isMod) {
+				metadata.channels = g.currentAudio.channels || 0;
+			}
+			
 			ipcRenderer.send('audio:loaded', { 
 				file: data.file, 
 				duration: g.currentAudio?.duration || 0,
-				fileType: fileType
+				fileType: fileType,
+				metadata: metadata
 			});
 		}
 	});
