@@ -601,7 +601,8 @@ export class MidiPlayer {
 		this.metronomeEnabled = enabled;
 		const ch = (typeof this.metronomeChannel === 'number') ? this.metronomeChannel : 15;
 		
-		console.log(`[MIDI] setMetronome(${enabled}) on Ch ${ch+1}`);
+		// Debug logging disabled - metronome now uses worklet, not synthesizer
+		// console.log(`[MIDI] setMetronome(${enabled}) on Ch ${ch+1}`);
 
 		if(!this.synth) return;
 		if (this.metronomeUseWorklet) {

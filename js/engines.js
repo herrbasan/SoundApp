@@ -108,6 +108,149 @@ g.music = [];          // Playlist (mirrors app.js state)
 g.idx = 0;             // Current playlist index
 g.max = -1;
 
+// =============================================================================
+// TRACKER (CHIPTUNE) LAZY INITIALIZATION
+// =============================================================================
+let _trackerInstance = null;
+let _trackerInitPromise = null;
+let _trackerInitialized = false;
+
+/**
+ * Lazy accessor for Tracker (Chiptune) player.
+ * Returns existing instance or initializes on first access.
+ */
+async function getTrackerPlayer() {
+    // Check if lazy loading is enabled (default: false for compatibility)
+    const lazyLoadEnabled = (typeof g !== 'undefined' && g?.main_env && (g.main_env.lazyLoadTracker || g.main_env.lazyLoadEngines)) || 
+                            (typeof main_env !== 'undefined' && main_env?.lazyLoadTracker);
+    
+    // If not lazy loading, initialize immediately on first call
+    if (!lazyLoadEnabled) {
+        console.log('[Tracker] Lazy loading disabled, creating instance immediately');
+        if (!_trackerInstance && window.chiptune) {
+            _trackerInstance = createTrackerPlayer();
+            player = _trackerInstance;  // Legacy compatibility
+        }
+        return _trackerInstance;
+    }
+    
+    console.log('[Tracker] Lazy loading enabled, initializing on first access...');
+    
+    // Return existing instance
+    if (_trackerInstance) return _trackerInstance;
+    
+    // Return in-progress initialization
+    if (_trackerInitPromise) return _trackerInitPromise;
+    
+    // Start initialization
+    _trackerInitPromise = initTrackerPlayerLazy();
+    
+    try {
+        _trackerInstance = await _trackerInitPromise;
+        _trackerInitialized = true;
+        player = _trackerInstance;  // Legacy compatibility
+        return _trackerInstance;
+    } catch (err) {
+        console.error('[Tracker] Failed to initialize:', err);
+        return null;
+    } finally {
+        _trackerInitPromise = null;
+    }
+}
+
+/**
+ * Create tracker player instance
+ */
+function createTrackerPlayer() {
+    if (!window.chiptune || !g.audioContext) return null;
+    
+    console.log('[Tracker] Creating player instance...');
+    
+    const modConfig = {
+        repeatCount: 0,
+        stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+        context: g.audioContext
+    };
+    
+    const tracker = new window.chiptune(modConfig);
+    
+    // Set up event handlers
+    tracker.onMetadata(async (meta) => {
+        if (g.currentAudio) {
+            g.currentAudio.duration = tracker.duration;
+            if (meta && meta.song && meta.song.channels) {
+                g.currentAudio.channels = meta.song.channels.length;
+            }
+        }
+        g.blocky = false;
+        ipcRenderer.send('audio:metadata', { duration: tracker.duration, metadata: meta });
+    });
+    
+    tracker.onProgress((e) => {
+        if (g.currentAudio) {
+            g.currentAudio.currentTime = e.pos || 0;
+        }
+        if (!g.isDisposed && e.vu && g.windows.parameters && e.vu.length > 0 && e.vu.length <= 64) {
+            sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length }, 'parameters');
+        }
+    });
+    
+    tracker.onEnded(audioEnded);
+    tracker.onError((err) => { console.error('[Tracker] Error:', err.message || err); audioEnded(); g.blocky = false; });
+    
+    tracker.onInitialized(() => {
+        tracker.gain.connect(g.audioContext.destination);
+        if (g.monitoringSplitter) {
+            tracker.gain.connect(g.monitoringSplitter);
+        }
+        g.blocky = false;
+    });
+    
+    return tracker;
+}
+
+/**
+ * Lazy tracker initialization - called only when first tracker file is played.
+ */
+async function initTrackerPlayerLazy() {
+    
+    // Wait for chiptune library to be available
+    let waitMs = 0;
+    const maxWaitMs = 5000;
+    while (!window.chiptune && waitMs < maxWaitMs) {
+        await new Promise(r => setTimeout(r, 50));
+        waitMs += 50;
+    }
+    
+    if (!window.chiptune) {
+        console.error('[Tracker] Chiptune library not loaded after', maxWaitMs, 'ms');
+        return null;
+    }
+    
+    if (!g.audioContext) {
+        console.error('[Tracker] AudioContext not available');
+        return null;
+    }
+    
+    const tracker = createTrackerPlayer();
+    
+    // Wait briefly for onInitialized to fire (gain node connection)
+    // The chiptune library initializes asynchronously
+    let gainWaitMs = 0;
+    while (!tracker.gain && gainWaitMs < 500) {
+        await new Promise(r => setTimeout(r, 10));
+        gainWaitMs += 10;
+    }
+    
+    if (!tracker.gain) {
+        console.warn('[Tracker] Gain node not created after 500ms, proceeding anyway');
+    } else {
+    }
+    
+    return tracker;
+}
+
+
 // Engine state
 const engineState = {
     file: null,
@@ -655,14 +798,24 @@ async function init() {
 	// (appStart() may be triggered by onInitialized before this function returns)
 	await initMidiPlayer();
 
-	if (!player) {
-		const modConfig = {
+
+		// Check if tracker lazy loading is enabled (via env.json)
+		const lazyLoadTracker = g.main_env?.lazyLoadEngines || 
+		                        g.main_env?.lazyLoadTracker || 
+		                        false;
+		
+		if (lazyLoadTracker) {
+			console.log('[Tracker] Lazy loading enabled - player will init on first tracker file');
+			// Don't create player here - it will be created on first tracker file
+			setTimeout(() => engineReady(), 0);
+		} else if (!player) {
+			const modConfig = {
 			repeatCount: 0,
 			stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
 			context: g.audioContext
-		};
-		player = new window.chiptune(modConfig);
-		player.onMetadata(async (meta) => {
+			};
+			player = new window.chiptune(modConfig);
+			player.onMetadata(async (meta) => {
 			if (g.currentAudio) {
 				g.currentAudio.duration = player.duration;
 				// Store channel count from metadata for parameters window
@@ -673,8 +826,8 @@ async function init() {
 			g.blocky = false;
 			// Notify app.js of metadata
 			ipcRenderer.send('audio:metadata', { duration: player.duration, metadata: meta });
-		});
-		player.onProgress((e) => {
+			});
+			player.onProgress((e) => {
 			if (g.currentAudio) {
 				g.currentAudio.currentTime = e.pos || 0;
 			}
@@ -683,10 +836,10 @@ async function init() {
 			if (!g.isDisposed && e.vu && g.windows.parameters && e.vu.length > 0 && e.vu.length <= 64) {
 				sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length }, 'parameters');
 			}
-		});
-		player.onEnded(audioEnded);
-		player.onError((err) => { console.error('[Player] Error:', err.message || err); audioEnded(); g.blocky = false; });
-		player.onInitialized(() => {
+			});
+			player.onEnded(audioEnded);
+			player.onError((err) => { console.error('[Player] Error:', err.message || err); audioEnded(); g.blocky = false; });
+			player.onInitialized(() => {
 			player.gain.connect(g.audioContext.destination);
 			if (g.monitoringSplitter) {
 				player.gain.connect(g.monitoringSplitter);
@@ -694,7 +847,7 @@ async function init() {
 			g.blocky = false;
 			// Delay engineReady to ensure IPC handlers are registered
 			setTimeout(() => engineReady(), 0);
-		});
+			});
 	} else {
 		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
 		// Delay engineReady to ensure IPC handlers are registered first
@@ -1744,6 +1897,14 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 			}
 		}
 		else if (isTracker) {
+			// Lazy initialize tracker player if needed
+			const trackerPlayer = await getTrackerPlayer();
+			if (!trackerPlayer) {
+				console.error('[Engine] Tracker player not available');
+				g.blocky = false;
+				return false;
+			}
+
 			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
@@ -1755,20 +1916,30 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				duration: 0,
 				play: () => {
 					g.currentAudio.paused = false;
-					try { player.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch (e) { }
-					player.unpause();
+					try { trackerPlayer.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch (e) { }
+					trackerPlayer.unpause();
 					startPositionPush();
 					ipcRenderer.send('audio:state', { isPlaying: true });
 				},
-				pause: () => { g.currentAudio.paused = true; player.pause() },
-				getCurrentTime: () => player.getCurrentTime(),
-				seek: (n) => player.seek(n)
+				pause: () => { g.currentAudio.paused = true; trackerPlayer.pause() },
+				getCurrentTime: () => trackerPlayer.getCurrentTime(),
+				seek: (n) => trackerPlayer.seek(n)
 			};
 			if (g.windows.monitoring) {
 				extractAndSendWaveform(fp);
 			}
-			player.load(tools.getFileURL(fp));
-			player.gain.gain.value = initialVol;
+			// Load the file (tracker is now initialized and gain is connected)
+			
+			// Small delay to ensure chiptune internal init is complete
+			setTimeout(() => {
+				trackerPlayer.load(tools.getFileURL(fp));
+				trackerPlayer.gain.gain.value = initialVol;
+				
+				// Ensure playback starts (chiptune should auto-play, but verify)
+				if (!startPaused && trackerPlayer.unpause) {
+					trackerPlayer.unpause();
+				}
+			}, 100);
 
 			// Reconnect monitoring taps for new tracker player
 			await updateMonitoringConnections();
@@ -1783,7 +1954,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 			const locked = g.audioParams && g.audioParams.locked;
 			if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
 				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
-				player.setTempo(tempoFactor);
+				trackerPlayer.setTempo(tempoFactor);
 			}
 
 			if (n > 0) {
@@ -1792,9 +1963,9 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				let attempts = 0;
 				const doSeek = () => {
 					if (!g.currentAudio || !g.currentAudio.isMod || g.currentAudio.fp !== seekFp) return;
-					if (!player || typeof player.seek !== 'function') return;
-					if (player.duration && player.duration > 0) {
-						player.seek(seekTime);
+					if (!trackerPlayer || typeof trackerPlayer.seek !== 'function') return;
+					if (trackerPlayer.duration && trackerPlayer.duration > 0) {
+						trackerPlayer.seek(seekTime);
 						g.currentAudio.currentTime = seekTime;
 						return;
 					}
@@ -1806,21 +1977,21 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				setTimeout(doSeek, 25);
 			}
 			if (startPaused) {
-				try { player.gain.gain.value = 0; } catch (e) { }
-				try { player.pause(); } catch (e) { }
+				try { trackerPlayer.gain.gain.value = 0; } catch (e) { }
+				try { trackerPlayer.pause(); } catch (e) { }
 				setTimeout(() => {
 					try {
 						if (g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused) {
-							try { player.gain.gain.value = 0; } catch (e) { }
-							player.pause();
+							try { trackerPlayer.gain.gain.value = 0; } catch (e) { }
+							trackerPlayer.pause();
 						}
 					} catch (e) { }
 				}, 30);
 				setTimeout(() => {
 					try {
 						if (g.currentAudio && g.currentAudio.isMod && g.currentAudio.fp === fp && g.currentAudio.paused) {
-							try { player.gain.gain.value = 0; } catch (e) { }
-							player.pause();
+							try { trackerPlayer.gain.gain.value = 0; } catch (e) { }
+							trackerPlayer.pause();
 						}
 					} catch (e) { }
 				}, 250);
@@ -2207,6 +2378,11 @@ function audioEnded(e) {
 	ipcRenderer.send('audio:ended');
 	
 	// Local handling (will be replaced by app.js response)
+	if (!g.music || g.music.length === 0) {
+		console.warn('[audioEnded] Playlist not loaded, skipping local handling');
+		return;
+	}
+	
 	if ((g.currentAudio?.isMod || g.currentAudio?.isMidi) && g.isLoop) {
 		playAudio(g.music[g.idx], 0, false, true);
 	}
@@ -2260,17 +2436,35 @@ function shufflePlaylist() {
 
 function playNext(e, autoAdvance = false) {
 	if (!g.blocky) {
+		if (!g.music || g.music.length === 0) {
+			console.warn('[playNext] Playlist not loaded, ignoring');
+			return;
+		}
 		if (g.idx == g.max) { g.idx = -1; }
 		g.idx++;
-		playAudio(g.music[g.idx], 0, false, autoAdvance)
+		const nextFile = g.music[g.idx];
+		if (!nextFile) {
+			console.warn('[playNext] No file at index', g.idx, 'max:', g.max);
+			return;
+		}
+		playAudio(nextFile, 0, false, autoAdvance)
 	}
 }
 
 function playPrev(e) {
 	if (!g.blocky) {
+		if (!g.music || g.music.length === 0) {
+			console.warn('[playPrev] Playlist not loaded, ignoring');
+			return;
+		}
 		if (g.idx == 0) { g.idx = g.max + 1; }
 		g.idx--;
-		playAudio(g.music[g.idx])
+		const prevFile = g.music[g.idx];
+		if (!prevFile) {
+			console.warn('[playPrev] No file at index', g.idx, 'max:', g.max);
+			return;
+		}
+		playAudio(prevFile)
 	}
 }
 

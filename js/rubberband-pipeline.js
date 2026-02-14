@@ -260,6 +260,46 @@ class RubberbandPipeline {
         }
     }
 
+    /**
+     * Wait for worklet to be ready (WASM initialized and processing).
+     * Use this before starting playback to avoid audio rush artifacts.
+     * @param {number} timeoutMs - Maximum wait time
+     * @returns {Promise<boolean>} - True if ready, false on timeout
+     */
+    async waitForWorkletReady(timeoutMs = 500) {
+        if (!this.rubberbandNode) return false;
+        
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                cleanup();
+                console.warn('[RubberbandPipeline] Worklet ready timeout');
+                resolve(false);
+            }, timeoutMs);
+            
+            const messageHandler = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data[0] === 'ready-ack') {
+                        clearTimeout(timeout);
+                        cleanup();
+                        resolve(true);
+                    }
+                } catch (err) {
+                    // Ignore non-JSON messages
+                }
+            };
+            
+            const cleanup = () => {
+                if (this.rubberbandNode) {
+                    this.rubberbandNode.port.onmessage = null;
+                }
+            };
+            
+            this.rubberbandNode.port.onmessage = messageHandler;
+            this.rubberbandNode.port.postMessage(JSON.stringify(['ready-check']));
+        });
+    }
+
     get isPlaying() {
         return this.player ? this.player.isPlaying : false;
     }

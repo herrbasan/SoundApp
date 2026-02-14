@@ -58,16 +58,45 @@
     <div class="log" id="log"></div>
 
     <script language="JavaScript" type="module">
-        import ut from '../libs/nui/nui_ut.js';
-        import { ChiptuneJsPlayer } from '../libs/chiptune/chiptune3.js';
-        import { MidiPlayer } from '../js/midi/midi.js';
+        // Top-level await in module script
+        console.log('[Engine] === SCRIPT START ===');
         
+        // Load dependencies sequentially with explicit logging
+        console.log('[Engine] Step 1: Importing nui_ut...');
+        const { default: ut } = await import('../libs/nui/nui_ut.js');
         window.ut = ut;
-        window.chiptune = ChiptuneJsPlayer;
-        window.midi = MidiPlayer;
+        console.log('[Engine] Step 1 DONE: nui_ut loaded');
         
-        // Load audio engine
+        console.log('[Engine] Step 2: Importing chiptune...');
+        const { ChiptuneJsPlayer } = await import('../libs/chiptune/chiptune3.js');
+        window.chiptune = ChiptuneJsPlayer;
+        console.log('[Engine] Step 2 DONE: chiptune loaded');
+        
+        console.log('[Engine] Step 3: Importing midi...');
+        let midiModule;
+        try {
+            midiModule = await import('../js/midi/midi.js');
+            console.log('[Engine] Step 3a: midi module object:', midiModule);
+            console.log('[Engine] Step 3b: midiModule keys:', Object.keys(midiModule));
+        } catch (e) {
+            console.error('[Engine] Step 3 FAILED:', e);
+        }
+        
+        console.log('[Engine] Step 4: Extracting MidiPlayer...');
+        let MidiPlayer = midiModule?.MidiPlayer;
+        console.log('[Engine] Step 4a: MidiPlayer from midiModule.MidiPlayer:', typeof MidiPlayer);
+        
+        if (!MidiPlayer && midiModule?.default) {
+            MidiPlayer = midiModule.default;
+            console.log('[Engine] Step 4b: Using midiModule.default instead');
+        }
+        
+        window.midi = MidiPlayer || null;
+        console.log('[Engine] Step 5: window.midi set to:', typeof window.midi, window.midi);
+        
+        console.log('[Engine] Step 6: Loading engines.js...');
         require('../js/engines.js');
+        console.log('[Engine] === SCRIPT END ===');
         
         // Minimal status UI for debugging
         const indicator = document.getElementById('status-indicator');

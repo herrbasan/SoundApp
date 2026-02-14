@@ -250,10 +250,81 @@ function recreateAllMessageChannels() {
     }
 }
 
-// Waveform cache - survives engine disposal
-// Key: file path, Value: { peaksL, peaksR, points, duration, timestamp }
-const waveformCache = new Map();
-const WAVEFORM_CACHE_MAX_SIZE = 10; // Keep last 10 waveforms
+// ═══════════════════════════════════════════════════════════════════════════
+// LRU WAVEFORM CACHE - Proper eviction with access tracking
+// ═══════════════════════════════════════════════════════════════════════════
+
+class LRUWaveformCache {
+    constructor(maxSize) {
+        this.maxSize = maxSize;
+        this.cache = new Map(); // Map preserves insertion order
+        this.accessStats = {
+            hits: 0,
+            misses: 0,
+            evictions: 0
+        };
+    }
+    
+    get(key) {
+        const entry = this.cache.get(key);
+        if (entry !== undefined) {
+            // Move to end (most recently used)
+            this.cache.delete(key);
+            this.cache.set(key, entry);
+            this.accessStats.hits++;
+            return entry;
+        }
+        this.accessStats.misses++;
+        return null;
+    }
+    
+    set(key, value) {
+        if (this.cache.has(key)) {
+            // Update existing - delete first to move to end
+            this.cache.delete(key);
+        } else if (this.cache.size >= this.maxSize) {
+            // Evict least recently used (first item)
+            const lruKey = this.cache.keys().next().value;
+            this.cache.delete(lruKey);
+            this.accessStats.evictions++;
+            console.log(`[Waveform] Evicted: ${lruKey ? require('path').basename(lruKey) : 'unknown'}`);
+        }
+        
+        this.cache.set(key, {
+            ...value,
+            cachedAt: Date.now()
+        });
+    }
+    
+    has(key) {
+        return this.cache.has(key);
+    }
+    
+    get size() {
+        return this.cache.size;
+    }
+    
+    clear() {
+        this.cache.clear();
+    }
+    
+    getStats() {
+        const total = this.accessStats.hits + this.accessStats.misses;
+        return {
+            ...this.accessStats,
+            hitRate: total > 0 ? (this.accessStats.hits / total).toFixed(2) : 'N/A',
+            size: this.cache.size,
+            maxSize: this.maxSize
+        };
+    }
+    
+    // Iterator for debugging
+    *entries() {
+        yield* this.cache.entries();
+    }
+}
+
+const waveformCache = new LRUWaveformCache(10); // Keep last 10 waveforms
 
 //app.commandLine.appendSwitch('high-dpi-support', 'false');
 //app.commandLine.appendSwitch('force-device-scale-factor', '1');
@@ -819,7 +890,190 @@ async function createEngineWindow(options = {}) {
 const IDLE_DISPOSE_TIMEOUT_MS = 5000;        // 5s when hidden to tray
 const IDLE_DISPOSE_VISIBLE_TIMEOUT_MS = 10000; // 10s when visible but paused
 
-// Idle state tracking
+// ═══════════════════════════════════════════════════════════════════════════
+// UNIFIED IDLE STATE MACHINE
+// Replaces overlapping timers with explicit state transitions
+// ═══════════════════════════════════════════════════════════════════════════
+
+const IdleState = {
+    ACTIVE: 'active',           // Engine running (playing or recently active)
+    PAUSED_VISIBLE: 'paused_visible',  // Paused, window visible - can dispose after timeout
+    PAUSED_HIDDEN: 'paused_hidden',    // Paused, window hidden - quick disposal
+    DISPOSING: 'disposing',     // Disposal in progress
+    DISPOSED: 'disposed'        // Engine disposed, 0% CPU
+};
+
+const IdleTransitions = {
+    [IdleState.ACTIVE]: {
+        onEnter: () => {
+            cancelEngineDisposalTimer();
+            if (audioState.engineAlive) {
+                console.log('[Idle] Engine active');
+            }
+        },
+        canDispose: () => false,
+        nextDelay: null
+    },
+    [IdleState.PAUSED_VISIBLE]: {
+        onEnter: () => {
+            console.log('[Idle] Paused visible, scheduling disposal...');
+            scheduleDisposalTimer(IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
+        },
+        canDispose: () => !audioState.isPlaying && isWindowVisible(),
+        nextDelay: IDLE_DISPOSE_VISIBLE_TIMEOUT_MS
+    },
+    [IdleState.PAUSED_HIDDEN]: {
+        onEnter: () => {
+            console.log('[Idle] Paused hidden, scheduling quick disposal...');
+            scheduleDisposalTimer(IDLE_DISPOSE_TIMEOUT_MS);
+        },
+        canDispose: () => !audioState.isPlaying && !isWindowVisible(),
+        nextDelay: IDLE_DISPOSE_TIMEOUT_MS
+    },
+    [IdleState.DISPOSING]: {
+        onEnter: () => {
+            console.log('[Idle] Disposing engine...');
+            performDisposal();
+        },
+        canDispose: () => false,
+        nextDelay: null
+    },
+    [IdleState.DISPOSED]: {
+        onEnter: () => {
+            console.log('[Idle] Engine disposed (0% CPU mode)');
+        },
+        canDispose: () => false,
+        nextDelay: null
+    }
+};
+
+let idleStateMachine = {
+    current: IdleState.ACTIVE,
+    timer: null,
+    lastActivity: Date.now()
+};
+
+function isWindowVisible() {
+    return wins.main && wins.main.isVisible() && !wins.main.isMinimized();
+}
+
+function computeIdleState() {
+    if (audioState.isPlaying) return IdleState.ACTIVE;
+    if (!isWindowVisible()) return IdleState.PAUSED_HIDDEN;
+    return IdleState.PAUSED_VISIBLE;
+}
+
+function transitionIdleState(newState) {
+    if (newState === idleStateMachine.current) return;
+    
+    const oldState = idleStateMachine.current;
+    idleStateMachine.current = newState;
+    
+    console.log(`[IdleState] ${oldState} -> ${newState}`);
+    
+    const handler = IdleTransitions[newState];
+    if (handler && handler.onEnter) {
+        handler.onEnter();
+    }
+    
+    // Broadcast state change for debugging/monitoring
+    broadcastState({ idleState: newState });
+}
+
+function scheduleDisposalTimer(delayMs) {
+    clearTimeout(idleStateMachine.timer);
+    idleStateMachine.timer = setTimeout(() => {
+        idleStateMachine.timer = null;
+        onDisposalTimeout();
+    }, delayMs);
+}
+
+function cancelEngineDisposalTimer() {
+    if (idleStateMachine.timer) {
+        clearTimeout(idleStateMachine.timer);
+        idleStateMachine.timer = null;
+    }
+}
+
+function onDisposalTimeout() {
+    // Re-verify conditions before disposal
+    const desiredState = computeIdleState();
+    
+    if (desiredState === IdleState.PAUSED_VISIBLE || desiredState === IdleState.PAUSED_HIDDEN) {
+        const handler = IdleTransitions[desiredState];
+        if (handler && handler.canDispose && handler.canDispose()) {
+            transitionIdleState(IdleState.DISPOSING);
+        } else {
+            // Conditions changed, transition to correct state
+            transitionIdleState(desiredState);
+        }
+    } else {
+        // No longer should dispose (e.g., started playing)
+        transitionIdleState(desiredState);
+    }
+}
+
+async function performDisposal() {
+    if (!engineWindow || audioState.isDisposing) {
+        transitionIdleState(IdleState.ACTIVE);
+        return;
+    }
+    
+    audioState.isDisposing = true;
+    
+    try {
+        disposeEngineWindow();
+        transitionIdleState(IdleState.DISPOSED);
+    } catch (err) {
+        console.error('[Idle] Disposal failed:', err);
+        audioState.isDisposing = false;
+        transitionIdleState(IdleState.ACTIVE);
+    }
+}
+
+function recordUserActivity() {
+    idleStateMachine.lastActivity = Date.now();
+    idleState.lastActivityTime = Date.now(); // Legacy compatibility
+    
+    // If currently in a disposable state, go back to active
+    if (idleStateMachine.current === IdleState.PAUSED_VISIBLE || 
+        idleStateMachine.current === IdleState.PAUSED_HIDDEN) {
+        transitionIdleState(IdleState.ACTIVE);
+    }
+}
+
+function updateIdleState() {
+    const desired = computeIdleState();
+    
+    // Only auto-transition to disposable states from ACTIVE
+    if (idleStateMachine.current === IdleState.ACTIVE && desired !== IdleState.ACTIVE) {
+        transitionIdleState(desired);
+    }
+    // If DISPOSED and conditions change, restore engine
+    else if (idleStateMachine.current === IdleState.DISPOSED && desired === IdleState.ACTIVE) {
+        restoreEngineIfNeeded().then(() => {
+            if (audioState.engineAlive) {
+                transitionIdleState(IdleState.ACTIVE);
+            }
+        });
+    }
+}
+
+// Legacy compatibility wrappers
+function scheduleEngineDisposal() {
+    updateIdleState();
+}
+
+function scheduleVisibleIdleDisposal() {
+    updateIdleState();
+}
+
+function cancelEngineDisposal() {
+    recordUserActivity();
+    updateIdleState();
+}
+
+// Legacy idle state tracking (for backward compatibility)
 let idleState = {
     lastActivityTime: Date.now(),
     visibleDisposeTimeout: null
@@ -832,17 +1086,9 @@ function logStateDebugAction(action, detail = '') {
 }
 
 function shouldDisposeEngine() {
-    // Dispose when: (window hidden to tray OR idle timeout reached) AND playback paused
-    if (audioState.isPlaying) return false;
-    
-    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-    
-    // Always dispose when hidden to tray
-    if (!isWindowVisible) return true;
-    
-    // Dispose when visible but idle for too long
-    const idleTime = Date.now() - idleState.lastActivityTime;
-    return idleTime >= IDLE_DISPOSE_VISIBLE_TIMEOUT_MS;
+    // Use state machine for decision
+    const desired = computeIdleState();
+    return desired === IdleState.PAUSED_VISIBLE || desired === IdleState.PAUSED_HIDDEN;
 }
 
 function recordUserActivity() {
@@ -1033,6 +1279,15 @@ async function restoreEngineIfNeeded() {
         // Recreate MessageChannels for direct communication after engine restoration
         recreateAllMessageChannels();
         
+        // ── Step 2b: Restore playlist if available ──
+        if (audioState.playlist && audioState.playlist.length > 0) {
+            sendToEngine('cmd:playlist', {
+                music: audioState.playlist,
+                idx: audioState.playlistIndex,
+                max: audioState.playlist.length - 1
+            });
+        }
+        
         // ── Step 3: Load file with restore flag ──
         const fileLoadedPromise = new Promise((resolve) => {
             const onLoaded = (e, data) => {
@@ -1105,6 +1360,10 @@ async function restoreEngineIfNeeded() {
         const elapsed = Date.now() - startTime;
         console.log(`Engine restored in ${elapsed}ms`);
         audioState.isRestoration = false; // Clear restoration flag on success
+        
+        // Update idle state machine
+        transitionIdleState(IdleState.ACTIVE);
+        
         return true;
         
     } catch (err) {
@@ -1723,19 +1982,11 @@ function setupAudioIPC() {
     ipcMain.on('waveform:set', (e, data) => {
         if (!data || !data.filePath) return;
         
-        // Enforce cache size limit (LRU eviction)
-        if (waveformCache.size >= WAVEFORM_CACHE_MAX_SIZE) {
-            const oldestKey = waveformCache.keys().next().value;
-            waveformCache.delete(oldestKey);
-            console.log('[] ');
-        }
-        
         waveformCache.set(data.filePath, {
             peaksL: data.peaksL,
             peaksR: data.peaksR,
             points: data.points,
-            duration: data.duration,
-            timestamp: Date.now()
+            duration: data.duration
         });
         console.log(`Cached waveform for: ${path.basename(data.filePath)}`);
     });
@@ -1743,16 +1994,18 @@ function setupAudioIPC() {
     // DEBUG: Idle disposal testing
     ipcMain.on('debug:idle-status', (e) => {
         const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-        const idleTime = Date.now() - idleState.lastActivityTime;
+        const idleTime = Date.now() - idleStateMachine.lastActivity;
         const status = {
             engineAlive: audioState.engineAlive,
             isPlaying: audioState.isPlaying,
             isWindowVisible,
+            idleState: idleStateMachine.current,
             idleTimeMs: idleTime,
             idleTimeSec: Math.round(idleTime / 1000),
             shouldDispose: shouldDisposeEngine(),
-            pendingTimeouts: !!audioState.engineDisposalTimeout || !!idleState.visibleDisposeTimeout,
-            waveformCacheSize: waveformCache.size
+            pendingTimer: !!idleStateMachine.timer,
+            waveformCacheSize: waveformCache.size,
+            waveformCacheStats: waveformCache.getStats()
         };
         console.log('Idle status: ' + JSON.stringify(status));
         e.sender.send('debug:idle-status-response', status);
