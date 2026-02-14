@@ -1182,8 +1182,6 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:pause', () => {
-        // DEBUG: Log stack trace to find source of duplicate pause events
-        console.log('[DEBUG] audio:pause received, stack:', new Error().stack);
         logStateDebugAction('pause', 'Playback paused');
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');

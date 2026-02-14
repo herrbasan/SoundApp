@@ -760,7 +760,8 @@ async function init() {
 			}
 			if (data.metronome !== undefined) midi.setMetronome(data.metronome);
 		} else if (g.currentAudio?.isMod && player) {
-			if (data.pitch !== undefined) player.setPitch(data.pitch);
+			// Tracker pitch is in semitones (-12 to +12), convert to multiplicative factor
+			if (data.pitch !== undefined) player.setPitch(Math.pow(2, data.pitch / 12.0));
 			if (data.tempo !== undefined) player.setTempo(data.tempo);
 			if (data.stereoSeparation !== undefined) player.setStereoSeparation(data.stereoSeparation);
 		}
@@ -1179,7 +1180,8 @@ async function init() {
 
 			if (data.param === 'pitch') {
 				g.trackerParams.pitch = data.value;
-				if (player && player.setPitch) player.setPitch(data.value);
+				// Convert semitones (-12 to +12) to multiplicative factor
+				if (player && player.setPitch) player.setPitch(Math.pow(2, data.value / 12.0));
 			}
 			else if (data.param === 'tempo') {
 				g.trackerParams.tempo = data.value;
