@@ -1361,6 +1361,11 @@ function setupAudioIPC() {
                 fb(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`, 'engine');
             }
             sendToEngine('window-created', data);
+            
+            // Initialize parameters window on first creation
+            if (data.type === 'parameters') {
+                sendParamsToParametersWindow();
+            }
         }
     });
     
