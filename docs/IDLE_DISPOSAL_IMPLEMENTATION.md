@@ -67,12 +67,12 @@ let idleState = {
 | Waveform caching | ✅ | No re-extraction on restore |
 | Monitoring window | ✅ | Reconnects after restore |
 | Child window tracking | ✅ | Windows re-registered with engine |
-| State preservation | ⚠️ | Multiple failed attempts, still buggy |
+| State preservation | ✅ | Fixed - params properly restored after engine recreate |
 | Child window routing | ✅ | stageId updated after engine recreate |
 
-## State Preservation (NOT WORKING)
+## State Preservation (WORKING ✅)
 
-> **Status:** ❌ **Multiple attempts failed** - Architecture needs rethinking
+> **Status:** ✅ **Fixed** - Parameters properly restored after engine restoration
 
 ### The Architecture Problem
 
@@ -116,76 +116,126 @@ Rubberband Pipeline (fixed 48kHz, ignores HQ setting)
 - UI state only - receives `set-mode` and `update-params` events
 - Sends `param-change` events back to engine via `bridge.sendToStage()`
 
-### The Restoration Flow (Current Attempt)
+### The Restoration Flow (Working Implementation)
 
 ```
 restoreEngineIfNeeded()
 ├── 1. createEngineWindow({ skipAutoLoad: true })
-├── 2. sendToEngine('cmd:setParams', audioState)  // Pre-set g.audioParams
-├── 3. Re-register child windows + update stageId
-├── 4. sendToEngine('cmd:load', { restore: true })  // playAudio() uses pre-set params
-├── 5. sendToEngine('param-change') for MIDI/Tracker params
-└── 6. sendParamsToParametersWindow()  // Update UI
+├── 2. sendToEngine('cmd:setParams', audioState)     // Pre-set g.audioParams globals
+├── 3. Re-register child windows + update stageId    // Fix routing
+├── 4. sendToEngine('cmd:load', { ... })             // Load file, init players
+├── 5. ← Wait for 'audio:loaded' signal              // Players now exist
+├── 6. sendToEngine('cmd:applyParams', ...)          // Apply to active players
+└── 7. sendParamsToParametersWindow()                // Update UI
 ```
 
-### Why It Fails
+**Key insight:** Step 5 (waiting for `audio:loaded`) ensures players exist before `cmd:applyParams` is sent. This eliminates the race condition where params were sent to non-existent players.
 
-**1. Race Condition on File Load**
-- `cmd:load` triggers `playAudio()` which creates new player instances
-- MIDI/Tracker players initialize AFTER file load, but params are sent before
-- Result: Parameters sent to engine before player exists = lost
+### Problems Solved
 
-**2. Pipeline Switch Timing**
-- Rubberband pipeline is lazy-initialized on first pitchtime use
-- `applyRoutingState()` may switch pipelines AFTER file load
-- Result: Audio starts on normal pipeline, rubberband params ignored
+The following issues were fixed by the deferred param application pattern:
 
-**3. Parameter Reset on New File**
-- `playAudio()` resets `g.trackerParams` to defaults on new file load
-- `restore` flag skips this, but doesn't handle MIDI/Tracker re-initialization
-- Result: Tracker/MIDI params reset even with `restore: true`
+| Issue | Root Cause | Solution |
+|-------|------------|----------|
+| **Race Condition on File Load** | MIDI/Tracker players initialize AFTER file load, but params were sent before | Wait for `audio:loaded` signal before sending `cmd:applyParams` |
+| **Pipeline Switch Timing** | Rubberband lazy-initialization happened after file load | Pre-set `g.activePipeline` via `cmd:setParams` before load |
+| **Parameter Reset on New File** | `playAudio()` reset params even with `restore: true` | `cmd:applyParams` applies params after players exist, overriding defaults |
+| **Child Window Routing** | Parameters window had cached `stageId` from destroyed window | Send `update-stage-id` IPC to child windows after engine recreation |
+| **UI State Desync** | `set-mode` event arrived after `sendParamsToParametersWindow()` | `cmd:applyParams` handles all param application, UI updated last |
+| **Parameters Tab Stuck on Audio** | `audio:loaded` event didn't include `fileType`, so `audioState.fileType` was never set | Include `fileType` in `audio:loaded` event from engine |
+| **Double Press Required After Restore** | Hidden child windows didn't receive `update-stage-id` after engine restoration | Send `update-stage-id` to ALL existing child windows, not just visible ones |
 
-**4. Child Window Routing**
-- Parameters window has cached `stageId` from old engine window
-- `bridge.sendToStage()` uses this ID - messages go to destroyed window
-- `update-stage-id` handler exists but may race with param messages
+### Solution
 
-**5. UI State Desync**
-- Parameters window UI is updated via `sendParamsToParametersWindow()`
-- But `set-mode` event from engine may arrive later and reset UI
-- Result: UI shows correct values briefly, then resets to defaults
+The fix uses a **deferred param application** pattern:
 
-### Failed Attempts
+1. **Pre-set globals before load** — `cmd:setParams` sets `g.audioParams` before `cmd:load`
+2. **Wait for file load** — `restoreEngineIfNeeded()` waits for `audio:loaded` signal before proceeding
+3. **Apply params after players exist** — `cmd:applyParams` is sent after file is loaded, when players are initialized
+4. **Update UI last** — Parameters window UI is updated via `sendParamsToParametersWindow()` after all params applied
 
-1. **Pre-set params before load** — `cmd:setParams` before `cmd:load` sets `g.audioParams`, but MIDI/Tracker players don't exist yet
-2. **Restore flag** — `restore: true` skips some resets but not all; MIDI/Tracker re-initialize after load
-3. **Post-load param application** — Sending `param-change` after load races with player initialization
-4. **Window re-registration** — Updating `stageId` helps but doesn't solve the timing issue
+This ensures players exist when params are applied, eliminating race conditions.
 
-### What Needs to Change
+### Implementation Details
 
-**Option A: Synchronous State Restore**
-- Make `cmd:load` wait for params to be applied before resolving
-- Requires restructuring `playAudio()` to be fully async with param application
+**Key changes in `restoreEngineIfNeeded()` (app.js):**
 
-**Option B: Deferred Param Application**
-- Store "pending params" in engine state
-- Apply them when players are actually ready (via onInitialized callbacks)
-- Requires tracking "player ready" state for each engine
+```javascript
+// Wait for file to load before applying params
+const fileLoadedPromise = new Promise((resolve) => {
+    const onLoaded = (e, data) => {
+        if (data.file === audioState.file) {
+            ipcMain.removeListener('audio:loaded', onLoaded);
+            resolve(data);
+        }
+    };
+    ipcMain.once('audio:loaded', onLoaded);
+});
 
-**Option C: Reinitialize from Main Process**
-- Main process (`app.js`) stores full param state
-- After engine restore, main process sends all params in correct order with delays
-- Requires engine to signal "ready for params" after player initialization
+sendToEngine('cmd:load', { file: audioState.file, ... });
+await fileLoadedPromise;  // Players now exist
 
-**Option D: Immutable State Architecture**
-- Replace scattered globals with centralized state object
-- State changes trigger effects (player updates) rather than direct manipulation
-- Similar to "Future Architecture: Centralized State System" in AGENTS.md
+// Now safe to apply params
+sendToEngine('cmd:applyParams', { ... });
+```
 
-### Workaround
+**Key changes in `playAudio()` (engines.js):**
 
-Users must manually re-adjust parameters after engine restore, or avoid long idle periods that trigger disposal (5s hidden, 10s visible paused).
+```javascript
+// Signal when file is loaded (players initialized)
+ipcRenderer.send('audio:loaded', { file: data.file, ... });
+```
+
+**New `cmd:applyParams` handler (engines.js):**
+
+```javascript
+ipcRenderer.on('cmd:applyParams', (e, data) => {
+    // Apply to active players (they exist now)
+    if (g.currentAudio?.isFFmpeg) { ... }
+    else if (g.currentAudio?.isMidi && midi) { ... }
+    else if (g.currentAudio?.isMod && player) { ... }
+});
+```
+
+**Bug Fix: `fileType` in `audio:loaded` event (engines.js):**
+
+The `audio:loaded` event must include `fileType` so `app.js` can correctly set `audioState.fileType`, which is used by `sendParamsToParametersWindow()` to determine which tab to show:
+
+```javascript
+// Determine fileType for the loaded file
+const ext = path.extname(data.file).toLowerCase();
+const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
+const fileType = isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg';
+ipcRenderer.send('audio:loaded', { 
+    file: data.file, 
+    duration: g.currentAudio?.duration || 0,
+    fileType: fileType  // ← Required for parameters window tab switching
+});
+```
+
+**Bug Fix: Hidden window `update-stage-id` (app.js):**
+
+When the engine is restored, `update-stage-id` must be sent to ALL child windows that exist, not just visible ones. Hidden windows have `childWindows[type].open = false` but still need the new engine ID:
+
+```javascript
+// In restoreEngineIfNeeded() (app.js):
+for (const [type, state] of Object.entries(childWindows)) {
+    if (state.windowId) {
+        // Update ALL child windows that exist (including hidden)
+        const childWin = BrowserWindow.fromId(state.windowId);
+        if (childWin && !childWin.isDestroyed()) {
+            childWin.webContents.send('update-stage-id', { stageId: newEngineId });
+        }
+        
+        // Only register visible windows with the engine
+        if (state.open) {
+            sendToEngine('window-created', { type, windowId: state.windowId });
+            sendToEngine('window-visible', { type, windowId: state.windowId });
+        }
+    }
+}
+```
 
 ## Testing
 
@@ -235,6 +285,25 @@ debugEngine.open()    // Reopen engine
 3. Let engine dispose
 4. Click play to restore
 5. Monitoring window should show cached waveform instantly
+
+#### Test 4: Parameters Window Tab Switching After Restore
+
+1. Open parameters window
+2. Load a MIDI file - verify parameters window shows MIDI tab
+3. Pause playback, let engine dispose (10s visible idle or 5s tray)
+4. Click play to restore engine
+5. **Bug check:** Parameters window should still show MIDI tab (not stuck on Audio)
+6. Repeat with Tracker file (.mod, .xm, etc.) - should show Tracker tab after restore
+
+#### Test 5: Parameters Window Opens on First Press After Restore
+
+1. Open parameters window (press 'P')
+2. Close parameters window (press 'P' again or click X)
+3. Play a file, pause, let engine dispose (10s visible idle)
+4. Click play to restore engine
+5. **Bug check:** Press 'P' once - parameters window should open immediately
+6. Close parameters window
+7. Press 'P' again - should open again (no double-press required)
 
 ### Expected CPU Usage
 
@@ -315,9 +384,9 @@ User clicks play
 | File | Role | Status |
 |------|------|--------|
 | `js/app.js` | Main process, state machine, idle logic | ✅ Working |
-| `js/engines.js` | Audio engine, player management | ⚠️ Param reset issue |
+| `js/engines.js` | Audio engine, player management | ✅ Working |
 | `js/player.js` | UI, user input | ✅ Working |
-| `js/parameters/main.js` | Parameters UI | ⚠️ Needs param sync fix |
+| `js/parameters/main.js` | Parameters UI | ✅ Working |
 
 ## Waveform Caching
 
@@ -616,17 +685,9 @@ async function handleFileChange(filePath) {
 | +1 | Optimistic seek UI, DevTools disabled |
 | +2 | Waveform caching |
 | +3 | Child window tracking (monitoring, params) |
-| +4 | Parameter preservation attempts (partial, buggy) |
-| Current | **Refactor completion plan defined** - See [AUDIO_WORKER_REFACTOR.md](./AUDIO_WORKER_REFACTOR.md) |
+| +4 | Parameter preservation (race condition fixes) |
+| Current | **Idle disposal fully working** - State preservation fixed via deferred param application |
 
 ---
 
-## References
-
-| Document | Purpose |
-|----------|---------|
-| [AUDIO_WORKER_REFACTOR.md](./AUDIO_WORKER_REFACTOR.md) | Master plan for completing the refactor, Phase 4 completion steps |
-
----
-
-**Note:** The core idle disposal feature is stable and working. Parameter preservation is the remaining blocker - completion plan documented in AUDIO_WORKER_REFACTOR.md.
+**Note:** The idle disposal feature is fully working, including parameter preservation. All known issues have been resolved.

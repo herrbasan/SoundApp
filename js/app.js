@@ -78,6 +78,8 @@ const audioState = {
     engineAlive: false,
     engineInitializing: false,
     engineDisposalTimeout: null,  // Timer for idle disposal
+    isRestoration: false,         // True during engine restoration flow
+    isDisposing: false,           // Guard against concurrent disposal
     
     // Playlist
     playlist: [],
@@ -682,36 +684,9 @@ let idleState = {
 };
 
 // State-debug action tracking
-const stateDebugActions = [];
-const MAX_STATE_DEBUG_ACTIONS = 50;
-
-// Last logged action for deduplication
-let lastLoggedAction = { action: '', detail: '', time: 0 };
-
+// Debug logging - outputs to console for development debugging
 function logStateDebugAction(action, detail = '') {
-    const now = Date.now();
-    // Deduplicate: skip if same action+detail within 500ms
-    if (action === lastLoggedAction.action && detail === lastLoggedAction.detail && (now - lastLoggedAction.time) < 500) {
-        return;
-    }
-    lastLoggedAction = { action, detail, time: now };
-    
-    const timestamp = new Date().toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit',
-        fractionalSecondDigits: 3
-    });
-    stateDebugActions.unshift({
-        timestamp,
-        source: 'main',
-        action,
-        detail
-    });
-    if (stateDebugActions.length > MAX_STATE_DEBUG_ACTIONS) {
-        stateDebugActions.pop();
-    }
+    console.log(`[StateDebug] ${action}: ${detail}`);
 }
 
 function shouldDisposeEngine() {
@@ -799,6 +774,10 @@ function cancelEngineDisposal() {
 function disposeEngineWindow() {
     if (!engineWindow) return;
     
+    // Guard against concurrent disposal (both timers firing simultaneously)
+    if (audioState.isDisposing) return;
+    audioState.isDisposing = true;
+    
     // Cancel any pending disposal timeout
     cancelEngineDisposal();
     
@@ -817,8 +796,21 @@ function disposeEngineWindow() {
 
 async function restoreEngineIfNeeded() {
     // Restore engine when window becomes visible and we have state to restore
-    if (audioState.engineAlive) return true;  // Already alive
-    if (!audioState.file) return false;        // Nothing to restore
+    fb(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`, 'engine');
+    if (audioState.engineAlive) {
+        fb('[DEBUG] Engine already alive, returning true', 'engine');
+        return true;
+    }
+    if (!audioState.file) {
+        fb('[DEBUG] No file to restore, returning false', 'engine');
+        return false;
+    }
+    
+    // Mark that we're in restoration flow - audio:loaded handler uses this
+    audioState.isRestoration = true;
+    
+    // Reset disposal guard since we're creating a new engine
+    audioState.isDisposing = false;
     
     fb('Restoring engine from state...', 'engine');
     const startTime = Date.now();
@@ -872,16 +864,25 @@ async function restoreEngineIfNeeded() {
         // This sets g.parametersOpen and g.windows.parameters on the engine,
         // so calculateDesiredPipeline() makes the correct routing decision.
         const newEngineId = engineWindow.id;
+        fb(`[DEBUG] Re-registering child windows, newEngineId=${newEngineId}`, 'engine');
         for (const [type, state] of Object.entries(childWindows)) {
-            if (state.open && state.windowId) {
-                fb(`Re-registering ${type} window with restored engine`, 'engine');
-                sendToEngine('window-created', { type, windowId: state.windowId });
-                sendToEngine('window-visible', { type, windowId: state.windowId });
-                
+            fb(`[DEBUG] Child window ${type}: windowId=${state.windowId}, open=${state.open}`, 'engine');
+            if (state.windowId) {
                 // Update child window's stageId to point to the new engine
+                // This is needed for ALL child windows, even hidden ones
                 const childWin = BrowserWindow.fromId(state.windowId);
                 if (childWin && !childWin.isDestroyed()) {
+                    fb(`[DEBUG] Sending update-stage-id to ${type} window`, 'engine');
                     childWin.webContents.send('update-stage-id', { stageId: newEngineId });
+                } else {
+                    fb(`[DEBUG] Child window ${type} not found or destroyed`, 'engine');
+                }
+                
+                // Only register with engine if window is open/visible
+                if (state.open) {
+                    fb(`Re-registering ${type} window with restored engine`, 'engine');
+                    sendToEngine('window-created', { type, windowId: state.windowId });
+                    sendToEngine('window-visible', { type, windowId: state.windowId });
                 }
             }
         }
@@ -912,7 +913,14 @@ async function restoreEngineIfNeeded() {
         });
         
         fb('Waiting for file to load before applying params...', 'params');
-        await fileLoadedPromise;
+        const loadedData = await fileLoadedPromise;
+        
+        // CRITICAL: Update audioState.fileType from the loaded data BEFORE calling sendParamsToParametersWindow
+        // This ensures the correct tab is shown in the parameters window after engine restoration
+        if (loadedData && loadedData.fileType) {
+            audioState.fileType = loadedData.fileType;
+            fb(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`, 'params');
+        }
         
         // ── Step 4: Apply params to active players after load ──
         // cmd:applyParams applies state to players (unlike cmd:setParams which sets globals)
@@ -938,15 +946,22 @@ async function restoreEngineIfNeeded() {
         }
         
         // ── Step 5: Update parameters window UI ──
-        // Pass reset=true if we reset params in Step 0
-        sendParamsToParametersWindow(didResetParams);
+        // NOTE: sendParamsToParametersWindow is now called by the unified audio:loaded handler
+        // This ensures single source of truth for parameters window tab switching
+        // We only need to pass reset flag if we reset params in Step 0
+        if (didResetParams) {
+            fb(`[DEBUG] Sending reset=true to parameters window after restoration`, 'params');
+            sendParamsToParametersWindow(true);
+        }
         
         const elapsed = Date.now() - startTime;
         fb(`Engine restored in ${elapsed}ms`, 'engine');
+        audioState.isRestoration = false; // Clear restoration flag on success
         return true;
         
     } catch (err) {
         fb('Failed to restore engine: ' + err.message, 'engine');
+        audioState.isRestoration = false; // Clear restoration flag on failure
         return false;
     }
 }
@@ -978,10 +993,19 @@ function sendToPlayer(channel, data) {
 }
 
 function sendParamsToParametersWindow(reset = false) {
-    // Send current params directly to parameters window if it's open
-    if (!childWindows.parameters.open || !childWindows.parameters.windowId) return;
+    // Send current params directly to parameters window if it exists
+    // Window may be hidden (open=false) but still exist - send params anyway
+    fb(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`, 'params');
+    fb(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`, 'params');
+    fb(`[DEBUG] audioState.fileType: ${audioState.fileType}`, 'params');
+    
+    if (!childWindows.parameters.windowId) {
+        fb(`[DEBUG] Early return: no windowId (window doesn't exist)`, 'params');
+        return;
+    }
     
     const fileType = audioState.fileType;
+    fb(`[DEBUG] Sending params for fileType: ${fileType}`, 'params');
     let paramsData = null;
     
     if (fileType === 'MIDI') {
@@ -1090,6 +1114,8 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:pause', () => {
+        // DEBUG: Log stack trace to find source of duplicate pause events
+        console.log('[DEBUG] audio:pause received, stack:', new Error().stack);
         logStateDebugAction('pause', 'Playback paused');
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
@@ -1288,9 +1314,28 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:loaded', (e, data) => {
+        fb(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`, 'engine');
+        
+        const previousFileType = audioState.fileType;
+        const isRestorationFlow = audioState.isRestoration; // True during engine restoration
+        
         if (data.duration) audioState.duration = data.duration;
         if (data.file) audioState.file = data.file;
+        if (data.fileType) {
+            audioState.fileType = data.fileType;
+            fb(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`, 'engine');
+        }
         broadcastState();
+        
+        // UNIFIED STATE TRANSITION: Update parameters window when:
+        // 1. fileType changes (normal file switch), OR
+        // 2. Engine is being restored (parameters window may have stale state)
+        // This is the single source of truth for parameters window tab switching
+        const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
+        if (fileTypeChanged || isRestorationFlow) {
+            fb(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`, 'params');
+            sendParamsToParametersWindow();
+        }
     });
     
     ipcMain.on('audio:ended', () => {
@@ -1307,17 +1352,20 @@ function setupAudioIPC() {
     
     // Window lifecycle - track in main and forward to engine
     ipcMain.on('window-created', (e, data) => {
+        fb(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type) {
             // Track in main state for engine restoration
             if (childWindows[data.type]) {
                 childWindows[data.type].open = true;
                 childWindows[data.type].windowId = data.windowId;
+                fb(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`, 'engine');
             }
             sendToEngine('window-created', data);
         }
     });
     
     ipcMain.on('window-visible', (e, data) => {
+        fb(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type && childWindows[data.type]) {
             childWindows[data.type].open = true;
             childWindows[data.type].windowId = data.windowId;
@@ -1331,18 +1379,22 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-hidden', (e, data) => {
+        fb(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type && childWindows[data.type]) {
             // Window is hidden but not closed - keep tracking it
+            fb(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`, 'engine');
         }
         sendToEngine('window-hidden', data);
     });
     
     ipcMain.on('window-closed', (e, data) => {
+        fb(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`, 'engine');
         if (data && data.type) {
             // Remove from tracking
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;
                 childWindows[data.type].windowId = null;
+                fb(`[DEBUG] childWindows.${data.type} cleared`, 'engine');
             }
             sendToEngine('window-closed', data);
         }
@@ -1447,10 +1499,9 @@ function setupAudioIPC() {
             }
         };
         
-        // Send state along with any pending actions
+        // Send state to state-debug window
         tools.sendToId(windowId, 'state-debug:main', { 
-            state: mainState,
-            actions: stateDebugActions.slice()  // Send copy of actions
+            state: mainState
         });
         
         // Forward to engine if alive

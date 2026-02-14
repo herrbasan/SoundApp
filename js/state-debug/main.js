@@ -14,14 +14,11 @@ let g = {
 const state = {
     main: null,
     engine: null,
-    audio: null,
-    actions: []
+    audio: null
 };
 
-const MAX_ACTIONS = 50;
-
 // DOM elements
-let mainStateEl, engineStateEl, audioStateEl, actionLogEl;
+let mainStateEl, engineStateEl, audioStateEl;
 let mainTimeEl, engineTimeEl, audioTimeEl;
 
 async function init() {
@@ -41,7 +38,6 @@ async function init() {
     mainStateEl = document.getElementById('main-state');
     engineStateEl = document.getElementById('engine-state');
     audioStateEl = document.getElementById('audio-state');
-    actionLogEl = document.getElementById('action-log');
     mainTimeEl = document.getElementById('main-timestamp');
     engineTimeEl = document.getElementById('engine-timestamp');
     audioTimeEl = document.getElementById('audio-timestamp');
@@ -54,27 +50,11 @@ async function init() {
     // Listen for state updates from main process
     bridge.on('state-debug:main', (data) => {
         state.main = data.state;
-        // Only log actions that aren't polling updates
-        if (data.action && data.action !== 'request') {
-            addAction('main', data.action, data.detail);
-        }
-        // Process actions array from main process (if provided)
-        if (data.actions && Array.isArray(data.actions)) {
-            data.actions.forEach(action => {
-                if (action.action && action.action !== 'request') {
-                    addAction(action.source || 'main', action.action, action.detail);
-                }
-            });
-        }
         renderMainState();
     });
 
     bridge.on('state-debug:engine', (data) => {
         state.engine = data.state;
-        // Engine state updates - don't log unless explicit action
-        if (data.action && data.action !== 'request') {
-            addAction('engine', data.action, data.detail);
-        }
         renderEngineState();
     });
 
@@ -95,35 +75,6 @@ async function init() {
 
 function requestState() {
     bridge.sendToStage('state-debug:request');
-}
-
-function addAction(source, action, detail) {
-    // Skip if no action or if it's a polling request
-    if (!action || action === 'request') {
-        return;
-    }
-    
-    const timestamp = new Date().toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit',
-        fractionalSecondDigits: 3
-    });
-    
-    state.actions.unshift({
-        timestamp,
-        source,
-        action,
-        detail: detail || ''
-    });
-    
-    // Keep only last N actions
-    if (state.actions.length > MAX_ACTIONS) {
-        state.actions.pop();
-    }
-    
-    renderActions();
 }
 
 function renderMainState() {
@@ -196,31 +147,6 @@ function renderObject(obj, prefix = '') {
     }).join('');
 }
 
-function renderActions() {
-    if (!actionLogEl) return;
-    
-    actionLogEl.innerHTML = state.actions.map(action => {
-        let cssClass = '';
-        if (action.action.includes('error') || action.action.includes('fail')) {
-            cssClass = 'error';
-        } else if (action.action.includes('restore') || action.action.includes('create')) {
-            cssClass = 'success';
-        } else if (action.action.includes('warning') || action.action.includes('skip')) {
-            cssClass = 'warning';
-        }
-        
-        return `
-            <div class="action-item ${cssClass}">
-                <div>
-                    <span class="action-time">${action.timestamp}</span>
-                    <span class="action-name">[${action.source}] ${escapeHtml(action.action)}</span>
-                </div>
-                ${action.detail ? `<div class="action-detail">${escapeHtml(action.detail)}</div>` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
 function escapeHtml(text) {
     if (typeof text !== 'string') return String(text);
     const div = document.createElement('div');
@@ -233,8 +159,7 @@ function getExportData() {
         timestamp: new Date().toISOString(),
         main: state.main,
         engine: state.engine,
-        audio: state.audio,
-        recentActions: state.actions
+        audio: state.audio
     };
 }
 
@@ -242,9 +167,9 @@ async function copyToClipboard() {
     const data = JSON.stringify(getExportData(), null, 2);
     try {
         await navigator.clipboard.writeText(data);
-        addAction('ui', 'copy-to-clipboard', 'State copied to clipboard');
+        console.log('[State Debug] State copied to clipboard');
     } catch (err) {
-        addAction('ui', 'copy-to-clipboard', 'Failed: ' + err.message);
+        console.error('[State Debug] Failed to copy:', err);
     }
 }
 
@@ -257,7 +182,7 @@ function exportJSON() {
     a.download = `soundapp-state-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    addAction('ui', 'export-json', 'State exported to file');
+    console.log('[State Debug] State exported to file');
 }
 
 // Wait for bridge-ready
@@ -358,23 +283,6 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
         duration: 3741.2
     };
     
-    // Mock actions
-    state.actions = [
-        { timestamp: "22:24:03.241", source: "main", action: "pipeline-switch", detail: "Switched to pitchtime mode" },
-        { timestamp: "22:24:02.150", source: "user", action: "play clicked", detail: "" },
-        { timestamp: "22:23:45.892", source: "main", action: "engine-restored", detail: "Engine restored in 245ms" },
-        { timestamp: "22:23:40.100", source: "main", action: "engine-disposed", detail: "0% CPU mode activated" },
-        { timestamp: "22:23:15.555", source: "user", action: "param: pitch=3", detail: "" },
-        { timestamp: "22:23:14.123", source: "user", action: "param: tempo=1.15", detail: "" },
-        { timestamp: "22:23:10.888", source: "main", action: "window-opened", detail: "parameters window created" },
-        { timestamp: "22:23:05.444", source: "main", action: "drag-drop", detail: "add (3 files)" },
-        { timestamp: "22:22:45.333", source: "user", action: "load file: My Audio Book.m4b", detail: "" },
-        { timestamp: "22:22:30.777", source: "main", action: "pipeline-switch", detail: "Switched to tape mode" },
-        { timestamp: "22:22:15.444", source: "user", action: "prev track", detail: "" },
-        { timestamp: "22:21:50.222", source: "main", action: "cmdline-open", detail: "Initial file open (1 file)" },
-        { timestamp: "22:21:30.111", source: "user", action: "play clicked", detail: "" }
-    ];
-    
     // Wait for DOM ready then render
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
@@ -382,7 +290,6 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
                 mainStateEl = document.getElementById('main-state');
                 engineStateEl = document.getElementById('engine-state');
                 audioStateEl = document.getElementById('audio-state');
-                actionLogEl = document.getElementById('action-log');
                 mainTimeEl = document.getElementById('main-timestamp');
                 engineTimeEl = document.getElementById('engine-timestamp');
                 audioTimeEl = document.getElementById('audio-timestamp');
@@ -390,7 +297,6 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
                 renderMainState();
                 renderEngineState();
                 renderAudioState();
-                renderActions();
                 document.querySelector('main').classList.add('ready');
             }, 100);
         });
@@ -399,7 +305,6 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
             mainStateEl = document.getElementById('main-state');
             engineStateEl = document.getElementById('engine-state');
             audioStateEl = document.getElementById('audio-state');
-            actionLogEl = document.getElementById('action-log');
             mainTimeEl = document.getElementById('main-timestamp');
             engineTimeEl = document.getElementById('engine-timestamp');
             audioTimeEl = document.getElementById('audio-timestamp');
@@ -407,7 +312,6 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
             renderMainState();
             renderEngineState();
             renderAudioState();
-            renderActions();
             document.querySelector('main').classList.add('ready');
         }, 100);
     }

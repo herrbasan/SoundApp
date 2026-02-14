@@ -232,9 +232,11 @@ function setupIPC() {
     });
 
     ipcRenderer.on('window-closed', (e, data) => {
+        console.log('[window-closed] received:', data.type, 'windowId:', data.windowId, 'current g.windows:', g.windows[data.type]);
         if (g.windows[data.type] === data.windowId) {
             g.windows[data.type] = null;
             g.windowsVisible[data.type] = false;
+            console.log('[window-closed] Cleared tracking for', data.type);
         }
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
         // Forward to app.js for engine tracking
@@ -1077,7 +1079,7 @@ function setupWindow() {
 }
 
 async function openWindow(type, forceShow = false, contextFile = null) {
-    console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'exists:', !!g.windows[type]);
+    console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'g.windows[type]:', g.windows[type], 'g.windowsVisible[type]:', g.windowsVisible[type]);
     
     async function waitForWindowClosed(t, id, timeoutMs = 2000) {
         return await new Promise((resolve) => {

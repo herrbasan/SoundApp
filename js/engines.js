@@ -651,7 +651,16 @@ async function init() {
 		console.log('[Engine] cmd:load', data.file, data.restore ? '(restore)' : '');
 		if (data.file) {
 			await playAudio(data.file, data.position || 0, data.paused || false, false, data.restore || false);
-			ipcRenderer.send('audio:loaded', { file: data.file, duration: g.currentAudio?.duration || 0 });
+			// Determine fileType for the loaded file
+			const ext = path.extname(data.file).toLowerCase();
+			const isMIDI = g.supportedMIDI && g.supportedMIDI.includes(ext);
+			const isTracker = g.supportedMpt && g.supportedMpt.includes(ext);
+			const fileType = isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg';
+			ipcRenderer.send('audio:loaded', { 
+				file: data.file, 
+				duration: g.currentAudio?.duration || 0,
+				fileType: fileType
+			});
 		}
 	});
 	
