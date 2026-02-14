@@ -1209,6 +1209,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
     ipcRenderer.send('window-created', { type: type, windowId: g.windows[type] });
 
     setTimeout(() => {
+        console.log('[openWindow] Sending show-window to', type, 'id:', g.windows[type]);
         tools.sendToId(g.windows[type], 'show-window');
     }, 100);
 }
