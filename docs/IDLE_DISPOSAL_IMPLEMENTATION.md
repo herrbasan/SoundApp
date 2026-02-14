@@ -339,6 +339,8 @@ User pauses / hides window
 └──────────────────┘
 ```
 
+**Note on Concurrent Disposal:** Two disposal timers exist (`scheduleEngineDisposal` and `scheduleVisibleIdleDisposal`). When the window is visible and paused, both schedule for 10s. A guard flag (`isDisposing`) prevents duplicate disposal execution when both timers fire simultaneously.
+
 ### Restoration Flow
 
 ```
@@ -687,6 +689,7 @@ async function handleFileChange(filePath) {
 | +3 | Child window tracking (monitoring, params) |
 | +4 | Parameter preservation (race condition fixes) |
 | Current | **Idle disposal fully working** - State preservation fixed via deferred param application |
+| +5 | Added `isDisposing` guard to prevent duplicate disposal when both timers fire simultaneously |
 
 ---
 
