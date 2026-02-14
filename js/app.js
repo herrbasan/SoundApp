@@ -1,5 +1,5 @@
 'use strict';
-const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen } = require('electron');
+const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen, MessageChannelMain } = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper_new.js');
@@ -75,7 +75,9 @@ const DEFAULTS = {
  * @returns {object} The new parameter values after reset
  */
 function resetParamsToDefaults(fileType, options = {}) {
-    console.log(`[resetParamsToDefaults] fileType=${fileType}, options=${JSON.stringify(options)}`);
+    // Log only essential info, not full metadata which can be huge for tracker files
+    const optionsSummary = options.file ? `file=${path.basename(options.file)}` : '';
+    console.log(`[resetParamsToDefaults] ${fileType} ${optionsSummary}`);
     
     if (fileType === 'MIDI') {
         audioState.midiParams = {
@@ -155,7 +157,6 @@ const audioState = {
 
 // Engine window reference
 let engineWindow = null;
-let playerWindow = null;
 
 // Child window tracking (monitoring, parameters, etc.)
 // These need to be re-notified to engine after restoration
@@ -167,6 +168,87 @@ const childWindows = {
     help: { open: false, windowId: null },
     mixer: { open: false, windowId: null }
 };
+
+// MessageChannel ports for direct renderer-to-renderer communication
+// Key: windowId, Value: { enginePort, windowPort, type }
+const messageChannels = new Map();
+
+// Enable MessagePort for direct renderer-to-renderer communication
+// Fixed: Now properly calls port.start() to prevent message queuing
+const ENABLE_MESSAGE_PORT = true;
+
+/**
+ * Create a MessageChannel between engine and a child window.
+ * Called when window is created or engine is restored.
+ * @param {number} windowId - The window ID
+ * @param {string} type - Window type (parameters, monitoring, etc.)
+ */
+function createMessageChannel(windowId, type) {
+    if (!ENABLE_MESSAGE_PORT) return null; // Disabled due to crashes
+    if (!engineWindow || engineWindow.isDestroyed()) return null;
+    
+    const win = BrowserWindow.fromId(windowId);
+    if (!win || win.isDestroyed()) return null;
+    
+    // Clean up existing channel if any
+    destroyMessageChannel(windowId);
+    
+    // Create new MessageChannel
+    const { port1, port2 } = new MessageChannelMain();
+    
+    messageChannels.set(windowId, {
+        enginePort: port1,
+        windowPort: port2,
+        type: type
+    });
+    
+    // Send port to engine (as transferable)
+    try {
+        engineWindow.webContents.postMessage('message-channel', 
+            { type, windowId, role: 'engine' }, 
+            [port1]
+        );
+    } catch (err) {
+        return null;
+    }
+    
+    // Send port to window (as transferable)
+    try {
+        win.webContents.postMessage('message-channel', 
+            { type, role: 'window' }, 
+            [port2]
+        );
+    } catch (err) {
+        return null;
+    }
+    
+    return { port1, port2 };
+}
+
+/**
+ * Destroy a MessageChannel when window closes.
+ * @param {number} windowId - The window ID
+ */
+function destroyMessageChannel(windowId) {
+    const channel = messageChannels.get(windowId);
+    if (!channel) return;
+    
+    try { channel.enginePort.close(); } catch (e) {}
+    try { channel.windowPort.close(); } catch (e) {}
+    messageChannels.delete(windowId);
+}
+
+/**
+ * Recreate all MessageChannels after engine restoration.
+ * Called from restoreEngineIfNeeded.
+ */
+function recreateAllMessageChannels() {
+    for (const [type, state] of Object.entries(childWindows)) {
+        if (state.windowId && state.open) {
+            createMessageChannel(state.windowId, type);
+        }
+    }
+}
 
 // Waveform cache - survives engine disposal
 // Key: file path, Value: { peaksL, peaksR, points, duration, timestamp }
@@ -708,7 +790,6 @@ async function createEngineWindow(options = {}) {
         ipcMain.once('engine:ready', () => {
             audioState.engineAlive = true;
             audioState.engineInitializing = false;
-            console.log('[] ');
             
             // Skip auto-load when restoreEngineIfNeeded will handle it
             if (!options.skipAutoLoad && audioState.file) {
@@ -846,6 +927,15 @@ function disposeEngineWindow() {
     logStateDebugAction('engine-disposed', 'Engine disposed (0% CPU mode)');
     audioState.engineAlive = false;
     
+    // Close all MessageChannels before destroying engine
+    // This signals the remote ends to stop sending data
+    const channelsToClose = Array.from(messageChannels.entries());
+    messageChannels.clear();
+    
+    for (const [windowId, channel] of channelsToClose) {
+        try { channel.enginePort.close(); } catch (e) {}
+    }
+    
     try {
         engineWindow.destroy();  // Force close without events
     } catch (err) {
@@ -898,7 +988,6 @@ async function restoreEngineIfNeeded() {
         // MIDI/Tracker: always reset (no lock feature)
         const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
         if (shouldReset) {
-            console.log(`Resetting ${audioState.fileType} params to defaults`);
             resetParamsToDefaults(audioState.fileType, audioState.metadata);
         }
         
@@ -941,11 +1030,10 @@ async function restoreEngineIfNeeded() {
         console.log(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`);
         sendToEngine('windows:init', { windows: existingWindows });
         
+        // Recreate MessageChannels for direct communication after engine restoration
+        recreateAllMessageChannels();
+        
         // ── Step 3: Load file with restore flag ──
-        // The restore flag tells playAudio() to:
-        // - Use pre-set g.audioParams as-is (no reset)
-        // - Apply settings regardless of locked state
-        // - Skip sending set-mode to params window (we handle that)
         const fileLoadedPromise = new Promise((resolve) => {
             const onLoaded = (e, data) => {
                 if (data.file === audioState.file) {
@@ -1033,7 +1121,6 @@ function sendToEngine(channel, data) {
     }
     try {
         engineWindow.webContents.send(channel, data);
-        console.log(`sendToEngine(${channel}): sent`);
         return true;
     } catch (err) {
         console.log(`sendToEngine(${channel}): failed - ${err.message}`);
@@ -1445,6 +1532,12 @@ function setupAudioIPC() {
             }
             sendToEngine('window-created', data);
             
+            // Create MessageChannel for direct communication
+            // Only for windows that need high-frequency data (parameters, monitoring)
+            if (data.type === 'parameters' || data.type === 'monitoring') {
+                createMessageChannel(data.windowId, data.type);
+            }
+            
             // Initialize parameters window on first creation
             if (data.type === 'parameters') {
                 sendParamsToParametersWindow();
@@ -1478,6 +1571,11 @@ function setupAudioIPC() {
     ipcMain.on('window-closed', (e, data) => {
         console.log(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`);
         if (data && data.type) {
+            // Destroy MessageChannel if exists
+            if (data.windowId) {
+                destroyMessageChannel(data.windowId);
+            }
+            
             // Remove from tracking
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;

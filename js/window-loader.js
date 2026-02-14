@@ -15,11 +15,29 @@ if (isElectron) {
 	let windowId = null;
 	let windowType = null;
 	
+	// MessagePort for direct engine communication (set when received)
+	let messagePort = null;
+	// Handlers that should also be attached to MessagePort when it arrives
+	const portHandlers = new Map();
+	
 	bridge = {
 		sendToStage: (channel, data) => tools.sendToId(stageId, channel, data),
 		sendToId: (id, channel, data) => tools.sendToId(id, channel, data),
 		broadcast: (channel, data) => tools.broadcast(channel, data),
-		on: (channel, cb) => ipcRenderer.on(channel, (e, d) => cb(d)),
+		on: (channel, cb) => {
+			// Always listen on IPC (for main-process messages)
+			ipcRenderer.on(channel, (e, d) => cb(d));
+			// Also store for MessagePort (will be attached when port arrives)
+			portHandlers.set(channel, cb);
+			// If port already exists, attach immediately
+			if (messagePort) {
+				messagePort.onmessage = (e) => {
+					if (e.data && e.data.channel === channel) {
+						cb(e.data.data);
+					}
+				};
+			}
+		},
 		once: (channel, cb) => ipcRenderer.once(channel, (e, d) => cb(d)),
 		config: helper.config,
 		window: helper.window,
@@ -35,7 +53,7 @@ if (isElectron) {
 
 			// Default behavior for secondary windows: hide (fast reopen)
 			if (stageId && windowType) {
-				tools.sendToId(stageId, 'window-hidden', { type: windowType });
+				tools.sendToId(stageId, 'window-hidden', { type: windowType, windowId: windowId });
 			}
 			helper.window.hide();
 		},
@@ -58,13 +76,41 @@ if (isElectron) {
 	ipcRenderer.on('update-stage-id', (e, data) => {
 		if (data && data.stageId) {
 			stageId = data.stageId;
-			console.log('[window-loader] Updated stageId to', stageId);
+		}
+	});
+	
+	// Receive MessagePort from main for direct engine-to-window communication
+	ipcRenderer.on('message-channel', (e, meta) => {
+		const port = e.ports[0];
+		if (!port) return;
+		
+		if (meta.role === 'window') {
+			// Close old port if exists
+			if (messagePort) {
+				try { messagePort.close(); } catch (e) {}
+			}
+			
+			// Store port for direct communication
+			messagePort = port;
+			
+			// IMPORTANT: Start the port to receive messages
+			// Without this, messages queue up in memory causing OOM
+			port.start();
+			
+			// Attach existing handlers to the port
+			port.onmessage = (e) => {
+				if (e.data && e.data.channel) {
+					const handler = portHandlers.get(e.data.channel);
+					if (handler) {
+						handler(e.data.data);
+					}
+				}
+			};
 		}
 	});
 
 	// Listen for show window command
 	ipcRenderer.on('show-window', () => {
-		console.log('[window-loader] show-window received for window:', windowType);
 		helper.window.show();
 		helper.window.focus();
 	});
@@ -186,6 +232,11 @@ if (isElectron) {
 		}
 		applyTheme(data.config);
 		dispatchBridgeReady(data);
+		
+		// Signal that window is ready to receive messages
+		if(stageId){
+			tools.sendToId(stageId, 'window-ready', { type: windowType, windowId: windowId });
+		}
 	});
 	
 	function setupChrome() {

@@ -188,7 +188,7 @@ async function init() {
         }
     });
 
-    // Listen for tracker VU updates (high-frequency, from audio worklet)
+    // Listen for tracker VU updates (from engine via main IPC)
     bridge.on('tracker-vu', (data) => {
         if (currentMode !== 'tracker' || !data.vu) return;
         updateTrackerVu(data.vu, data.channels);
@@ -762,8 +762,15 @@ function updateTrackerVu(vuData, channelCount) {
     const countLabel = document.getElementById('tracker_channel_count');
     if (!container) return;
 
-    // Rebuild channel strips if channel count changed
-    if (channelCount !== trackerChannelCount) {
+    // Rebuild channel strips if:
+    // - channel count changed
+    // - no VU bars exist (first init or after engine restoration)
+    // - container is empty (DOM was cleared)
+    const needsRebuild = channelCount !== trackerChannelCount || 
+                         trackerVuBars.length === 0 || 
+                         container.children.length === 0;
+    
+    if (needsRebuild) {
         trackerChannelCount = channelCount;
         trackerVuBars = [];
         trackerSoloSet.clear();

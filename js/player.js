@@ -24,6 +24,7 @@ window.disposeIPC = {
         ipcRenderer.removeAllListeners('position');
         ipcRenderer.removeAllListeners('window-closed');
         ipcRenderer.removeAllListeners('window-hidden');
+        ipcRenderer.removeAllListeners('window-ready');
         ipcRenderer.removeAllListeners('theme-changed');
         ipcRenderer.removeAllListeners('shortcut');
         ipcRenderer.removeAllListeners('log');
@@ -1201,17 +1202,30 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         init_data: init_data
     });
 
-    console.log('[openWindow] Created window:', type, 'id:', g.windows[type]);
-
-    g.windowsVisible[type] = true;
-    
     // Notify app.js/engine.js that window was created
     ipcRenderer.send('window-created', { type: type, windowId: g.windows[type] });
 
-    setTimeout(() => {
-        console.log('[openWindow] Sending show-window to', type, 'id:', g.windows[type]);
-        tools.sendToId(g.windows[type], 'show-window');
-    }, 100);
+    // Wait for window-ready signal before showing
+    const windowId = g.windows[type];
+    const onReady = (e, data) => {
+        // Use loose equality for windowId (could be number or string)
+        if (data && data.type === type && data.windowId == windowId) {
+            ipcRenderer.removeListener('window-ready', onReady);
+            clearTimeout(fallbackTimeout);
+            tools.sendToId(windowId, 'show-window');
+            // Notify main process that window is now visible
+            ipcRenderer.send('window-visible', { type: type, windowId: windowId });
+        }
+    };
+    ipcRenderer.on('window-ready', onReady);
+    
+    // Fallback: show after timeout even if ready signal not received
+    const fallbackTimeout = setTimeout(() => {
+        ipcRenderer.removeListener('window-ready', onReady);
+        tools.sendToId(windowId, 'show-window');
+        // Notify main process that window is now visible
+        ipcRenderer.send('window-visible', { type: type, windowId: windowId });
+    }, 500);
 }
 
 async function getMixerPlaylist(contextFile = null) {

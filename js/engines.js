@@ -28,10 +28,37 @@ const RubberbandPipeline = require('./rubberband-pipeline.js');
  * @param {string} channel - The IPC channel name
  * @param {*} data - The data to send
  */
-function sendToWindow(windowId, channel, data) {
-	if (!windowId) return;
+/**
+ * Send data to a window. Uses MessagePort for direct communication if available,
+ * otherwise falls back to main-process IPC (tools.sendToId).
+ * 
+ * For high-frequency data (VU meters), MessagePort is essential to avoid
+ * main-process bottleneck.
+ * 
+ * @param {number} windowId - Target window ID
+ * @param {string} channel - IPC channel name
+ * @param {*} data - Data to send
+ * @param {string} windowType - 'parameters' or 'monitoring' (for MessagePort lookup)
+ */
+function sendToWindow(windowId, channel, data, windowType) {
+	if (!windowId || g.isDisposed) {
+		return;
+	}
+	
+	// Try MessagePort first if available (direct, zero main-process overhead)
+	if (windowType && g.messagePorts[windowType]) {
+		try {
+			g.messagePorts[windowType].postMessage({ channel, data });
+			return;
+		} catch (err) {
+			// Port failed, remove it so we don't try again
+			delete g.messagePorts[windowType];
+		}
+	}
+	
+	// Fallback to main-process IPC
 	try {
-		ipcRenderer.sendTo(windowId, channel, data);
+		tools.sendToId(windowId, channel, data);
 	} catch (err) {
 		// Window may not exist or be destroyed, fail silently
 	}
@@ -72,6 +99,8 @@ g.monitoringAnalyserR = null;
 g.monitoringSplitter = null;
 g.monitoringAnalyserL_RB = null;
 g.monitoringAnalyserR_RB = null;
+g.messagePorts = {}; // MessagePorts for direct renderer-to-renderer communication (key: window type)
+g.isDisposed = false; // Flag to prevent sending data after disposal starts
 g.monitoringSplitter_RB = null;
 g.lastNavTime = 0;
 g.mixerPlaying = false;
@@ -462,8 +491,8 @@ function stopPositionPush() {
 }
 
 init();
-async function init() {
 
+async function init() {
     
     g.main_env = await helper.global.get('main_env');
     g.basePath = await helper.global.get('base_path');
@@ -650,29 +679,30 @@ async function init() {
 				g.currentAudio.currentTime = e.pos || 0;
 			}
 			// Forward VU data to Parameters window
-			if (e.vu && g.windows.parameters) {
-				sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+			// Safety: limit to reasonable channel count and skip if disposed
+			if (!g.isDisposed && e.vu && g.windows.parameters && e.vu.length > 0 && e.vu.length <= 64) {
+				sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length }, 'parameters');
 			}
 		});
 		player.onEnded(audioEnded);
 		player.onError((err) => { console.error('[Player] Error:', err.message || err); audioEnded(); g.blocky = false; });
 		player.onInitialized(() => {
-
 			player.gain.connect(g.audioContext.destination);
 			if (g.monitoringSplitter) {
 				player.gain.connect(g.monitoringSplitter);
 			}
 			g.blocky = false;
-			engineReady();
+			// Delay engineReady to ensure IPC handlers are registered
+			setTimeout(() => engineReady(), 0);
 		});
 	} else {
 		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
-		engineReady();
+		// Delay engineReady to ensure IPC handlers are registered first
+		setTimeout(() => engineReady(), 0);
 	}
 
 	// IPC Command handlers from app.js
 	ipcRenderer.on('cmd:load', async (e, data) => {
-
 		if (data.file) {
 			await playAudio(data.file, data.position || 0, data.paused || false, false, data.restore || false);
 			// Determine fileType for the loaded file
@@ -809,22 +839,30 @@ async function init() {
 		if (data.idx !== undefined) g.idx = data.idx;
 		if (data.max !== undefined) g.max = data.max;
 	});
-	// Window visibility handlers (for monitoring)
+	// Window visibility handlers (for monitoring and parameters)
 	ipcRenderer.on('window-visible', async (e, data) => {
+		if (!data || !data.type) return;
+		
+		// Update window tracking
+		if (data.windowId) {
+			g.windows[data.type] = data.windowId;
+		}
+		g.windowsVisible[data.type] = true;
+		
 		if (data.type === 'monitoring') {
-			g.windowsVisible.monitoring = true;
 			g.monitoringReady = true;
 			startMonitoringLoop();
 			await applyRoutingState();
 		}
 		
 		if (data.type === 'parameters') {
-			g.windowsVisible.parameters = true;
 			g.parametersOpen = true;
 		}
 	});
 	
 	ipcRenderer.on('window-hidden', async (e, data) => {
+		if (!data || !data.type) return;
+		
 		if (data.type === 'monitoring') {
 			g.windowsVisible.monitoring = false;
 			g.monitoringReady = false;
@@ -851,6 +889,26 @@ async function init() {
 			}
 			
 			await applyRoutingState();
+		}
+	});
+	
+	// Receive MessagePort from main for direct renderer-to-renderer communication
+	ipcRenderer.on('message-channel', (e, meta) => {
+		const port = e.ports[0];
+		if (!port) return;
+		
+		if (meta.role === 'engine' && meta.type) {
+			// Close old port if exists
+			if (g.messagePorts[meta.type]) {
+				try { g.messagePorts[meta.type].close(); } catch (e) {}
+			}
+			
+			// Store port for this window type
+			g.messagePorts[meta.type] = port;
+			
+			// IMPORTANT: Start the port to receive messages
+			// Without this, messages queue up in memory causing OOM
+			port.start();
 		}
 	});
 	
@@ -1344,7 +1402,7 @@ async function init() {
 					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
 					isMIDI: isMIDI,
 					isTracker: isTracker
-				});
+				}, 'monitoring');
 			} catch (err) {
 				console.warn('[Monitoring] Failed to send file-change on ready:', err && err.message);
 			}
@@ -1360,7 +1418,7 @@ async function init() {
 			sendToWindow(g.windows.monitoring, 'waveform-chunk', {
 				...chunk,
 				filePath: g.currentAudio ? path.basename(g.currentAudio.fp) : ''
-			});
+			}, 'monitoring');
 		} catch (err) {
 			console.warn('[Monitoring] Failed to send waveform chunk (window may be closing):', err.message);
 		}
@@ -1371,7 +1429,7 @@ async function init() {
 		if (!g.windows.monitoring) return;
 		try {
 
-			sendToWindow(g.windows.monitoring, 'ana-data', data);
+			sendToWindow(g.windows.monitoring, 'ana-data', data, 'monitoring');
 		} catch (err) {
 			console.warn('[Stage] failed to forward ana-data', err && err.message);
 		}
@@ -1384,7 +1442,7 @@ async function init() {
 		}
 		try {
 
-			sendToWindow(g.windows.monitoring, 'set-monitoring-source', src);
+			sendToWindow(g.windows.monitoring, 'set-monitoring-source', src, 'monitoring');
 		} catch (err) {
 			console.warn('[Stage] failed to forward set-monitoring-source', err && err.message);
 		}
@@ -1397,7 +1455,7 @@ async function init() {
         g.lastFocusedSource = src;
 
         if (g.windows.monitoring) {
-            try { sendToWindow(g.windows.monitoring, 'set-monitoring-source', g.lastFocusedSource); } catch (err) {}
+            try { sendToWindow(g.windows.monitoring, 'set-monitoring-source', g.lastFocusedSource, 'monitoring'); } catch (err) {}
         }
     });
 
@@ -1618,7 +1676,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 					fileType: isMIDI ? 'MIDI' : isTracker ? 'Tracker' : 'FFmpeg',
 					isMIDI: isMIDI,
 					isTracker: isTracker
-				});
+				}, 'monitoring');
 			} catch (err) {
 				console.warn('[Stage] Failed to notify monitoring window of file change:', err && err.message);
 			}
@@ -2510,8 +2568,9 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 			g.currentAudio.currentTime = e.pos || 0;
 		}
 		// Forward VU data to Parameters window
-		if (e.vu && g.windows.parameters) {
-			sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
+		// Safety: limit to reasonable channel count and skip if disposed
+		if (!g.isDisposed && e.vu && g.windows.parameters && e.vu.length > 0 && e.vu.length <= 64) {
+			sendToWindow(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length }, 'parameters');
 		}
 	});
 	player.onEnded(audioEnded);
@@ -2763,7 +2822,7 @@ function updateMonitoring() {
 				pos,
 				duration: dur,
 				sampleRate: (g.activePipeline === 'rubberband' && g.rubberbandContext) ? g.rubberbandContext.sampleRate : (g.audioContext ? g.audioContext.sampleRate : 48000)
-			});
+			}, 'monitoring');
 		} catch (err) {
 			// Silently ignore - window may be closing
 		}
@@ -2774,7 +2833,7 @@ async function extractAndSendWaveform(fp) {
 
 	// Clear existing waveform immediately to avoid visual persistence
 	try {
-		sendToWindow(g.windows.monitoring, 'clear-waveform');
+		sendToWindow(g.windows.monitoring, 'clear-waveform', null, 'monitoring');
 	} catch (err) {
 		console.warn('[Monitoring] Failed to clear waveform (window may be closing):', err.message);
 		return;
@@ -2795,7 +2854,7 @@ async function extractAndSendWaveform(fp) {
 				duration: 0,
 				filePath: fp,
 				isMIDI: true
-			});
+			}, 'monitoring');
 		} catch (err) {
 			console.warn('[Monitoring] Failed to send MIDI info:', err.message);
 		}
@@ -2810,7 +2869,7 @@ async function extractAndSendWaveform(fp) {
 			sendToWindow(g.windows.monitoring, 'waveform-data', {
 				...cached,
 				filePath: path.basename(fp)
-			});
+			}, 'monitoring');
 			return;
 		}
 	} catch (err) {
