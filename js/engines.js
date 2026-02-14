@@ -615,10 +615,7 @@ async function init() {
 			}
 			// Forward VU data to Parameters window
 			if (e.vu && g.windows.parameters) {
-				console.log('[Engine] Sending tracker-vu to parameters window:', g.windows.parameters, 'channels:', e.vu.length);
 				tools.sendToId(g.windows.parameters, 'tracker-vu', { vu: e.vu, channels: e.vu.length });
-			} else if (e.vu && !g.windows.parameters) {
-				console.log('[Engine] VU data available but g.windows.parameters not set');
 			}
 		});
 		player.onEnded(audioEnded);

@@ -191,11 +191,7 @@ async function init() {
 
     // Listen for tracker VU updates (high-frequency, from audio worklet)
     bridge.on('tracker-vu', (data) => {
-        console.log('[Parameters] tracker-vu received:', data.channels, 'channels');
-        if (currentMode !== 'tracker' || !data.vu) {
-            console.log('[Parameters] Ignoring VU data: currentMode=' + currentMode + ', hasVU=' + !!data.vu);
-            return;
-        }
+        if (currentMode !== 'tracker' || !data.vu) return;
         updateTrackerVu(data.vu, data.channels);
     });
     
