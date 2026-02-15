@@ -1,5 +1,6 @@
 node_modules/
 out/
+logs/
 .vscode/
 _Material/
 _Archive/

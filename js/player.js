@@ -54,19 +54,21 @@ window.disposeIPC = {
 
 let g = {};
 g.test = {};
+// Window tracking - player.js only tracks window IDs
+// Visibility state lives in main process (app.js childWindows) - ground truth
 g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null, 'state-debug': null };
-g.windowsVisible = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false, 'state-debug': false };
 g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false, 'state-debug': false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
-g.music = [];          // Local playlist cache (synced with app.js)
-g.idx = 0;
-g.max = -1;
-g.isLoop = false;
-g.blocky = false;
 
-// UI State (mirrors app.js audioState for UI purposes)
-g.uiState = {
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE: All state lives in app.js - we render directly from broadcasts
+// NO local state mirroring - single source of truth in main process
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Current state snapshot from main (read-only cache for rendering only)
+// This is NOT source of truth - just the last known state from main
+g.state = {
     file: null,
     isPlaying: false,
     position: 0,
@@ -75,7 +77,10 @@ g.uiState = {
     metadata: null,
     fileType: null,
     maxSampleRate: null,
-    currentSampleRate: null
+    currentSampleRate: null,
+    loop: false,
+    playlist: [],
+    playlistIndex: 0
 };
 
 // File format support (for drag-drop filtering)
@@ -132,7 +137,7 @@ async function init() {
 
         // Update volume display if changed externally
         if (g.config.audio && g.config.audio.volume !== undefined) {
-            g.uiState.volume = g.config.audio.volume;
+            g.state.volume = g.config.audio.volume;
             updateVolumeUI();
         }
     });
@@ -186,36 +191,29 @@ async function init() {
 }
 
 function setupIPC() {
-    // Receive state updates from app.js
+    // Receive state updates from app.js - render directly from broadcast
     ipcRenderer.on('state:update', (e, data) => {
-        // Update local UI state
-        if (data.file !== undefined) g.uiState.file = data.file;
-        if (data.isPlaying !== undefined) g.uiState.isPlaying = data.isPlaying;
-        if (data.position !== undefined) g.uiState.position = data.position;
-        if (data.duration !== undefined) g.uiState.duration = data.duration;
-        if (data.volume !== undefined) g.uiState.volume = data.volume;
-        if (data.metadata !== undefined) g.uiState.metadata = data.metadata;
-        if (data.fileType !== undefined) g.uiState.fileType = data.fileType;
-        if (data.loop !== undefined) g.isLoop = data.loop;
-        if (data.maxSampleRate !== undefined) g.uiState.maxSampleRate = data.maxSampleRate;
-        if (data.currentSampleRate !== undefined) g.uiState.currentSampleRate = data.currentSampleRate;
+        // Update read-only cache for rendering (main is source of truth)
+        if (data.file !== undefined) g.state.file = data.file;
+        if (data.isPlaying !== undefined) g.state.isPlaying = data.isPlaying;
+        if (data.position !== undefined) g.state.position = data.position;
+        if (data.duration !== undefined) g.state.duration = data.duration;
+        if (data.volume !== undefined) g.state.volume = data.volume;
+        if (data.metadata !== undefined) g.state.metadata = data.metadata;
+        if (data.fileType !== undefined) g.state.fileType = data.fileType;
+        if (data.loop !== undefined) g.state.loop = data.loop;
+        if (data.maxSampleRate !== undefined) g.state.maxSampleRate = data.maxSampleRate;
+        if (data.currentSampleRate !== undefined) g.state.currentSampleRate = data.currentSampleRate;
+        if (data.playlist !== undefined) g.state.playlist = data.playlist;
+        if (data.playlistIndex !== undefined) g.state.playlistIndex = data.playlistIndex;
         
-        // Update playlist if provided
-        if (data.playlist) {
-            g.music = data.playlist;
-            g.max = g.music.length - 1;
-        }
-        if (data.playlistIndex !== undefined) {
-            g.idx = data.playlistIndex;
-        }
-        
-        // Update UI
+        // Update UI directly from broadcast state
         updateUI();
     });
 
     // Receive position updates (frequent, ≤15ms)
     ipcRenderer.on('position', (e, position) => {
-        g.uiState.position = position;
+        g.state.position = position;
         updatePositionUI();
     });
 
@@ -228,7 +226,7 @@ function setupIPC() {
         }
         // Send playlist to app.js and load first file
         sendPlaylistToApp();
-        ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+        ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
         g.win.focus();
     });
 
@@ -240,7 +238,6 @@ function setupIPC() {
         console.log('[window-closed] received:', data.type, 'windowId:', data.windowId, 'current g.windows:', g.windows[data.type]);
         if (g.windows[data.type] === data.windowId) {
             g.windows[data.type] = null;
-            g.windowsVisible[data.type] = false;
             console.log('[window-closed] Cleared tracking for', data.type);
         }
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
@@ -250,10 +247,10 @@ function setupIPC() {
     });
 
     ipcRenderer.on('window-hidden', async (e, data) => {
-        g.windowsVisible[data.type] = false;
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
         // Forward to app.js for engine tracking
         ipcRenderer.send('window-hidden', data);
+        // Focus player window when any child window is hidden
         g.win.focus();
     });
     
@@ -261,9 +258,15 @@ function setupIPC() {
     ipcRenderer.on('window-created', (e, data) => {
         if (data && data.type) {
             g.windows[data.type] = data.windowId;
-            g.windowsVisible[data.type] = true;
             // Forward to app.js for engine tracking
             ipcRenderer.send('window-created', data);
+        }
+    });
+    
+    // Main process tells us to create a new window (it doesn't exist yet)
+    ipcRenderer.on('window:create', (e, data) => {
+        if (data && data.type) {
+            openWindow(data.type);
         }
     });
     
@@ -368,8 +371,8 @@ function setupIPC() {
         } else if (data.action === 'toggle-settings') {
             openWindow('settings');
         } else if (data.action === 'toggle-mixer') {
-            const fp = g.uiState.file;
-            if (g.uiState.isPlaying) {
+            const fp = g.state.file;
+            if (g.state.isPlaying) {
                 ipcRenderer.send('audio:pause');
             }
             openWindow('mixer', false, fp);
@@ -486,18 +489,18 @@ async function appStart() {
     let arg = g.start_vars[g.start_vars.length - 1];
     if (arg != '.' && g.start_vars.length > 1 && arg != '--squirrel-firstrun') {
         await playListFromSingle(arg);
-        if (g.music.length > 0) {
+        if (g.state.playlist.length > 0) {
             sendPlaylistToApp();
-            ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+            ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
             ipcRenderer.send('cmdline-open', { count: 1, initial: true });
         }
     } else {
         const dir = (g.config && g.config.ui && g.config.ui.defaultDir) ? g.config.ui.defaultDir : '';
         if (dir) {
             await playListFromSingle(dir);
-            if (g.music.length > 0) {
+            if (g.state.playlist.length > 0) {
                 sendPlaylistToApp();
-                ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+                ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
             }
         }
     }
@@ -507,7 +510,7 @@ async function appStart() {
         const cfg = g.config_obj ? g.config_obj.get() : g.config;
         const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
         if (keep) {
-            if (g.uiState.isPlaying) ipcRenderer.send('audio:pause');
+            if (g.state.isPlaying) ipcRenderer.send('audio:pause');
             g.win.hide();
         } else {
             g.win.close();
@@ -544,13 +547,13 @@ function updateUI() {
     checkState();
     
     // Update metadata display if file changed
-    if (g.uiState.file && g.uiState.metadata) {
-        renderInfo(g.uiState.file, g.uiState.metadata);
+    if (g.state.file && g.state.metadata) {
+        renderInfo(g.state.file, g.state.metadata);
     }
     
     // Update duration display (even without metadata)
-    if (g.uiState.duration && g.playremain) {
-        g.playremain.innerText = ut.playTime((g.uiState.duration || 0) * 1000).minsec;
+    if (g.state.duration && g.playremain) {
+        g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
     }
     
     // Update playlist counter
@@ -561,34 +564,34 @@ function updateUI() {
 }
 
 function updatePositionUI() {
-    if (!g.uiState.duration) return;
+    if (!g.state.duration) return;
     
-    const proz = g.uiState.position / g.uiState.duration;
+    const proz = g.state.position / g.state.duration;
     g.prog.style.width = (proz * 100) + '%';
     
-    const minsec = ut.playTime(g.uiState.position * 1000).minsec;
+    const minsec = ut.playTime(g.state.position * 1000).minsec;
     g.playtime.innerText = minsec;
     
     // Update remaining time (duration may arrive before metadata)
     if (g.playremain) {
-        g.playremain.innerText = ut.playTime((g.uiState.duration || 0) * 1000).minsec;
+        g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
     }
 }
 
 function updateVolumeUI() {
-    const vol = g.uiState.volume;
+    const vol = g.state.volume;
     if (g.playvolume) g.playvolume.innerText = (Math.round(vol * 100)) + '%';
     if (g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (vol * 100) + '%';
 }
 
 function checkState() {
-    if (g.isLoop) {
+    if (g.state.loop) {
         g.body.addClass('loop');
     } else {
         g.body.removeClass('loop');
     }
     
-    if (!g.uiState.isPlaying) {
+    if (!g.state.isPlaying) {
         g.body.addClass('pause');
     } else {
         g.body.removeClass('pause');
@@ -600,7 +603,7 @@ function renderInfo(fp, metadata) {
     
     let parse = path.parse(fp);
     let parent = path.basename(parse.dir);
-    g.playremain.innerText = ut.playTime((g.uiState.duration || 0) * 1000).minsec;
+    g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
     ut.killKids(g.text);
     g.text.appendChild(renderInfoItem('Folder:', parent));
     g.text.appendChild(renderInfoItem('File:', parse.base));
@@ -729,7 +732,9 @@ function renderInfoItem(label, text) {
 }
 
 function renderTopInfo() {
-    g.top_num.innerText = (g.idx + 1) + ' of ' + (g.max + 1);
+    const idx = g.state.playlistIndex;
+    const max = g.state.playlist.length;
+    g.top_num.innerText = max > 0 ? (idx + 1) + ' of ' + max : '0 of 0';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -737,13 +742,13 @@ function renderTopInfo() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function playPause() {
-    if (!g.uiState.file && g.music.length > 0) {
+    if (!g.state.file && g.state.playlist.length > 0) {
         // No file loaded but we have a playlist - load first file
-        ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+        ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
         return;
     }
     
-    if (g.uiState.isPlaying) {
+    if (g.state.isPlaying) {
         ipcRenderer.send('audio:pause');
     } else {
         ipcRenderer.send('audio:play');
@@ -763,7 +768,7 @@ function playPrev(e) {
 function toggleLoop() {
     // Just tell main to toggle loop - main is source of truth
     // Main will broadcast new state back to us
-    ipcRenderer.send('audio:setParams', { loop: !g.isLoop });
+    ipcRenderer.send('audio:setParams', { loop: !g.state.loop });
 }
 
 function shufflePlaylist() {
@@ -774,28 +779,28 @@ function shufflePlaylist() {
 function seekTo(s) {
     // Optimistic UI update - update immediately for responsiveness
     // Engine will correct if there's any discrepancy when it restores
-    g.uiState.position = s;
+    g.state.position = s;
     updatePositionUI();
     
     ipcRenderer.send('audio:seek', { position: s });
 }
 
 function seekFore() {
-    if (g.uiState.position + 10 < g.uiState.duration) {
-        seekTo(g.uiState.position + 10);
+    if (g.state.position + 10 < g.state.duration) {
+        seekTo(g.state.position + 10);
     }
 }
 
 function seekBack() {
-    if (g.uiState.position - 10 > 0) {
-        seekTo(g.uiState.position - 10);
+    if (g.state.position - 10 > 0) {
+        seekTo(g.state.position - 10);
     } else {
         seekTo(0);
     }
 }
 
 function timelineSlider(e) {
-    if (!g.uiState.duration) return;
+    if (!g.state.duration) return;
     
     if (e.type === 'start') {
         // User started dragging - tell engine to use faster position updates
@@ -806,7 +811,7 @@ function timelineSlider(e) {
         return;
     }
     
-    const s = g.uiState.duration * e.prozX;
+    const s = g.state.duration * e.prozX;
     seekTo(s);
 }
 
@@ -820,7 +825,7 @@ function volumeSlider(e) {
 
 function setVolume(v, persist = false) {
     v = _clamp01(v);
-    g.uiState.volume = v;
+    g.state.volume = v;
     if (!g.config.audio) g.config.audio = {};
     g.config.audio.volume = v;
     updateVolumeUI();
@@ -840,12 +845,12 @@ function _clamp01(v) {
 }
 
 function volumeUp() {
-    const v = g.uiState.volume + 0.05;
+    const v = g.state.volume + 0.05;
     setVolume(v, true);
 }
 
 function volumeDown() {
-    const v = g.uiState.volume - 0.05;
+    const v = g.state.volume - 0.05;
     setVolume(v, true);
 }
 
@@ -903,10 +908,10 @@ function playListFromSingle(fp, rec = true) {
                     if (idx == -1) { idx = 0 };
                 }
             }
+            // Store temporarily - will be sent to main which broadcasts back
             if (pl.length > 0) {
-                g.music = pl;
-                g.max = g.music.length - 1;
-                g.idx = idx;
+                g.state.playlist = pl;
+                g.state.playlistIndex = idx;
             }
         } catch (err) {
             console.error('Error loading playlist:', err);
@@ -939,14 +944,13 @@ function playListFromMulti(ar, add = false, rec = false) {
                 console.error('Error processing file:', fp, err);
             }
         }
+        // Store temporarily - will be sent to main which broadcasts back
         if (pl.length > 0) {
-            if (add && g.music.length > 0) {
-                g.music = g.music.concat(pl);
-                g.max = g.music.length - 1;
+            if (add && g.state.playlist.length > 0) {
+                g.state.playlist = g.state.playlist.concat(pl);
             } else {
-                g.idx = 0;
-                g.music = pl;
-                g.max = g.music.length - 1;
+                g.state.playlistIndex = 0;
+                g.state.playlist = pl;
             }
         }
         resolve(pl);
@@ -955,8 +959,8 @@ function playListFromMulti(ar, add = false, rec = false) {
 
 function sendPlaylistToApp() {
     ipcRenderer.send('audio:setPlaylist', {
-        playlist: g.music,
-        index: g.idx
+        playlist: g.state.playlist,
+        index: g.state.playlistIndex
     });
 }
 
@@ -979,12 +983,12 @@ function setupDragDrop() {
         e.preventDefault();
         if (e.target.id == 'drop_add') {
             let files = fileListArray(e.dataTransfer.files);
-            const wasEmpty = g.music.length === 0;
+            const wasEmpty = g.state.playlist.length === 0;
             await playListFromMulti(files, true, !e.ctrlKey);
             sendPlaylistToApp();
             ipcRenderer.send('drag-drop', { action: 'add', count: files.length });
-            if (wasEmpty && g.music[g.idx]) {
-                ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+            if (wasEmpty && g.state.playlist[g.state.playlistIndex]) {
+                ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
             }
             g.win.focus();
         }
@@ -993,8 +997,8 @@ function setupDragDrop() {
             await playListFromMulti(files, false, !e.ctrlKey);
             sendPlaylistToApp();
             ipcRenderer.send('drag-drop', { action: 'replace', count: files.length });
-            if (g.music[g.idx]) {
-                ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
+            if (g.state.playlist[g.state.playlistIndex]) {
+                ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
             }
             g.win.focus();
         }
@@ -1023,7 +1027,7 @@ function setupDragDrop() {
                 }
             }
 
-            if (g.uiState.isPlaying) {
+            if (g.state.isPlaying) {
                 ipcRenderer.send('audio:pause');
                 checkState();
             }
@@ -1082,7 +1086,7 @@ function setupWindow() {
 }
 
 async function openWindow(type, forceShow = false, contextFile = null) {
-    console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'g.windows[type]:', g.windows[type], 'g.windowsVisible[type]:', g.windowsVisible[type]);
+    console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'windowId:', g.windows[type]);
     
     async function waitForWindowClosed(t, id, timeoutMs = 2000) {
         return await new Promise((resolve) => {
@@ -1109,55 +1113,30 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         await waitForWindowClosed(type, g.windows[type], 2000);
     }
 
-    if (g.windows[type]) {
-        if (forceShow) {
-            if (type === 'mixer') {
-                if (g.uiState.isPlaying) {
-                    ipcRenderer.send('audio:pause');
-                    checkState();
-                }
-                const playlist = await getMixerPlaylist(contextFile);
-                tools.sendToId(g.windows[type], 'mixer-playlist', {
-                    paths: playlist.paths.slice(0, 20),
-                    idx: playlist.idx
-                });
-                if (!g.windowsVisible[type]) {
-                    tools.sendToId(g.windows[type], 'show-window');
-                    g.windowsVisible[type] = true;
-                } else {
-                    tools.sendToId(g.windows[type], 'show-window');
-                }
-                return;
-            } else {
-                if (!g.windowsVisible[type]) {
-                    tools.sendToId(g.windows[type], 'show-window');
-                    g.windowsVisible[type] = true;
-                } else {
-                    tools.sendToId(g.windows[type], 'show-window');
-                }
-                return;
+    // If window exists, let main process handle toggle (show/hide)
+    // Main process has ground truth visibility state
+    if (g.windows[type] && !forceShow) {
+        // Send toggle intent to main process
+        ipcRenderer.send('window:toggle', { type });
+        return;
+    }
+    
+    // For forceShow or new windows, handle specially
+    if (g.windows[type] && forceShow) {
+        // Window exists, just show it and update context if needed
+        if (type === 'mixer') {
+            if (g.state.isPlaying) {
+                ipcRenderer.send('audio:pause');
+                checkState();
             }
+            const playlist = await getMixerPlaylist(contextFile);
+            tools.sendToId(g.windows[type], 'mixer-playlist', {
+                paths: playlist.paths.slice(0, 20),
+                idx: playlist.idx
+            });
         }
-
-        if (g.windowsVisible[type]) {
-            tools.sendToId(g.windows[type], 'hide-window');
-            g.windowsVisible[type] = false;
-            g.win.focus();
-        } else {
-            tools.sendToId(g.windows[type], 'show-window');
-            g.windowsVisible[type] = true;
-            if (type === 'mixer') {
-                if (g.uiState.isPlaying) {
-                    ipcRenderer.send('audio:pause');
-                    checkState();
-                }
-                const playlist = await getMixerPlaylist(contextFile);
-                tools.sendToId(g.windows[type], 'mixer-playlist', {
-                    paths: playlist.paths.slice(0, 20),
-                    idx: playlist.idx
-                });
-            }
-        }
+        tools.sendToId(g.windows[type], 'show-window');
+        ipcRenderer.send('window-visible', { type, windowId: g.windows[type] });
         return;
     }
 
@@ -1189,15 +1168,15 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         stageId: await g.win.getId(),
         configName: g.configName,
         config: g.config,
-        currentFile: g.uiState.file,
-        currentTime: g.uiState.position,
-        maxSampleRate: g.uiState.maxSampleRate,
-        currentSampleRate: g.uiState.currentSampleRate,
-        fileType: g.uiState.fileType
+        currentFile: g.state.file,
+        currentTime: g.state.position,
+        maxSampleRate: g.state.maxSampleRate,
+        currentSampleRate: g.state.currentSampleRate,
+        fileType: g.state.fileType
     };
 
     if (type === 'mixer') {
-        if (g.uiState.isPlaying) {
+        if (g.state.isPlaying) {
             ipcRenderer.send('audio:pause');
             checkState();
         }
@@ -1209,7 +1188,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
     }
 
     if (type === 'monitoring') {
-        init_data.filePath = g.uiState.file ? path.basename(g.uiState.file) : '';
+        init_data.filePath = g.state.file ? path.basename(g.state.file) : '';
     }
 
     g.windows[type] = await tools.browserWindow('frameless', {
@@ -1255,8 +1234,8 @@ async function getMixerPlaylist(contextFile = null) {
         return { paths: contextFile, idx: 0 };
     }
     let fp = contextFile;
-    if (!fp && g.uiState.file) {
-        fp = g.uiState.file;
+    if (!fp && g.state.file) {
+        fp = g.state.file;
     }
 
     if (fp) {
@@ -1271,8 +1250,8 @@ async function getMixerPlaylist(contextFile = null) {
             console.error('Error getting siblings for mixer:', e);
         }
     }
-    const list = Array.isArray(g.music) ? g.music : [];
-    return { paths: list, idx: g.idx | 0 };
+    const list = Array.isArray(g.state.playlist) ? g.state.playlist : [];
+    return { paths: list, idx: g.state.playlistIndex | 0 };
 }
 
 function toggleControls() {
@@ -1363,7 +1342,7 @@ async function onKey(e) {
     } else if (shortcutAction === 'toggle-theme') {
         tools.sendToMain('command', { command: 'toggle-theme' });
     } else if (shortcutAction === 'toggle-mixer') {
-        const fp = g.uiState.file;
+        const fp = g.state.file;
         openWindow('mixer', false, fp);
     } else if (shortcutAction === 'toggle-pitchtime') {
         openWindow('parameters');
@@ -1391,7 +1370,7 @@ async function onKey(e) {
         const cfg = g.config_obj ? g.config_obj.get() : g.config;
         const keep = cfg && cfg.ui && cfg.ui.keepRunningInTray;
         if (keep) {
-            if (g.uiState.isPlaying) ipcRenderer.send('audio:pause');
+            if (g.state.isPlaying) ipcRenderer.send('audio:pause');
             g.win.hide();
         } else {
             g.win.close();
@@ -1431,7 +1410,7 @@ async function onKey(e) {
         flashButton(g.ctrl_btn_shuffle);
     }
     if (e.keyCode == 73) {
-        helper.shell.showItemInFolder(g.music[g.idx]);
+        helper.shell.showItemInFolder(g.state.playlist[g.state.playlistIndex]);
     }
 
     if (e.keyCode == 32) {

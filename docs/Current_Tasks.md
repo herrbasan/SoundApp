@@ -4,6 +4,24 @@
 
 ---
 
+## ⚠️ STATE CENTRALIZATION STATUS (Feb 2026)
+
+**Correction:** Previous documentation incorrectly claimed state centralization was "COMPLETED". This was inaccurate.
+
+### Current Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Parameters Window** | ✅ Complete | Dumb renderer - no local state, receives from main |
+| **Monitoring Window** | ✅ Complete | Dumb renderer - no local state, receives from main |
+| **Player Window** | ✅ Fixed | Previously maintained `g.uiState`, `g.music`, `g.idx`, `g.max`, `g.isLoop`. Now unified to single `g.state` that receives from main broadcasts only |
+| **Engine (engines.js)** | ✅ Complete | Stateless - receives params via IPC commands from Main. Uses `g.currentAudioParams`, `g.currentMidiParams`, `g.currentTrackerParams` only for caching received values |
+| **Mixer Window** | ⚠️ Exception | Maintains local track state by design - separate audio domain |
+
+**Pattern:** Player sends intent → Main updates `audioState` → Main broadcasts `state:update` → Player renders from broadcast. No local mutations.
+
+---
+
 ## Architecture
 
 ```
@@ -45,7 +63,7 @@
 
 ---
 
-## State Centralization - COMPLETED
+## State Centralization
 
 **Goal:** Eliminate all local state in renderer windows. Main process should be the single source of truth for everything.
 
@@ -53,31 +71,33 @@
 - ❌ Bad: Renderer updates local state, then tells main
 - ✅ Good: Renderer sends intent to main, main updates state, broadcasts new state
 
-**Completed Changes:**
+**Status by Component:**
 
-### 1. Parameters Window (`js/parameters/main.js`)
-- ✅ Removed `currentMode` and `audioMode` local variables
-- ✅ Mode now derived from main's broadcasts via `getCurrentMode()` / `getAudioMode()`
-- ✅ Sends `param-change` to main (not directly to engine)
-- ✅ UI updates only via `set-mode` / `update-params` events from main
+### 1. Parameters Window (`js/parameters/main.js`) ✅
+- No local state - dumb renderer
+- Receives mode/params via `set-mode` / `update-params` from main
+- Sends `param-change` intent to main
+- Mode derived from DOM visibility (main owns state)
 
-### 2. Monitoring Window (`js/monitoring/main.js`)
-- ✅ `activeSource` centralized in main's `audioState.monitoringSource`
-- ✅ Windows send `monitoring:setSource` intent to main
-- ✅ Main broadcasts source changes to monitoring window
+### 2. Monitoring Window (`js/monitoring/main.js`) ✅
+- No local state - dumb renderer  
+- Receives `set-monitoring-source` from main
+- Sends `monitoring:setSource` intent to main
 
-### 3. Main Process (`js/app.js`)
-- ✅ Added `monitoringSource` to `audioState`
-- ✅ Added `sendParamsToParametersWindow()` - single function to sync params
-- ✅ `sendParamsToParametersWindow()` called on EVERY file load (not just type changes)
-- ✅ Fixed fileType capitalization consistency (`'Tracker'` not `'tracker'`)
+### 3. Player Window (`js/player.js`) ✅ Fixed Feb 2026
+- **Previously (WRONG):** Maintained parallel state: `g.uiState`, `g.music`, `g.idx`, `g.max`, `g.isLoop`
+- **Now:** Single `g.state` object receives from `state:update` broadcasts only
+- Renders directly from broadcast, no local mutations
+- Sends intents: `audio:next`, `audio:prev`, `audio:play`, etc.
 
-### 4. Player Window (`js/player.js`)
-- ✅ Shortcut proxy fixed - sends `stage-keydown` to main which forwards to player
-- ✅ `fileType` included in init_data for child windows
+### 4. Engine (`js/engines.js`) ⚠️ Needs Review
+- May still have duplicate state: `engineState`, `g.audioParams`
+- Should receive params from main and apply without storing
 
-### 5. Window Loader (`js/window-loader.js`)
-- ✅ Added `sendToMain()` method to bridge for proper main-process routing
+### 5. Main Process (`js/app.js`) ✅
+- `audioState` is single source of truth
+- Handles all intents, broadcasts updates
+- `sendParamsToParametersWindow()` syncs params to UI
 
 ---
 
@@ -100,12 +120,14 @@
 
 | Issue | Notes |
 |-------|-------|
+| ~~MIDI metadata in Player~~ | ✅ **Fixed** - `type: 'midi'` was lowercase in player.js but uppercase 'MIDI' in engines.js |
 | Folder fallback for cover art | Not working - FFmpeg extraction works |
 | First MIDI load delay | 1-2s (library init) |
 | First Tracker load delay | Slight delay |
 | Position update interval | 50ms (was 15ms) |
 | Engine restoration delay | ~100-300ms |
 | Mixer window state | Partially decentralized - uses local track state |
+| ~~Tracker pitch by semitones~~ | ✅ **Fixed** - Was double-converting semitones to ratio |
 
 ---
 
@@ -148,6 +170,14 @@ waveformCache.getStats()  // Cache hit/miss stats
 
 ### High Priority
 - **Mixer window state** - Track/mixer state should be partially centralized or documented as exception
+- **Mixer - FFmpeg streaming** - Files are loaded completely to memory instead of streaming through FFmpeg
+- **Monitoring Window** - Does not survive engine dispose cycle (needs restoration handling)
+- **Player - MIDI metadata** - MIDI files show no metadata in player window
+
+### Medium Priority
+- **Parameters Window - MIDI Tab** - Soundfont select does not show currently selected model at startup
+- **Logging cleanup** - Player has excessive logging
+- **Engine logging** - Clean up logging, relay to app.js logging instead of console
 
 ### Low Priority  
 - **Settings window** - Already uses config_obj properly, minor cleanup possible
@@ -155,4 +185,4 @@ waveformCache.getStats()  // Cache hit/miss stats
 
 ---
 
-**Status:** Core architecture stable. Main process is single source of truth. State synchronization working. Parameters/monitoring windows are dumb renderers.
+**Status:** Core architecture stable. Main process is single source of truth. Player window now properly receives state from broadcasts (fixed Feb 2026). Parameters/monitoring windows are dumb renderers.

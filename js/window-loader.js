@@ -11,6 +11,21 @@ if (isElectron) {
 	const helper = require('../libs/electron_helper/helper_new.js');
 	const tools = helper.tools;
 	
+	// Safe logger initialization - don't let logging break window loading
+	let logger;
+	try {
+		logger = require('./logger-renderer');
+	} catch (e) {
+		// Fallback logger that just logs to console
+		logger = {
+			init: () => {},
+			debug: () => {},
+			info: (...args) => console.log('[INFO]', ...args),
+			warn: (...args) => console.warn('[WARN]', ...args),
+			error: (...args) => console.error('[ERROR]', ...args)
+		};
+	}
+	
 	let stageId = null;
 	let windowId = null;
 	let windowType = null;
@@ -61,7 +76,8 @@ if (isElectron) {
 		isElectron: true,
 		get stageId() { return stageId; },
 		get windowId() { return windowId; },
-		toggleDevTools: () => helper.window.toggleDevTools()
+		toggleDevTools: () => helper.window.toggleDevTools(),
+		logger: logger
 	};
 	
 	// Listen for theme changes (register early)
@@ -162,6 +178,14 @@ if (isElectron) {
 		}
 		
 		windowType = data.type;
+		
+		// Initialize logger with detected window type (safely)
+		// captureConsole=true to redirect all console.* to log file
+		if (logger && logger.init) {
+			logger.init(windowType, true);
+			if (logger.info) logger.info('Window initialized', { windowType, windowId, stageId });
+		}
+		
 		let closedSent = false;
 		let boundsSaveTimer = 0;
 		let lastBounds = null;

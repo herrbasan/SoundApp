@@ -15,6 +15,7 @@ const helper = require('../libs/electron_helper/helper_new.js');
 const tools = helper.tools;
 const os = require('node:os');
 const RubberbandPipeline = require('./rubberband-pipeline.js');
+const logger = require('./logger-renderer');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Direct Window Communication - Bypass main process for high-frequency data
@@ -280,32 +281,24 @@ async function initTrackerPlayerLazy() {
 }
 
 
-// Engine state
-const engineState = {
-    file: null,
-    isPlaying: false,
-    position: 0,
-    duration: 0,
-    mode: 'tape',
-    tapeSpeed: 0,
-    pitch: 0,
-    tempo: 1.0,
-    formant: false,
-    locked: false,
-    volume: 0.5,
-    loop: false,
-    activePipeline: 'normal'
-};
+// =============================================================================
+// ENGINE STATE - Stateless Design
+// =============================================================================
+// The Engine does NOT maintain its own copies of audio parameters.
+// All parameters are received from Main (app.js) with each command.
+// The Engine only maintains:
+//   - Runtime audio objects (players, contexts)
+//   - Window references and MessagePorts
+//   - Current file info (g.currentAudio) - for routing decisions only
+//
+// Ground truth state lives in app.js audioState.
+// State flow: Main -> Engine (via IPC commands with attached params)
+// =============================================================================
 
-g.midiSettings = { pitch: 0, speed: null };
-g.audioParams = {
-    mode: 'tape',      // 'tape' or 'pitchtime'
-    tapeSpeed: 0,      // -12 to +12 semitones
-    pitch: 0,          // -12 to +12 semitones (for rubberband)
-    tempo: 1.0,        // 0.5 to 1.5 ratio (for rubberband)
-    formant: false,    // formant preservation
-    locked: false      // lock settings across track changes
-};
+// Current audio file info (for pipeline routing decisions, not full state)
+g.currentAudioParams = null;   // FFmpeg params from Main (mode, tapeSpeed, pitch, tempo, formant, locked)
+g.currentMidiParams = null;    // MIDI params from Main (transpose, bpm, metronome)
+g.currentTrackerParams = null; // Tracker params from Main (pitch, tempo, stereoSeparation)
 
 // Position push interval - adaptive based on user activity
 let positionPushInterval = null;
@@ -325,29 +318,38 @@ const POSITION_PUSH_INTERVALS = {
 
 /**
  * Calculate which audio pipeline should be active based on current state.
+ * Uses g.currentAudioParams which is set by cmd:setParams from Main.
  * Returns: 'normal' | 'rubberband'
  */
 function calculateDesiredPipeline() {
+	const params = g.currentAudioParams;
+	
 	// No FFmpeg file playing = normal pipeline (no rubberband for MIDI/tracker)
 	if (!g.currentAudio || !g.currentAudio.isFFmpeg) {
 		console.log('[calculateDesiredPipeline] No FFmpeg file, returning normal');
 		return 'normal';
 	}
 	
+	// No params received yet = normal pipeline
+	if (!params) {
+		console.log('[calculateDesiredPipeline] No params received yet, returning normal');
+		return 'normal';
+	}
+	
 	// Locked pitchtime mode persists even when parameters window closed
-	if (g.audioParams.locked && g.audioParams.mode === 'pitchtime') {
+	if (params.locked && params.mode === 'pitchtime') {
 		console.log('[calculateDesiredPipeline] Locked pitchtime, returning rubberband');
 		return 'rubberband';
 	}
 	
 	// Parameters window open in pitchtime mode
-	if (g.parametersOpen && g.audioParams.mode === 'pitchtime') {
+	if (g.parametersOpen && params.mode === 'pitchtime') {
 		console.log('[calculateDesiredPipeline] Params open + pitchtime, returning rubberband');
 		return 'rubberband';
 	}
 	
 	// Default: normal pipeline
-	console.log('[calculateDesiredPipeline] Default normal, mode:', g.audioParams.mode, 'locked:', g.audioParams.locked, 'paramsOpen:', g.parametersOpen);
+	console.log('[calculateDesiredPipeline] Default normal, mode:', params.mode, 'locked:', params.locked, 'paramsOpen:', g.parametersOpen);
 	return 'normal';
 }
 
@@ -411,7 +413,7 @@ async function applyRoutingState(shouldPlay = null) {
 	// --- Rubberband Cleanup (when no longer needed) ---
 	// Destroy rubberband if: not desired, not locked, and not currently playing
 	const shouldKeepRubberband = desiredPipeline === 'rubberband' || 
-		(g.audioParams.locked && g.audioParams.mode === 'pitchtime');
+		(g.currentAudioParams.locked && g.currentAudioParams.mode === 'pitchtime');
 	if (!shouldKeepRubberband && g.rubberbandPlayer && g.activePipeline !== 'rubberband') {
 		// Destroy to free ~70MB memory
 		await destroyRubberbandPipeline();
@@ -696,6 +698,10 @@ async function init() {
         process.title = 'SoundApp Engine';
     }
     
+    // Initialize logger for engine process (capture console output)
+    logger.init('engine', true);
+    logger.info('Engine initializing');
+    
     g.main_env = await helper.global.get('main_env');
     g.basePath = await helper.global.get('base_path');
     g.isPackaged = await helper.global.get('isPackaged');
@@ -924,6 +930,7 @@ async function init() {
 	ipcRenderer.on('cmd:load', async (e, data) => {
 		if (data.file) {
 			// cmd:load received
+			logger.info('cmd:load received', { file: path.basename(data.file), position: data.position, paused: data.paused, restore: data.restore });
 			await playAudio(data.file, data.position || 0, data.paused || false, false, data.restore || false);
 			// Determine fileType for the loaded file
 			const ext = path.extname(data.file).toLowerCase();
@@ -951,7 +958,7 @@ async function init() {
 	});
 	
 	ipcRenderer.on('cmd:play', (e) => {
-
+		logger.debug('cmd:play received');
 		if (g.currentAudio) {
 			if (g.currentAudio.paused) {
 				g.currentAudio.play();
@@ -962,7 +969,7 @@ async function init() {
 	});
 	
 	ipcRenderer.on('cmd:pause', (e) => {
-
+		logger.debug('cmd:pause received');
 		if (g.currentAudio && !g.currentAudio.paused) {
 			g.currentAudio.pause();
 			stopPositionPush();
@@ -995,20 +1002,24 @@ async function init() {
 	});
 	
 	ipcRenderer.on('cmd:setParams', async (e, data) => {
-
+		logger.debug('cmd:setParams received', { mode: data.mode, tapeSpeed: data.tapeSpeed, pitch: data.pitch, tempo: data.tempo });
+		
+		// Store params received from Main (ground truth)
+		if (!g.currentAudioParams) g.currentAudioParams = {};
+		
 		let modeChanged = false;
 		if (data.mode) {
-			g.audioParams.mode = data.mode;
+			g.currentAudioParams.mode = data.mode;
 			modeChanged = true;
 		}
 		if (data.tapeSpeed !== undefined) {
-			g.audioParams.tapeSpeed = data.tapeSpeed;
+			g.currentAudioParams.tapeSpeed = data.tapeSpeed;
 			applyTapeSpeed(data.tapeSpeed);
 		}
-		if (data.pitch !== undefined) g.audioParams.pitch = data.pitch;
-		if (data.tempo !== undefined) g.audioParams.tempo = data.tempo;
-		if (data.formant !== undefined) g.audioParams.formant = data.formant;
-		if (data.locked !== undefined) g.audioParams.locked = data.locked;
+		if (data.pitch !== undefined) g.currentAudioParams.pitch = data.pitch;
+		if (data.tempo !== undefined) g.currentAudioParams.tempo = data.tempo;
+		if (data.formant !== undefined) g.currentAudioParams.formant = data.formant;
+		if (data.locked !== undefined) g.currentAudioParams.locked = data.locked;
 		if (data.volume !== undefined) setVolume(data.volume);
 		if (data.loop !== undefined) {
 			g.isLoop = data.loop;
@@ -1019,7 +1030,6 @@ async function init() {
 		// Handle parametersOpen state (sent during engine restoration)
 		if (data.parametersOpen !== undefined) {
 			g.parametersOpen = data.parametersOpen;
-
 		}
 		// Apply routing state if mode changed - this ensures rubberband activates for pitchtime
 		if (modeChanged) {
@@ -1054,8 +1064,9 @@ async function init() {
 			}
 			if (data.metronome !== undefined) midi.setMetronome(data.metronome);
 		} else if (g.currentAudio?.isMod && player) {
-			// Tracker pitch is in semitones (-12 to +12), convert to multiplicative factor
-			if (data.pitch !== undefined) player.setPitch(Math.pow(2, data.pitch / 12.0));
+			// data.pitch is already a pitch factor (ratio) from Main
+			// Main sends: pitchFactor = 2^(semitones/12)
+			if (data.pitch !== undefined) player.setPitch(data.pitch);
 			if (data.tempo !== undefined) player.setTempo(data.tempo);
 			if (data.stereoSeparation !== undefined) player.setStereoSeparation(data.stereoSeparation);
 		}
@@ -1227,12 +1238,12 @@ async function init() {
 		const engineStateSnapshot = {
 			// Audio params state
 			audioParams: {
-				mode: g.audioParams?.mode,
-				tapeSpeed: g.audioParams?.tapeSpeed,
-				pitch: g.audioParams?.pitch,
-				tempo: g.audioParams?.tempo,
-				formant: g.audioParams?.formant,
-				locked: g.audioParams?.locked
+				mode: g.currentAudioParams?.mode,
+				tapeSpeed: g.currentAudioParams?.tapeSpeed,
+				pitch: g.currentAudioParams?.pitch,
+				tempo: g.currentAudioParams?.tempo,
+				formant: g.currentAudioParams?.formant,
+				locked: g.currentAudioParams?.locked
 			},
 			// Pipeline state
 			activePipeline: g.activePipeline,
@@ -1242,8 +1253,8 @@ async function init() {
 				monitoringReady: g.monitoringReady
 			},
 			// MIDI/Tracker settings
-			midiSettings: g.midiSettings,
-			trackerParams: g.trackerParams
+			midiSettings: g.currentMidiParams,
+			trackerParams: g.currentTrackerParams
 		};
 		
 		const audioStateSnapshot = g.currentAudio ? {
@@ -1314,34 +1325,34 @@ async function init() {
 	});
 
 	ipcRenderer.on('midi-metronome-toggle', (e, enabled) => {
-		if (!g.midiSettings) g.midiSettings = {};
-		g.midiSettings.metronome = enabled;
+		if (!g.currentMidiParams) g.currentMidiParams = {};
+		g.currentMidiParams.metronome = enabled;
 		if (midi && midi.setMetronome) {
 			midi.setMetronome(enabled);
 		}
 	});
 
 	ipcRenderer.on('midi-pitch-changed', (e, val) => {
-		if (!g.midiSettings) g.midiSettings = {};
-		g.midiSettings.pitch = val;
+		if (!g.currentMidiParams) g.currentMidiParams = {};
+		g.currentMidiParams.pitch = val;
 		if (midi && midi.setPitchOffset) {
 			midi.setPitchOffset(val);
 		}
 	});
 
 	ipcRenderer.on('midi-speed-changed', (e, val) => {
-		if (!g.midiSettings) g.midiSettings = {};
-		g.midiSettings.speed = val;
+		if (!g.currentMidiParams) g.currentMidiParams = {};
+		g.currentMidiParams.speed = val;
 		if (midi && midi.setPlaybackSpeed) {
 			midi.setPlaybackSpeed(val);
 		}
 	});
 
 	ipcRenderer.on('midi-reset-params', () => {
-		if (!g.midiSettings) g.midiSettings = {};
-		g.midiSettings.pitch = 0;
-		g.midiSettings.speed = null;
-		g.midiSettings.metronome = false;
+		if (!g.currentMidiParams) g.currentMidiParams = {};
+		g.currentMidiParams.pitch = 0;
+		g.currentMidiParams.speed = null;
+		g.currentMidiParams.metronome = false;
 
 		if (midi) {
 			if (midi.setPitchOffset) midi.setPitchOffset(0);
@@ -1352,7 +1363,7 @@ async function init() {
 	});
 
 	ipcRenderer.on('tracker-reset-params', () => {
-		g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+		g.currentTrackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
 
 		if (player && player.setPitch) player.setPitch(1.0);
 		if (player && player.setTempo) player.setTempo(1.0);
@@ -1361,21 +1372,21 @@ async function init() {
 
 	ipcRenderer.on('param-change', async (e, data) => {
 		if (data.mode === 'midi') {
-			if (!g.midiSettings) g.midiSettings = { pitch: 0, speed: null, metronome: false };
+			if (!g.currentMidiParams) g.currentMidiParams = { pitch: 0, speed: null, metronome: false };
 
 			if (data.param === 'transpose') {
-				g.midiSettings.pitch = data.value;
+				g.currentMidiParams.pitch = data.value;
 				if (midi && midi.setPitchOffset) midi.setPitchOffset(data.value);
 			}
 			else if (data.param === 'bpm') {
 				const orig = (midi && midi.getOriginalBPM) ? midi.getOriginalBPM() : 120;
 				const safeOrig = orig > 0 ? orig : 120;
 				const ratio = data.value / safeOrig;
-				g.midiSettings.speed = ratio;
+				g.currentMidiParams.speed = ratio;
 				if (midi && midi.setPlaybackSpeed) midi.setPlaybackSpeed(ratio);
 			}
 			else if (data.param === 'metronome') {
-				g.midiSettings.metronome = !!data.value;
+				g.currentMidiParams.metronome = !!data.value;
 				if (midi && midi.setMetronome) midi.setMetronome(!!data.value);
 			}
 			else if (data.param === 'soundfont') {
@@ -1414,30 +1425,31 @@ async function init() {
 			}
 		}
 		else if (data.mode === 'audio') {
+				if (!g.currentAudioParams) g.currentAudioParams = { mode: 'tape', tapeSpeed: 0, pitch: 0, tempo: 1.0, formant: false, locked: false };
 
-			if (data.param === 'audioMode') {
-				const newMode = data.value; // 'tape' or 'pitchtime'
-				const oldMode = g.audioParams.mode;
+				if (data.param === 'audioMode') {
+					const newMode = data.value; // 'tape' or 'pitchtime'
+					const oldMode = g.currentAudioParams.mode;
 
-				g.audioParams.mode = newMode;
+					g.currentAudioParams.mode = newMode;
 
 				// Apply routing state (centralized pipeline switching)
 				await applyRoutingState();
 			}
 			else if (data.param === 'tapeSpeed') {
-				ipcRenderer.send('debug:log', `[Engine] tapeSpeed changed from ${g.audioParams.tapeSpeed} to ${data.value}`);
-				g.audioParams.tapeSpeed = data.value;
+				ipcRenderer.send('debug:log', `[Engine] tapeSpeed changed from ${g.currentAudioParams.tapeSpeed} to ${data.value}`);
+				g.currentAudioParams.tapeSpeed = data.value;
 				applyTapeSpeed(data.value);
 			}
 			else if (data.param === 'locked') {
-				ipcRenderer.send('debug:log', `[Engine] locked changed from ${g.audioParams.locked} to ${!!data.value}`);
-				g.audioParams.locked = !!data.value;
+				ipcRenderer.send('debug:log', `[Engine] locked changed from ${g.currentAudioParams.locked} to ${!!data.value}`);
+				g.currentAudioParams.locked = !!data.value;
 			}
 			else if (data.param === 'pipeline') {
 				switchPipeline(data.value);
 			}
 			else if (data.param === 'pitch') {
-				g.audioParams.pitch = data.value;
+				g.currentAudioParams.pitch = data.value;
 				console.log(`[Engine] Pitch change: ${data.value}, activePipeline=${g.activePipeline}, hasPlayer=${!!g.rubberbandPlayer}`);
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					const ratio = Math.pow(2, data.value / 12.0);
@@ -1450,7 +1462,7 @@ async function init() {
 				}
 			}
 			else if (data.param === 'tempo') {
-				g.audioParams.tempo = data.value;
+				g.currentAudioParams.tempo = data.value;
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					if (typeof g.rubberbandPlayer.setTempo === 'function') {
 						g.rubberbandPlayer.setTempo(data.value);
@@ -1458,7 +1470,7 @@ async function init() {
 				}
 			}
 			else if (data.param === 'formant') {
-				g.audioParams.formant = !!data.value;
+				g.currentAudioParams.formant = !!data.value;
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					// Options changes: use fade + stabilization pattern
 					// (rubberband internally recreates kernel, which needs settling time)
@@ -1493,19 +1505,20 @@ async function init() {
 			}
 		}
 		else if (data.mode === 'tracker') {
-			if (!g.trackerParams) g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+			if (!g.currentTrackerParams) g.currentTrackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
 
 			if (data.param === 'pitch') {
-				g.trackerParams.pitch = data.value;
-				// Convert semitones (-12 to +12) to multiplicative factor
-				if (player && player.setPitch) player.setPitch(Math.pow(2, data.value / 12.0));
+				g.currentTrackerParams.pitch = data.value;
+				// data.value is already a pitch factor (ratio) from UI
+				// UI converts: pitchFactor = 2^(semitones/12)
+				if (player && player.setPitch) player.setPitch(data.value);
 			}
 			else if (data.param === 'tempo') {
-				g.trackerParams.tempo = data.value;
+				g.currentTrackerParams.tempo = data.value;
 				if (player && player.setTempo) player.setTempo(data.value);
 			}
 			else if (data.param === 'stereoSeparation') {
-				g.trackerParams.stereoSeparation = data.value;
+				g.currentTrackerParams.stereoSeparation = data.value;
 				if (player && player.setStereoSeparation) player.setStereoSeparation(data.value);
 			}
 			else if (data.param === 'channelMute') {
@@ -1736,6 +1749,7 @@ async function engineReady() {
 	if (!g.config.audio) g.config.audio = {};
 	
 	// Notify main process that engine is ready
+	logger.info('Engine ready');
 	ipcRenderer.send('engine:ready');
 }
 
@@ -1871,13 +1885,13 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 		// Calculate desired pipeline based on current params (before clearAudio resets activePipeline)
 		let desiredPipeline = 'normal';
 		if (isFFmpeg) {
-			// If preserveRubberband is true, force rubberband pipeline regardless of g.audioParams
+			// If preserveRubberband is true, force rubberband pipeline regardless of g.currentAudioParams
 			// This handles HQ toggle case where we want to preserve the existing pipeline
 			if (preserveRubberband) {
 				desiredPipeline = 'rubberband';
-			} else if (g.audioParams.locked && g.audioParams.mode === 'pitchtime') {
+			} else if (g.currentAudioParams.locked && g.currentAudioParams.mode === 'pitchtime') {
 				desiredPipeline = 'rubberband';
-			} else if (g.parametersOpen && g.audioParams.mode === 'pitchtime') {
+			} else if (g.parametersOpen && g.currentAudioParams.mode === 'pitchtime') {
 				desiredPipeline = 'rubberband';
 			}
 		}
@@ -2034,13 +2048,13 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 			// Reset tracker params on new file (no lock feature for tracker)
 			// Skip reset during restore to preserve saved parameters
 			if (!restore) {
-				g.trackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
+				g.currentTrackerParams = { pitch: 1.0, tempo: 1.0, stereoSeparation: 100 };
 			}
 
 			// Apply tape speed if locked and in tape mode (overrides tracker params)
-			const locked = g.audioParams && g.audioParams.locked;
-			if (locked && g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
-				const tempoFactor = Math.pow(2, g.audioParams.tapeSpeed / 12.0);
+			const locked = g.currentAudioParams && g.currentAudioParams.locked;
+			if (locked && g.currentAudioParams.mode === 'tape' && g.currentAudioParams.tapeSpeed !== 0) {
+				const tempoFactor = Math.pow(2, g.currentAudioParams.tapeSpeed / 12.0);
 				trackerPlayer.setTempo(tempoFactor);
 			}
 
@@ -2128,10 +2142,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				
 				// Re-apply audio params after open() - reset() may have cleared them
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
-					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+					const pitchRatio = Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0);
 					g.rubberbandPlayer.setPitch(pitchRatio);
-					g.rubberbandPlayer.setTempo(g.audioParams.tempo || 1.0);
-					g.rubberbandPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
+					g.rubberbandPlayer.setTempo(g.currentAudioParams.tempo || 1.0);
+					g.rubberbandPlayer.setOptions({ formantPreserved: !!g.currentAudioParams.formant });
 				}
 
 				ffPlayer.setLoop(g.isLoop);
@@ -2176,22 +2190,22 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 
 				// Apply locked settings based on mode
 				// During restore, always apply (params were pre-set by app.js cmd:setParams)
-				const locked = g.audioParams && g.audioParams.locked;
+				const locked = g.currentAudioParams && g.currentAudioParams.locked;
 				if (locked || restore) {
-					if (g.audioParams.mode === 'tape' && g.audioParams.tapeSpeed !== 0) {
+					if (g.currentAudioParams.mode === 'tape' && g.currentAudioParams.tapeSpeed !== 0) {
 						// Tape mode: apply playback rate
-						activePlayer.setPlaybackRate(g.audioParams.tapeSpeed);
-					} else if (g.audioParams.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
+						activePlayer.setPlaybackRate(g.currentAudioParams.tapeSpeed);
+					} else if (g.currentAudioParams.mode === 'pitchtime' && g.activePipeline === 'rubberband') {
 						// Pitch/Time mode: apply rubberband parameters
 						if (typeof activePlayer.setPitch === 'function') {
-							const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+							const pitchRatio = Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0);
 							activePlayer.setPitch(pitchRatio);
 						}
 						if (typeof activePlayer.setTempo === 'function') {
-							activePlayer.setTempo(g.audioParams.tempo || 1.0);
+							activePlayer.setTempo(g.currentAudioParams.tempo || 1.0);
 						}
 						if (typeof activePlayer.setOptions === 'function') {
-							activePlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
+							activePlayer.setOptions({ formantPreserved: !!g.currentAudioParams.formant });
 						}
 					}
 				}
@@ -2217,13 +2231,13 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				// Also skip if preserveRubberband is true (e.g., HQ toggle) to preserve the pipeline
 				if (!restore && !preserveRubberband && g.windows.parameters) {
 					// Normal (non-restore) flow: If locked, preserve all settings; otherwise reset to defaults
-					const locked = g.audioParams && g.audioParams.locked;
+					const locked = g.currentAudioParams && g.currentAudioParams.locked;
 					const params = locked ? {
-						audioMode: g.audioParams.mode,
-						tapeSpeed: g.audioParams.tapeSpeed,
-						pitch: g.audioParams.pitch,
-						tempo: g.audioParams.tempo,
-						formant: g.audioParams.formant,
+						audioMode: g.currentAudioParams.mode,
+						tapeSpeed: g.currentAudioParams.tapeSpeed,
+						pitch: g.currentAudioParams.pitch,
+						tempo: g.currentAudioParams.tempo,
+						formant: g.currentAudioParams.formant,
 						locked: true,
 						reset: false
 					} : {
@@ -2238,10 +2252,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 
 					// If not locked, also reset to tape mode and normal pipeline
 					if (!locked) {
-						g.audioParams.mode = 'tape';
-						g.audioParams.tapeSpeed = 0;
-						g.audioParams.pitch = 0;
-						g.audioParams.tempo = 1.0;
+						g.currentAudioParams.mode = 'tape';
+						g.currentAudioParams.tapeSpeed = 0;
+						g.currentAudioParams.pitch = 0;
+						g.currentAudioParams.tempo = 1.0;
 						if (g.activePipeline === 'rubberband') {
 							await switchPipeline('normal');
 						}
@@ -2249,12 +2263,12 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 						applyTapeSpeed(0);
 					} else {
 						// If locked, apply the appropriate settings for the current mode
-						if (g.audioParams.mode === 'tape') {
+						if (g.currentAudioParams.mode === 'tape') {
 							// Tape mode: apply tape speed
-							if (g.audioParams.tapeSpeed !== 0) {
-								applyTapeSpeed(g.audioParams.tapeSpeed);
+							if (g.currentAudioParams.tapeSpeed !== 0) {
+								applyTapeSpeed(g.currentAudioParams.tapeSpeed);
 							}
-						} else if (g.audioParams.mode === 'pitchtime') {
+						} else if (g.currentAudioParams.mode === 'pitchtime') {
 							// Pitchtime mode: switch to rubberband and apply pitch/tempo
 							if (g.activePipeline !== 'rubberband') {
 								await switchPipeline('rubberband');
@@ -2262,11 +2276,11 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 								// Already on rubberband, just apply the settings
 								if (g.rubberbandPlayer) {
 									if (typeof g.rubberbandPlayer.setPitch === 'function') {
-										const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+										const pitchRatio = Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0);
 										g.rubberbandPlayer.setPitch(pitchRatio);
 									}
 									if (typeof g.rubberbandPlayer.setTempo === 'function') {
-										g.rubberbandPlayer.setTempo(g.audioParams.tempo || 1.0);
+										g.rubberbandPlayer.setTempo(g.currentAudioParams.tempo || 1.0);
 									}
 								}
 							}
@@ -2314,7 +2328,7 @@ function collectMetadata(fp, metadata) {
 			g.currentAudio.duration = md.duration;
 			result.duration = md.duration;
 		}
-		result.type = 'MIDI';
+		result.type = 'midi';  // lowercase to match player.js check
 		result.title = md.title;
 		result.copyright = md.copyright;
 		result.timeSignature = md.timeSignature;
@@ -2396,7 +2410,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 			}
 
 			// Apply stored audio params when switching to rubberband
-			if (newMode === 'rubberband' && g.audioParams) {
+			if (newMode === 'rubberband' && g.currentAudioParams) {
 				// Connect rubberband to both audio destination and monitoring tap (T-junction)
 				if (typeof newPlayer.connect === 'function') {
 					newPlayer.connect(); // Connects to destination by default
@@ -2408,16 +2422,16 @@ async function switchPipeline(newMode, shouldPlay = null) {
 					}
 				}
 				if (typeof newPlayer.setPitch === 'function') {
-					const pitchRatio = Math.pow(2, (g.audioParams.pitch || 0) / 12.0);
+					const pitchRatio = Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0);
 					newPlayer.setPitch(pitchRatio);
 
 				}
 				if (typeof newPlayer.setTempo === 'function') {
-					newPlayer.setTempo(g.audioParams.tempo || 1.0);
+					newPlayer.setTempo(g.currentAudioParams.tempo || 1.0);
 
 				}
 				if (typeof newPlayer.setOptions === 'function') {
-					newPlayer.setOptions({ formantPreserved: !!g.audioParams.formant });
+					newPlayer.setOptions({ formantPreserved: !!g.currentAudioParams.formant });
 				}
 			}
 
@@ -2428,8 +2442,8 @@ async function switchPipeline(newMode, shouldPlay = null) {
 					g.rubberbandPlayer.disconnect();
 
 				}
-				if (g.audioParams && g.audioParams.tapeSpeed !== undefined) {
-					applyTapeSpeed(g.audioParams.tapeSpeed);
+				if (g.currentAudioParams && g.currentAudioParams.tapeSpeed !== undefined) {
+					applyTapeSpeed(g.currentAudioParams.tapeSpeed);
 
 				}
 			}
@@ -2687,20 +2701,20 @@ async function initMidiWithSoundfont(soundfontUrl, soundfontPath) {
 			renderInfo(g.currentAudio.fp, meta);
 
 			let keepMetronome = false;
-			if (g.midiSettings && g.midiSettings.metronome !== undefined) {
-				keepMetronome = !!g.midiSettings.metronome;
+			if (g.currentMidiParams && g.currentMidiParams.metronome !== undefined) {
+				keepMetronome = !!g.currentMidiParams.metronome;
 			} else if (tempMidi) {
 				keepMetronome = !!tempMidi.metronomeEnabled;
 				if (keepMetronome) {
-					if (!g.midiSettings) g.midiSettings = {};
-					g.midiSettings.metronome = true;
+					if (!g.currentMidiParams) g.currentMidiParams = {};
+					g.currentMidiParams.metronome = true;
 				}
 			}
 
-			if (!g.midiSettings) g.midiSettings = {};
+			if (!g.currentMidiParams) g.currentMidiParams = {};
 
-			g.midiSettings.pitch = 0;
-			g.midiSettings.speed = null;
+			g.currentMidiParams.pitch = 0;
+			g.currentMidiParams.speed = null;
 
 			if (tempMidi && tempMidi.setMetronome) {
 				tempMidi.setMetronome(keepMetronome);
@@ -2953,7 +2967,7 @@ function applyTapeSpeed(semitones) {
 	semitones = Math.max(-12, Math.min(12, semitones | 0));
 
 
-	g.audioParams.tapeSpeed = semitones;
+	g.currentAudioParams.tapeSpeed = semitones;
 
 	if (g.currentAudio?.isFFmpeg && g.currentAudio.player) {
 

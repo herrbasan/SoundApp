@@ -1,295 +1,310 @@
+# SoundApp — Agent Instructions
+
+> **⚠️ BRANCH CONTEXT:** This is an experimental development branch featuring the Engine-based audio architecture with idle disposal, MessagePort direct communication, and lazy initialization. This branch is ahead of main.
+
+> **📖 MINDSET:** Read and internalize [`DETERMINISTIC_MIND.md`](DETERMINISTIC_MIND.md) — core principles for code quality and reasoning.
+
+> **📋 CURRENT WORK:** See [`docs/Current_Tasks.md`](docs/Current_Tasks.md) — state centralization status, known issues, and remaining tasks.
 
 ---
 
-## Mental Model: Audio Pipeline Architecture
+## 🪵 Logging-Based Debugging (Primary Method)
 
-> **⚠️ NOTE:** This is a simplified model of the audio pipeline. For the full picture, read the code.
+**When debugging anything, use the logger. Do not add console.log statements.**
 
-### Core State
+Log files are created in `logs/soundapp-YYYY-MM-DDTHH-MM-SS.log` for every app start in dev mode. Read the latest log to trace exactly what happened.
 
-```javascript
-// Three key pieces of state
-g.activePipeline      // 'normal' | 'rubberband' - which pipeline is currently active
-g.audioParams         // { mode, locked, pitch, tempo, tapeSpeed, formant }
-g.currentAudio        // { player, paused, isFFmpeg, play(), pause(), seek() }
-```
-
-### The Two Pipelines
-
-| | Normal | Rubberband |
-|--|--------|------------|
-| **Sample Rate** | 48-192kHz (configurable) | Fixed 48kHz |
-| **Use Case** | Standard playback | Pitch/tempo manipulation |
-| **Player** | `g.ffmpegPlayer` | `g.rubberbandPlayer` |
-| **Memory** | ~5MB | ~70MB (WASM) |
-| **Created** | App startup | On-demand (lazy) |
-
-### Key Insight: Dual AudioContext Architecture
-
-```
-┌─────────────────┐     ┌─────────────────┐
-│  g.audioContext │     │g.rubberbandContext│
-│  (48-192kHz)    │     │   (fixed 48kHz)  │
-│                 │     │                  │
-│ ┌─────────────┐ │     │ ┌─────────────┐  │
-│ │ FFmpeg      │ │     │ │ FFmpeg      │  │
-│ │ Player      │ │     │ │ Player ──►  │  │
-│ │ (SAB)       │ │     │ │ Rubberband  │  │
-│ └──────┬──────┘ │     │ │ Worklet     │  │
-│        │        │     │ └──────┬──────┘  │
-│        ▼        │     │        │         │
-│   Destination   │     │   Destination    │
-└─────────────────┘     └─────────────────┘
-        ▲                       ▲
-        └───────────┬───────────┘
-                    │
-         Only ONE connects to
-         speakers at a time
-```
-
-### The Routing Coordinator
-
-All pipeline decisions go through `applyRoutingState()`:
+### Quick Start
 
 ```javascript
-// Call this whenever state changes:
-// - File loaded
-// - Mode changed (tape ↔ pitchtime)
-// - Parameters window opened/closed
-// - Locked setting toggled
-await applyRoutingState(shouldPlay);  // shouldPlay = true | false | null
+// Main process (js/app.js) - already initialized
+logger.info('main', 'Something happened', { file: path.basename(fp) });
+logger.debug('state', 'State changed', { isPlaying, position });
+logger.warn('engine', 'Unusual condition', { param: value });
+logger.error('audio', 'Failed to load', error);
+
+// Renderer processes (windows) - via window-loader.js
+// Already initialized with window type as scope
+logger.info('Window loaded', { windowId });
+logger.debug('Data received', data);
 ```
 
-**What it does:**
-1. Calls `calculateDesiredPipeline()` → decides 'normal' or 'rubberband'
-2. Calls `switchPipeline()` if needed
-3. Cleans up unused resources (destroys rubberband to free memory)
-4. Updates monitoring connections
+### Log Levels
 
-### Common Issues
+| Level | Use For |
+|-------|---------|
+| `DEBUG` | Detailed tracing, state dumps, frequent updates |
+| `INFO` | Significant events, lifecycle, user actions |
+| `WARN` | Unexpected but handled conditions |
+| `ERROR` | Failures that affect functionality |
 
-#### 1. UI Shows Paused But Audio Playing
-**Cause:** `g.currentAudio.paused` out of sync with `player.isPlaying`
-**Fix:** Always use `g.currentAudio.play()` / `pause()` methods (they update both states)
+### Log Format
 
-#### 2. Monitoring Graphs Empty in Rubberband Mode  
-**Cause:** `disconnect()` was disconnecting ALL targets, not just monitoring
-**Fix:** Pass target to `disconnect(target)` for selective disconnection
-
-#### 3. Duplicate play() Calls
-**Cause:** Both `switchPipeline()` and `playAudio()` calling play()
-**Fix:** Made `play()` idempotent with `if (this.isPlaying) return;`
-
-#### 4. Audio "Rush" on File Change (Locked Mode)
-**Status:** Known bug - see "Known Bugs" section below
-**Clue:** Worse in HQ mode (96/192kHz) even though rubberband always runs at 48kHz
-
-### Debug Snippets
-
-```javascript
-// Check pipeline state
-console.log('active:', g.activePipeline, 'desired:', calculateDesiredPipeline());
-
-// Check players
-console.log('ffmpeg:', !!g.ffmpegPlayer, 'rb:', !!g.rubberbandPlayer);
-
-// Check sync
-console.log('paused:', g.currentAudio?.paused, 'playing:', g.currentAudio?.player?.isPlaying);
-
-// Check monitoring
-console.log('RB splitter:', !!g.monitoringSplitter_RB, 'RB analysers:', !!g.monitoringAnalyserL_RB);
+```
+[2026-02-15T21:45:30.123Z] [INFO ] [main        ] audio:play received | {"engineAlive":true}
+[2026-02-15T21:45:30.456Z] [DEBUG] [engine      ] cmd:load received | {"file":"song.mp3"}
+[2026-02-15T21:45:31.789Z] [WARN ] [player      ] File not found | {"path":"/missing.wav"}
 ```
 
+### Terminal stays clean
 
-### Known Bugs (Pending Fix)
-
-#### 1. Constant CPU When Idle (0.3-0.5%) - ✅ WORKAROUND AVAILABLE
-**Status:** Root cause found, workaround implemented  
-**Cause:** MIDI player library causes constant CPU usage even when idle  
-**Solution:** Set `disableMidiPlayer: true` in audio config (see "Debugging Constant CPU Usage" section)
-
-#### 2. Audio "Rush" on File Change in Locked Pitchtime Mode
-
-**Symptom:** When rubberband is active and a new file loads, the first ~1 second of audio "rushes" (plays at wrong speed or garbled). This is minor in 48kHz mode but severe in HQ mode (96/192kHz).
-
-**Key Clue:** Rubberband ALWAYS runs at 48kHz regardless of HQ mode. The fact that HQ mode makes it worse suggests the issue is in the **timing/handoff between FFmpeg decoder initialization and rubberband worklet**, not the rubberband processing itself.
-
-**Hypothesis:** 
-- FFmpeg decoder initializes and starts feeding audio immediately
-- Rubberband worklet takes time to "warm up" (WASM initialization, first process() call)
-- During this window, audio may be buffered incorrectly or played at wrong rate
-- Higher sample rates = more data in the same time window = worse artifacts
-
-**Investigation Notes:**
-```javascript
-// The issue likely occurs in this sequence:
-1. playAudio() creates new FFmpeg player
-2. switchPipeline() opens file in rubberband player
-3. rubberband worklet starts receiving audio
-4. [GAP/RACE CONDITION HERE]
-5. play() starts actual output
-
-// Possible fixes to investigate:
-// - Add delay/worklet priming before starting playback
-// - Check if rubberband worklet needs pre-roll silence
-// - Verify FFmpeg player isn't feeding data before worklet is ready
-```
-
-**Related Code:**
-- `js/rubberband-pipeline.js` - Worklet creation and audio routing
-- `bin/win_bin/player-sab.js` - FFmpeg decoder feeding
-- `js/stage.js:1907-1909` - Where pipeline switch happens after file load
-
+All `console.log` calls are automatically captured to the log file. The terminal only shows errors. Read `logs/` for the full trace.
 
 ---
 
-## Future Architecture: Centralized State System
+## Quick Reference
 
-> **Status:** Design idea for future refactoring
+| Key File | Purpose |
+|----------|---------|
+| `js/app.js` | Main process — ground truth state, idle disposal, IPC routing |
+| `js/engines.js` | Hidden engine window — all audio playback, monitoring |
+| `js/stage.js` | Player UI — file drops, playlist, keyboard input |
+| `js/rubberband-pipeline.js` | Rubberband WASM wrapper for pitch/time |
+| `js/window-loader.js` | Shared bootstrap for all child windows |
+| `js/config-defaults.js` | Default configuration values |
 
-### Current Problem
+---
 
-State is scattered across multiple global variables:
+## Architecture Overview
 
-```javascript
-// Current state is fragmented:
-g.activePipeline           // 'normal' | 'rubberband'
-g.audioParams              // { mode, locked, pitch, tempo, ... }
-g.currentAudio             // { player, paused, isFFmpeg, ... }
-g.rubberbandPlayer         // Player instance or null
-g.ffmpegPlayer             // Player instance
-g.windows.monitoring       // Window ID or null
-g.windowsVisible.monitoring // boolean
-g.monitoringReady          // boolean
-g.parametersOpen           // boolean
-// ...and more
+### Three-Process Design
+
+```
+┌─────────────────┐     IPC      ┌─────────────────┐     IPC      ┌─────────────────┐
+│    Main         │◄────────────►│     Engine      │◄────────────►│  Child Windows  │
+│   (app.js)      │              │  (engines.js)   │   MessagePort │ (parameters,    │
+│                 │              │                 │   (VU data)   │  monitoring,    │
+│ • Ground truth  │              │ • Audio playback│               │  mixer, etc)    │
+│   state         │              │ • All 3 engines │               │                 │
+│ • Idle disposal │              │ • Monitoring    │               │ • Dumb renderers│
+│ • IPC routing   │              │   analysis      │               │ • Receive data  │
+└─────────────────┘              └─────────────────┘               └─────────────────┘
+        │
+        ▼
+┌─────────────────┐
+│   Player UI     │
+│  (stage.js)     │
+│                 │
+│ • User interface│
+│ • File handling │
+│ • Playlist      │
+└─────────────────┘
 ```
 
-**Problems with this approach:**
-1. Hard to know what's "true" at any moment
-2. Race conditions when multiple things change simultaneously  
-3. Easy to get out of sync (e.g., `paused` vs `isPlaying`)
-4. No single place to validate state consistency
-5. Testing is hard - have to mock many globals
+### Process Roles
 
-### Proposed Solution
+| Process | Responsibility |
+|---------|---------------|
+| **Main** | Window lifecycle, ground truth `audioState`, idle disposal, IPC routing, child window tracking |
+| **Engine** | All audio playback (FFmpeg, MIDI, Tracker), monitoring taps, VU data generation |
+| **Player UI** | User interface, file drops, playlist display, keyboard shortcuts |
+| **Child Windows** | Parameters, Monitoring, Mixer, Settings, Help — receive data via MessagePort or IPC |
+
+---
+
+## State Architecture
+
+### Ground Truth (Main Process Only)
+
+`audioState` in `app.js` is the **single source of truth** that survives engine disposal:
 
 ```javascript
-// Single source of truth
-g.playerState = {
-  // What
-  file: null | string,           // Current file path
-  isPlaying: boolean,            // Actual playback state
-  position: number,              // Current time in seconds
-  duration: number,              // Total duration
-  
-  // How
-  pipeline: 'normal' | 'rubberband',
-  mode: 'tape' | 'pitchtime',
-  params: {
-    tapeSpeed: number,
-    pitch: number,
-    tempo: number,
-    formant: boolean,
-    locked: boolean
-  },
-  
-  // UI/Windows
-  windows: {
-    monitoring: { open: boolean, visible: boolean, ready: boolean },
-    parameters: { open: boolean },
-    // ...etc
-  }
+const audioState = {
+    // Playback
+    file: null,             // Current file path
+    isPlaying: false,
+    position: 0,            // Seconds
+    duration: 0,
+    
+    // Audio params (FFmpeg files)
+    mode: 'tape',           // 'tape' | 'pitchtime'
+    tapeSpeed: 0,           // -12 to +12 semitones
+    pitch: 0,               // -12 to +12 semitones
+    tempo: 1.0,             // 0.5 to 2.0 ratio
+    formant: false,         // Formant preservation
+    locked: false,          // Lock settings across tracks
+    
+    // MIDI params
+    midiParams: {
+        transpose: 0,
+        bpm: null,          // null = use file BPM
+        metronome: false,
+        soundfont: null
+    },
+    
+    // Tracker params
+    trackerParams: {
+        pitch: 1.0,
+        tempo: 1.0,
+        stereoSeparation: 100
+    },
+    
+    // Engine lifecycle
+    activePipeline: 'normal',   // 'normal' | 'rubberband'
+    engineAlive: false,
+    engineInitializing: false,
+    
+    // Playlist
+    playlist: [],
+    playlistIndex: 0,
+    
+    // Metadata (for UI)
+    metadata: null,
+    fileType: null          // 'MIDI' | 'Tracker' | 'FFmpeg'
+};
+```
+
+### Engine Local State (Stateless Design)
+
+Engine does NOT maintain ground truth state. It receives params from Main with each command:
+
+```javascript
+// engines.js - params received from Main via IPC commands
+g.currentAudioParams = null;   // Set by cmd:setParams (mode, tapeSpeed, pitch, tempo, formant, locked)
+g.currentMidiParams = null;    // Set by param-change events (transpose, bpm, metronome)
+g.currentTrackerParams = null; // Set by param-change events (pitch, tempo, stereoSeparation)
+
+// Runtime objects only (not state)
+g.currentAudio = { fp, player, paused, isFFmpeg, isMidi, isMod, ... };
+```
+
+**Pattern:** Main sends state with commands → Engine stores temporarily → Engine applies to players. Engine never generates its own state.
+
+### State Flow
+
+1. **User changes param** → Parameters window → `param-change` IPC → Main updates `audioState` → Forwards to Engine (with param values) → Engine applies to player
+2. **Engine restoration** → Main sends `cmd:setParams` (with full state) → `cmd:load` (load file) → Wait for `audio:loaded` → `cmd:applyParams` (apply received params to players)
+3. **File change + locked=true** → Main preserves params → Sends to Engine with `cmd:setParams`
+4. **File change + locked=false** → Main resets params to defaults → Sends to Engine with `cmd:setParams`
+
+**Key Principle:** Engine never reads from `audioState` directly. Main always sends state via IPC commands.
+
+---
+
+## Idle Disposal (0% CPU Mode)
+
+### State Machine
+
+```
+ACTIVE ──pause+5s/hidden──▶ PAUSED_HIDDEN ──▶ DISPOSING ──▶ DISPOSED
+   │
+   └──pause+10s/visible────▶ PAUSED_VISIBLE ──▶ DISPOSING ──▶ DISPOSED
+```
+
+| State | Timeout | Condition |
+|-------|---------|-----------|
+| `ACTIVE` | — | Playing or recently active |
+| `PAUSED_VISIBLE` | 10s | Paused, window visible, no interaction |
+| `PAUSED_HIDDEN` | 5s | Paused, window hidden to tray |
+| `DISPOSING` | Immediate | Cleanup in progress |
+| `DISPOSED` | — | Engine destroyed, 0% CPU |
+
+### Restoration Triggers
+
+- Play button
+- Seek
+- Next/Prev track
+- Window show/restore
+- Any window focus (resets timer)
+
+### Key Implementation
+
+```javascript
+// app.js — Idle State Machine
+const IdleState = {
+    ACTIVE: 'active',
+    PAUSED_VISIBLE: 'paused_visible',
+    PAUSED_HIDDEN: 'paused_hidden',
+    DISPOSING: 'disposing',
+    DISPOSED: 'disposed'
 };
 
-// All mutations go through actions
-g.playerState = StateReducer(g.playerState, {
-  type: 'PLAY',
-  payload: { startTime: 0 }
-});
-
-// Components subscribe to slices
-State.subscribe('pipeline', (newVal, oldVal) => {
-  // React to pipeline changes
-});
-
-State.subscribe('isPlaying', (newVal) => {
-  updateUI(newVal ? 'playing' : 'paused');
-});
+// Restoration preserves exact position and params
+async function restoreEngineIfNeeded() {
+    // 1. Create engine window
+    // 2. sendToEngine('cmd:setParams', audioState) — pre-set globals
+    // 3. Re-register child windows + update stageId
+    // 4. sendToEngine('cmd:load', { file, position })
+    // 5. Wait for 'audio:loaded' signal
+    // 6. sendToEngine('cmd:applyParams', ...) — apply to active players
+    // 7. Update parameters window UI
+}
 ```
-
-### Benefits
-
-1. **Single source of truth** - Look in one place to know everything
-2. **Predictable updates** - All state changes go through the reducer
-3. **Easy debugging** - Log every state change, time-travel debugging
-4. **Testability** - Pure functions: `newState = reducer(oldState, action)`
-5. **Subscriptions** - Components react to changes instead of polling
-
-### Migration Path
-
-```javascript
-// Phase 1: Create state object that mirrors current globals
-g.state = createInitialState();
-
-// Phase 2: Replace direct mutations with setters
-// Before:
-g.activePipeline = 'rubberband';
-
-// After:
-State.set({ activePipeline: 'rubberband' });
-
-// Phase 3: Components subscribe to state instead of checking globals
-// Before:
-if (g.activePipeline === 'rubberband') { ... }
-
-// After:
-State.subscribe('activePipeline', (val) => { ... });
-```
-
-### Related Ideas
-
-- **State Machines** - Model playback as explicit states:
-  ```javascript
-  // IDLE -> LOADING -> PLAYING -> PAUSED -> STOPPED
-  //               \______________/
-  ```
-
-- **Command Pattern** - All actions are objects:
-  ```javascript
-  { type: 'PLAY_FILE', file: 'song.mp3', mode: 'pitchtime' }
-  { type: 'SEEK', position: 120 }
-  { type: 'SET_MODE', mode: 'tape', speed: -3 }
-  ```
-
-- **Undo/Redo** - With immutable state, easy to implement history
-
 
 ---
 
-## Debugging Constant CPU Usage (0.2%+ When Idle)
+## Audio Pipeline Architecture
 
-> **Status:** ✅ **RESOLVED** - MIDI Player is the culprit
+### Three Engines
 
-### Investigation Results
+| Engine | Formats | Pipeline | Key Params |
+|--------|---------|----------|------------|
+| **FFmpeg** | MP3, FLAC, WAV, OGG, AAC, etc. | Dual: Normal / Rubberband | mode, tapeSpeed, pitch, tempo, formant, locked |
+| **MIDI** | .mid, .midi, .kar, .rmi | Normal only | transpose, bpm, metronome, soundfont |
+| **Tracker** | MOD, XM, IT, S3M, 70+ formats | Normal only | pitch, tempo, stereoSeparation |
 
-| DEBUG_MODE Level | Components | CPU Usage |
-|------------------|------------|-----------|
-| 0-1 | UI + Config | 0-0.1% ✅ |
-| 2 | + AudioContext (suspended) | 0-0.1% ✅ |
-| 3 | + FFmpeg player (idle) | 0-0.1% ✅ |
-| 4 | + AudioContext running | 0-0.1% ✅ |
-| 5 | + **MIDI player** | **0.3-0.5%** ❌ |
-| 6 | + Tracker player | 0.3-0.5% ❌ |
+### Dual Pipeline (Audio Files Only)
 
-**Root Cause:** The MIDI player (`js/midi/midi.js` library) causes constant 0.3-0.5% CPU usage even when idle/not playing MIDI files.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     NORMAL PIPELINE                              │
+│              (48-192kHz, configurable, HQ mode)                 │
+│                                                                  │
+│   FFmpeg Decoder → FFmpeg Worklet → Gain → Destination          │
+│                            │                                     │
+│                      tapeSpeed via playbackRate                  │
+└─────────────────────────────────────────────────────────────────┘
+                                OR
+┌─────────────────────────────────────────────────────────────────┐
+│                   RUBBERBAND PIPELINE                            │
+│              (48kHz fixed, ~70MB WASM heap)                     │
+│                                                                  │
+│   FFmpeg Decoder → Rubberband Worklet → Gain → Destination      │
+│                            │                                     │
+│              pitch, tempo, formant via WASM                     │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### Solution
+### Pipeline Selection
 
-**Option 1: Disable MIDI player completely** (if you don't need MIDI file support)
+```javascript
+function calculateDesiredPipeline() {
+    if (!g.currentAudio?.isFFmpeg) return 'normal';
+    if (g.audioParams.locked && g.audioParams.mode === 'pitchtime') return 'rubberband';
+    if (g.parametersOpen && g.audioParams.mode === 'pitchtime') return 'rubberband';
+    return 'normal';
+}
+```
 
-Add to your config (or edit `js/config-defaults.js`):
+### Lazy Initialization
+
+| Component | When Created | When Destroyed | Toggle |
+|-----------|--------------|----------------|--------|
+| FFmpeg Player | Engine init | Engine disposal | — |
+| Rubberband | First pitchtime use | When no longer needed (saves ~70MB) | — |
+| MIDI | First MIDI file playback | Never | `disableMidiPlayer: true` in config |
+| Tracker | First tracker file (if lazyLoad enabled) | Engine disposal | `lazyLoadTracker: true` or `lazyLoadEngines: true` in env.json |
+
+#### Tracker Lazy-Init
+
+Controlled via `env.json`:
 ```json
+{
+  "lazyLoadEngines": true,   // Enables both MIDI and Tracker lazy-init
+  "lazyLoadTracker": true    // Specifically for tracker (optional override)
+}
+```
+
+- **Default**: Tracker initializes at engine startup (backward compatible)
+- **With lazyLoad**: Tracker module loads at startup, but player instance initializes on first tracker file
+- **HQ Mode toggle**: Respects lazy setting — won't eagerly init if lazy mode enabled
+
+#### MIDI Lazy-Init
+
+MIDI behaves differently — the module loads at engine startup (loads WASM/SoundFont), but the player instance initializes on first MIDI file playback. To completely disable MIDI (saves 0.3-0.5% constant CPU):
+
+```json
+// config.json (not env.json)
 {
   "audio": {
     "disableMidiPlayer": true
@@ -297,241 +312,269 @@ Add to your config (or edit `js/config-defaults.js`):
 }
 ```
 
-Or use the DEBUG_MODE test to confirm:
-```json
-{
-  "DEBUG_MODE": 4
-}
-```
-
-**Option 2: Live with it** (if you need MIDI support)
-- 0.3-0.5% is relatively minor
-- The MIDI player loads a soundfont and likely has internal timers/polling
-
-### Implementation Details
-
-The fix was added in `js/stage.js:initMidiPlayer()`:
-```javascript
-async function initMidiPlayer() {
-    if (!window.midi || !g.audioContext) return;
-    
-    // Allow disabling MIDI player to save CPU (0.3-0.5% constant usage even when idle)
-    if (g.config?.audio?.disableMidiPlayer) {
-        console.log('[MIDI] Disabled via config (disableMidiPlayer: true)');
-        return;
-    }
-    // ... rest of initialization
-}
-```
-
-And `js/config-defaults.js` has the new option:
-```javascript
-audio: {
-    volume: 0.5,
-    output: { deviceId: '' },
-    hqMode: false,
-    disableMidiPlayer: false  // Set to true to save 0.3-0.5% constant CPU usage
-},
-```
-
-### Original Hypotheses (DEBUNKED)
-
-1. ~~AudioContext running state~~ - Tested: suspended vs running makes no difference (0-0.1% both)
-2. ~~Web Audio AnalyserNode~~ - Not active when monitoring window closed
-3. ~~Electron/Chromium flags~~ - Minimal mode proves Electron itself is fine
-4. ~~Memory pressure/GC~~ - No GC pressure observed
-5. ~~Background timer~~ - No suspicious timers found
-6. ~~Worklet still active~~ - FFmpeg worklet idle = 0% CPU
-
-### Debugging Steps
-
-#### 1. Check AudioContext State
-Open DevTools console in the main window when idle:
-```javascript
-// Check if audio context is running
-console.log('AudioContext state:', g.audioContext?.state);
-console.log('RubberbandContext state:', g.rubberbandContext?.state);
-
-// Suspend it manually and see if CPU drops
-g.audioContext.suspend().then(() => console.log('Suspended main context'));
-g.rubberbandContext?.suspend().then(() => console.log('Suspended RB context'));
-```
-
-If CPU drops after suspend, we found the culprit.
-
-#### 2. Profile with Chrome DevTools
-1. Open DevTools (Ctrl+Shift+I)
-2. Performance tab
-3. Click record for 5-10 seconds while app is idle
-4. Look for:
-   - **Task** spikes (JavaScript running)
-   - **System** activity (GC, compilation)
-   - Long **Idle** periods vs constant small tasks
-
-#### 3. Check for Timers/Intervals
-In DevTools console:
-```javascript
-// Override setInterval/setTimeout to log what's running
-const origSetInterval = window.setInterval;
-window.setInterval = function(fn, delay, ...args) {
-    console.trace('setInterval created:', delay, fn.toString().slice(0, 100));
-    return origSetInterval(fn, delay, ...args);
-};
-
-const origSetTimeout = window.setTimeout;
-window.setTimeout = function(fn, delay, ...args) {
-    if (delay < 1000) { // Only log short timeouts
-        console.trace('setTimeout created:', delay, fn.toString().slice(0, 100));
-    }
-    return origSetTimeout(fn, delay, ...args);
-};
-```
-
-Reload and see what's being scheduled constantly.
-
-#### 4. Check Electron Helper/Library
-The issue might be in the `electron_helper` library:
-```javascript
-// Check if config is being polled
-console.log('Config object:', g.config_obj);
-// Look for any intervals/timeouts in the helper
-```
-
-#### 5. Compare with "Before" State
-If you have a git commit from before the new features:
-```bash
-# Checkout old version
-git checkout <commit-before-features>
-# Test CPU usage
-# Then compare what changed
-```
-
-#### 6. Process Isolation Test
-In Task Manager, try killing individual Electron processes one by one (not the main one!) and see which one reduces CPU. This tells us if it's:
-- Main process (app.js)
-- Renderer (stage.js)
-- GPU process
-- Utility process (audio, etc.)
-
-### Potential Fixes to Try
-
-1. **Suspend AudioContext when paused:**
-```javascript
-// When pausing
-g.audioContext.suspend();
-
-// When resuming
-g.audioContext.resume();
-```
-
-2. **Disable background throttling:**
-```javascript
-// In app.js when creating window
-webPreferences: {
-    backgroundThrottling: true,  // or false to test
-    // ...
-}
-```
-
-3. **Check Electron version changes:**
-```javascript
-// In DevTools
-console.log(process.versions.electron);
-console.log(process.versions.chrome);
-```
-
-### Related Code Areas
-- `js/stage.js:541` - AudioContext creation
-- `js/stage.js:254` - Rubberband context creation
-- `js/app.js:191` - Main window webPreferences
-- `libs/electron_helper/` - Helper library internals
-
 ---
 
+## Communication Patterns
 
----
+### IPC Channels (Main ↔ Engine/Player)
 
-## Minimal Mode (CPU Debugging)
-
-> **Purpose:** Isolate what's causing constant CPU usage by skipping all heavy initialization
-
-### How to Enable
-
-**Option 1: Command line flag**
-```bash
-# Run app with --minimal flag
-.\SoundApp.exe --minimal
-```
-
-**Option 2: Environment variable**
-Add to `env.json` in app root:
-```json
-{
-  "MINIMAL_MODE": true
-}
-```
-
-### What Gets Skipped in Minimal Mode
-
-✅ **Still loaded:**
-- Basic Electron window
-- Minimal UI (dark theme, frame)
-- Console logging
-
-❌ **Skipped:**
-- AudioContext creation
-- FFmpeg player initialization
-- MIDI player initialization
-- Tracker/MOD player initialization
-- Rubberband pipeline
-- Config system
-- All IPC handlers
-- All event listeners
-
-### Expected CPU Usage
-
-| Mode | Expected CPU |
-|------|-------------|
-| Minimal mode | 0% (or very close) |
-| Normal idle (paused) | 0.2%+ (the problem) |
-
-### Debugging Process
-
-1. **Start in minimal mode** - Check Task Manager
-   - If CPU is 0% → Problem is in skipped components
-   - If CPU is still 0.2%+ → Problem is in Electron/Chromium itself
-
-2. **Gradually re-enable components** by editing the init() function:
-   ```javascript
-   // In js/stage.js init(), after minimal mode check:
-   
-   // Step 1: Add back config system
-   g.config_obj = await helper.config.initRenderer(...)
-   
-   // Step 2: Add back AudioContext only
-   g.audioContext = new AudioContext(...)
-   
-   // Step 3: Add back FFmpeg player
-   // etc.
-   ```
-
-3. **Check CPU after each addition** to find the culprit
-
-### Quick Test in DevTools
-
-Even without minimal mode, you can test suspending the AudioContext:
+**Player → Main:**
 ```javascript
-// In DevTools console when app is idle
-console.log('Before suspend:', g.audioContext.state);
-g.audioContext.suspend().then(() => {
-    console.log('After suspend:', g.audioContext.state);
-    console.log('Check Task Manager - did CPU drop?');
+audio:play, audio:pause, audio:seek, audio:load
+audio:next, audio:prev, audio:setParams, audio:shuffle
+window-created, window-visible, window-hidden, window-closed
+param-change
+```
+
+**Engine → Main:**
+```javascript
+audio:position, audio:state, audio:loaded, audio:ended
+audio:metadata, audio:sample-rate-info, engine:ready
+```
+
+**Main → Player:**
+```javascript
+state:update, position, theme-changed
+```
+
+### MessagePort (Direct Engine ↔ Child Windows)
+
+For high-frequency data (VU meters at 60fps), use MessagePort to bypass main process:
+
+```javascript
+// In engines.js
+if (g.messagePorts.parameters) {
+    g.messagePorts.parameters.postMessage({ 
+        channel: 'tracker-vu', 
+        data: { vu: [...], channels: N }
+    });
+}
+
+// In window-loader.js — reception
+ipcRenderer.on('message-channel', (e, meta) => {
+    const port = e.ports[0];
+    port.start();  // CRITICAL: Must call start()!
+    port.onmessage = (e) => { /* handle */ };
 });
 ```
 
-### Related Files
+**Critical:** Always call `port.start()` or messages queue indefinitely causing OOM.
 
-- `js/stage.js:368-400` - Minimal mode check and early return
-- `js/stage.js:539-543` - AudioContext creation (skipped in minimal)
-- `js/stage.js:567-578` - FFmpeg player init (skipped in minimal)
+---
 
+## Child Windows
+
+All child windows use `js/window-loader.js` for shared bootstrap:
+
+| Window | Shortcut | Data Source | Notes |
+|--------|----------|-------------|-------|
+| **Parameters** | P | MessagePort from engine | Adaptive UI: Audio/MIDI/Tracker tabs |
+| **Monitoring** | N | MessagePort from engine | FFT, waveform, loudness analysis |
+| **Mixer** | M | Direct from engines | Multi-track preview (20 tracks) |
+| **Settings** | S | IPC to main | Config UI, output device selection |
+| **Help** | H | Static | Keyboard shortcuts reference |
+
+### Window Lifecycle
+
+1. **Creation** → Stage sends `init_data` with `stageId`, `windowId`, `type`
+2. **Loader** → Receives `init_data`, initializes config, applies theme
+3. **Ready** → Sends `window-ready` to stage
+4. **Visible** → Stage sends `show-window`, forwards to engine
+5. **Close** → Calls `bridge.closeWindow()` which hides (fast reopen)
+6. **Real Close** → Mixer only: `windowType === 'mixer'` triggers actual destroy
+
+---
+
+## Configuration System
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `js/config-defaults.js` | Default values, window dimensions |
+| `user.json` | User settings (persistent) |
+| `user_temp.json` | Temporary settings (`--defaults` flag) |
+| `env.json` | Environment flags (DEBUG_MODE, etc.) |
+
+### Key Defaults
+
+```javascript
+// config-defaults.js
+audio: { volume: 0.5, output: { deviceId: '' }, hqMode: false, disableMidiPlayer: false }
+ffmpeg: { stream: { prebufferChunks: 50 }, decoder: { threads: 0 } }
+tracker: { stereoSeparation: 100 }
+mixer: { preBuffer: 50, useSAB: false }
+windows: { main: { width: 480, height: 278, scale: 14 }, ... }
+```
+
+---
+
+## Debugging & Development
+
+**Primary debugging method:** Use the logger. See [Logging-Based Debugging](#logging-based-debugging-primary-method) section above.
+
+### Environment Flags (env.json)
+
+```json
+{
+  "DEBUG_MODE": 4,              // Step-by-step init (0-7)
+  "MINIMAL_MODE": true,         // UI only, skip audio init
+  "KILL_MIDI": true,            // Skip MIDI init (debug)
+  "KILL_TRACKER": true,         // Skip Tracker init (debug)
+  "KILL_FFMPEG": true,          // Skip FFmpeg init (debug)
+  "KILL_AUDIO_CONTEXT": true,   // Skip AudioContext creation (debug)
+  "lazyLoadEngines": true,      // Lazy init MIDI and Tracker players
+  "lazyLoadTracker": true,      // Lazy init Tracker only (overrides lazyLoadEngines)
+  "config_log": true            // Log config changes
+}
+```
+
+**Note:** `lazyLoadEngines` and `lazyLoadTracker` are development/testing flags in `env.json`. For user-facing MIDI disable, use `disableMidiPlayer: true` in `config.json` (see Configuration System).
+
+### Command Line
+
+```bash
+# Minimal mode (debug CPU usage)
+.\SoundApp.exe --minimal
+
+# Start with fresh defaults
+.\SoundApp.exe --defaults
+.\SoundApp.exe --no-config
+```
+
+### DevTools Console Snippets
+
+```javascript
+// Check engine state (use logger for persistent output)
+logger.info('debug', 'Engine state', { engineAlive: audioState.engineAlive, idleState: idleStateMachine.current });
+
+// Force disposal/restore
+debugIdle.forceDispose();
+debugEngine.open();
+
+// Check caches
+waveformCache.getStats();
+
+// Check lazy-init status
+midi?._isInitialized ? "MIDI initialized" : "MIDI not loaded";
+_trackerInstance ? "Tracker initialized" : "Tracker not loaded";
+
+// Check MessagePorts
+g.messagePorts;  // In engine
+
+// Check log file location
+logger.getLogPath();
+```
+
+---
+
+## File Organization
+
+```
+js/
+├── app.js                    # Main process
+├── engines.js                # Audio engine (hidden window)
+├── stage.js                  # Player UI (legacy, being phased out)
+├── player.js                 # Player UI logic (used by stage.js)
+├── rubberband-pipeline.js    # Rubberband WASM wrapper
+├── waveform_analyzer.js      # Waveform extraction
+├── shortcuts.js              # Global keyboard shortcuts
+├── registry.js               # Windows file associations
+├── window.js                 # Window utilities
+├── window-loader.js          # Shared window bootstrap
+├── config-defaults.js        # Default configuration
+├── logger-main.js            # Main process logging (file output)
+├── logger-renderer.js        # Renderer process logging (IPC to main)
+│
+├── midi/                     # MIDI player & FluidSynth
+│   ├── midi.js
+│   ├── synth-wrapper.js
+│   └── *.worklet.js
+│
+├── mixer/                    # Multi-track mixer
+│   ├── main.js
+│   ├── mixer_engine.js
+│   └── mixer-worklet-processor.js
+│
+├── monitoring/               # Audio analysis & visualization
+│   ├── main.js
+│   ├── visualizers.js
+│   ├── analysis.worker.js
+│   └── *.worker.js
+│
+├── parameters/               # Parameters window (Audio/MIDI/Tracker)
+│   └── main.js
+│
+├── settings/                 # Settings window
+│   └── main.js
+│
+└── help/                     # Help window
+    └── main.js
+
+bin/win_bin/                  # Windows binaries
+├── ffmpeg_napi.node          # FFmpeg N-API binding
+├── player-sab.js             # SharedArrayBuffer player
+├── ffmpeg-worklet-sab.js     # FFmpeg AudioWorklet
+└── realtime-pitch-shift-processor.js  # Rubberband worklet
+```
+
+---
+
+## Known Issues & Behavior
+
+### By Design
+
+1. **MIDI Player CPU Usage**: The `js-synthesizer` library causes constant 0.3-0.5% CPU even when idle. Set `disableMidiPlayer: true` in `config.json` to eliminate (MIDI files won't play). The MIDI module always loads at startup (WASM/SoundFont), but the player instance initializes on first MIDI file.
+
+2. **Rubberband Fixed 48kHz**: Rubberband ALWAYS runs at 48kHz regardless of HQ mode. HQ mode only affects the normal pipeline.
+
+3. **First MIDI Load Delay**: 1-2s delay on first MIDI file (SoundFont loading, working as intended).
+
+4. **First Tracker Load Delay**: Slight delay on first tracker file if `lazyLoadEngines: true` or `lazyLoadTracker: true` in `env.json`. Default behavior is eager initialization for backward compatibility.
+
+### Under Investigation
+
+1. **Position Update Smoothness**: 50ms interval is slightly less smooth than 15ms (barely noticeable, but ~60% less IPC traffic).
+
+---
+
+## Testing Checklist
+
+When making changes to audio/engine code:
+
+- [ ] Play/pause works for all three engine types (FFmpeg, MIDI, Tracker)
+- [ ] Parameters window shows correct tab for each file type
+- [ ] Parameters values persist across track changes when locked=true
+- [ ] Monitoring shows correct visualization (FFT, waveform)
+- [ ] Idle disposal triggers after timeout (check Task Manager for 0% CPU)
+- [ ] Restoration resumes from exact position with correct params
+- [ ] Mixer syncs and plays multiple tracks
+- [ ] Child windows reconnect after engine restoration
+- [ ] No double-press required for window toggle after restore
+- [ ] Rubberband pitch/tempo changes are smooth (no crackling)
+- [ ] **Logs are written** to `logs/` directory and contain expected trace
+
+---
+
+## Future Ideas (Not Implemented)
+
+These are **ideas only** — no code written yet.
+
+### Predictive Engine Restoration
+Start restoring engine when user hovers over play button (before click).  
+*Trade-off: May restore unnecessarily.*
+
+### Visual "Engine Sleeping" Indicator
+Show indicator when engine is disposed to explain brief delay on first play.
+
+### Configurable Idle Timeouts
+User settings for disposal timing (fast disposal vs instant playback).
+
+### Smart Idle Detection
+Dispose during audio fade-out silence instead of fixed timeouts.
+
+### WebGL Waveform Rendering
+Replace Canvas 2D with WebGL for smoother visualization.
+
+### Code Splitting
+Load MIDI/Tracker code only when needed (requires build changes).

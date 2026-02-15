@@ -7,6 +7,7 @@ const tools = helper.tools;
 const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 const configDefaults = require('./config-defaults.js');
+const logger = require('./logger-main');
 
 // Set process title for identification in task manager
 process.title = 'SoundApp Main';
@@ -166,13 +167,14 @@ let engineWindow = null;
 
 // Child window tracking (monitoring, parameters, etc.)
 // These need to be re-notified to engine after restoration
+// Ground truth for window state - single source of truth
 const childWindows = {
-    monitoring: { open: false, windowId: null },
-    parameters: { open: false, windowId: null },
-    settings: { open: false, windowId: null },
-    playlist: { open: false, windowId: null },
-    help: { open: false, windowId: null },
-    mixer: { open: false, windowId: null }
+    monitoring: { open: false, windowId: null, visible: false },
+    parameters: { open: false, windowId: null, visible: false },
+    settings: { open: false, windowId: null, visible: false },
+    playlist: { open: false, windowId: null, visible: false },
+    help: { open: false, windowId: null, visible: false },
+    mixer: { open: false, windowId: null, visible: false }
 };
 
 // MessageChannel ports for direct renderer-to-renderer communication
@@ -341,7 +343,13 @@ app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 //protocol.registerSchemesAsPrivileged([{ scheme: 'raum', privileges: { bypassCSP: true, supportFetchAPI:true } }])
 
 async function init(cmd) {
-	console.log('APP INIT');
+	// Initialize logger first (before any other operations)
+	await logger.init(app);
+	
+	// Capture all console output to log file, keep terminal clean
+	logger.captureConsole(true);
+	
+	logger.info('main', 'APP INIT', { cmd, isPackaged, version: app.getVersion() });
 
 	if (isPackaged) {
 		const gotTheLock = app.requestSingleInstanceLock()
@@ -982,6 +990,7 @@ function transitionIdleState(newState) {
     const oldState = idleStateMachine.current;
     idleStateMachine.current = newState;
     
+    logger.info('main', `Idle state transition: ${oldState} -> ${newState}`);
     console.log(`[IdleState] ${oldState} -> ${newState}`);
     
     const handler = IdleTransitions[newState];
@@ -1238,13 +1247,16 @@ function disposeEngineWindow() {
 
 async function restoreEngineIfNeeded() {
     // Restore engine when window becomes visible and we have state to restore
-    console.log(`[DEBUG] restoreEngineIfNeeded called, engineAlive=${audioState.engineAlive}, file=${audioState.file ? path.basename(audioState.file) : 'null'}`);
+    logger.info('main', 'restoreEngineIfNeeded called', { 
+        engineAlive: audioState.engineAlive, 
+        file: audioState.file ? path.basename(audioState.file) : null 
+    });
     if (audioState.engineAlive) {
-        console.log('[] ');
+        logger.debug('main', 'restoreEngineIfNeeded: engine already alive');
         return true;
     }
     if (!audioState.file) {
-        console.log('[] ');
+        logger.warn('main', 'restoreEngineIfNeeded: no file to restore');
         return false;
     }
     
@@ -1254,7 +1266,7 @@ async function restoreEngineIfNeeded() {
     // Reset disposal guard since we're creating a new engine
     audioState.isDisposing = false;
     
-    console.log('[] ');
+    logger.info('main', 'restoreEngineIfNeeded: starting restoration');
     const startTime = Date.now();
     
     try {
@@ -1511,6 +1523,13 @@ function sendParamsToParametersWindow(reset = false) {
 }
 
 function broadcastState(excludeEngine = false) {
+    // Log state changes for debugging
+    logger.debug('main', 'broadcastState', { 
+        isPlaying: audioState.isPlaying, 
+        position: Math.round(audioState.position * 100) / 100,
+        file: audioState.file ? path.basename(audioState.file) : null,
+        engineAlive: audioState.engineAlive
+    });
     const stateUpdate = {
         file: audioState.file,
         isPlaying: audioState.isPlaying,
@@ -1554,6 +1573,7 @@ function setupAudioIPC() {
     ipcMain.on('audio:play', async () => {
         // Record activity to reset idle timers
         recordUserActivity();
+        logger.info('main', 'audio:play received', { engineAlive: audioState.engineAlive });
         logStateDebugAction('play', audioState.engineAlive ? 'Play (engine alive)' : 'Play (engine was disposed, restoring...)');
         
         audioState.isPlaying = true;
@@ -1577,8 +1597,8 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:pause', () => {
+        logger.info('main', 'audio:pause received', { locked: audioState.locked, wasPlaying: audioState.isPlaying });
         logStateDebugAction('pause', 'Playback paused');
-        console.log(`[Disposal] Pause received, locked=${audioState.locked}, wasPlaying=${audioState.isPlaying}`);
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
@@ -1614,6 +1634,12 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:load', async (e, data) => {
         if (!data || !data.file) return;
+        
+        logger.info('main', 'audio:load received', { 
+            file: path.basename(data.file), 
+            position: data.position,
+            paused: data.paused 
+        });
         
         // Phase 4: Cancel any pending disposal when loading new content
         cancelEngineDisposal();
@@ -1685,6 +1711,11 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:next', async () => {
         recordUserActivity();
+        logger.info('main', 'audio:next received', { 
+            playlistIndex: audioState.playlistIndex, 
+            playlistLength: audioState.playlist.length,
+            engineAlive: audioState.engineAlive 
+        });
         logStateDebugAction('next-track', audioState.engineAlive ? 'Next track (engine alive)' : 'Next track (engine was disposed)');
         // Advance playlist index in app.js (main is source of truth)
         if (audioState.playlist.length > 0) {
@@ -1905,7 +1936,7 @@ function setupAudioIPC() {
             if (childWindows[data.type]) {
                 childWindows[data.type].open = true;
                 childWindows[data.type].windowId = data.windowId;
-                // childWindows tracked
+                childWindows[data.type].visible = true;  // Window is created and shown
             }
             sendToEngine('window-created', data);
             
@@ -1932,10 +1963,11 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-visible', (e, data) => {
-        // window-visible
+        // window-visible - window exists and is now visible
         if (data && data.type && childWindows[data.type]) {
             childWindows[data.type].open = true;
             childWindows[data.type].windowId = data.windowId;
+            childWindows[data.type].visible = true;
         }
         sendToEngine('window-visible', data);
         
@@ -1953,16 +1985,15 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-hidden', (e, data) => {
-        // window-hidden
+        // window-hidden - window still exists but is hidden
         if (data && data.type && childWindows[data.type]) {
-            // Window is hidden but not closed - keep tracking it
-            // childWindows: open stays true
+            childWindows[data.type].visible = false;  // Window is hidden but still exists
         }
         sendToEngine('window-hidden', data);
     });
     
     ipcMain.on('window-closed', (e, data) => {
-        // window-closed
+        // window-closed - window is destroyed
         if (data && data.type) {
             // Destroy MessageChannel if exists
             if (data.windowId) {
@@ -1973,9 +2004,49 @@ function setupAudioIPC() {
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;
                 childWindows[data.type].windowId = null;
-                // childWindows cleared
+                childWindows[data.type].visible = false;
             }
             sendToEngine('window-closed', data);
+        }
+    });
+    
+    // Window toggle from player - main process decides show/hide based on ground truth
+    ipcMain.on('window:toggle', (e, data) => {
+        const type = data?.type;
+        if (!type || !childWindows[type]) return;
+        
+        const winState = childWindows[type];
+        
+        if (!winState.windowId) {
+            // Window doesn't exist - tell player to create it
+            sendToPlayer('window:create', { type });
+        } else if (winState.visible) {
+            // Window exists and is visible - hide it
+            try {
+                const win = BrowserWindow.fromId(winState.windowId);
+                if (win && !win.isDestroyed()) {
+                    win.hide();
+                    winState.visible = false;
+                    // Notify engine
+                    sendToEngine('window-hidden', { type, windowId: winState.windowId });
+                    // Focus player window
+                    if (wins.main && !wins.main.isDestroyed()) {
+                        wins.main.focus();
+                    }
+                }
+            } catch (err) {}
+        } else {
+            // Window exists but hidden - show it
+            try {
+                const win = BrowserWindow.fromId(winState.windowId);
+                if (win && !win.isDestroyed()) {
+                    win.show();
+                    win.focus();
+                    winState.visible = true;
+                    // Notify engine
+                    sendToEngine('window-visible', { type, windowId: winState.windowId });
+                }
+            } catch (err) {}
         }
     });
     
@@ -2203,6 +2274,23 @@ function setupAudioIPC() {
         console.log('[] ');
         recordUserActivity();
     });
+    
+    // Logger IPC handlers (only register if not already registered)
+    try {
+        ipcMain.handle('log:getPath', () => {
+            return logger.getLogPath();
+        });
+        
+        ipcMain.handle('log:getStatus', () => {
+            return {
+                enabled: logger.isEnabled(),
+                logPath: logger.getLogPath(),
+                logDir: logger.getLogDir()
+            };
+        });
+    } catch (e) {
+        // Handlers may already be registered, ignore error
+    }
 }
 
 async function handleTrackEnded() {
