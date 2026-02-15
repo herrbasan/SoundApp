@@ -442,9 +442,8 @@ function setupIPC() {
 async function appStart() {
     window.addEventListener("keydown", onKey);
     window.addEventListener('focus', () => {
-        if (g.windows.monitoring) {
-            try { tools.sendToId(g.windows.monitoring, 'set-monitoring-source', 'main'); } catch (e) { }
-        }
+        // Send intent to main - main owns monitoring source state
+        ipcRenderer.send('monitoring:setSource', { source: 'main' });
     });
     window.addEventListener('wheel', onWheelVolume, { passive: false });
     g.scale = window.devicePixelRatio || 1;
@@ -1193,7 +1192,8 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         currentFile: g.uiState.file,
         currentTime: g.uiState.position,
         maxSampleRate: g.uiState.maxSampleRate,
-        currentSampleRate: g.uiState.currentSampleRate
+        currentSampleRate: g.uiState.currentSampleRate,
+        fileType: g.uiState.fileType
     };
 
     if (type === 'mixer') {

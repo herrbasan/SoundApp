@@ -1266,22 +1266,6 @@ async function init() {
 		}
 	});
 
-	ipcRenderer.on('stage-keydown', (e, data) => {
-		if (!data) return;
-		const ev = {
-			keyCode: data.keyCode | 0,
-			ctrlKey: !!data.ctrlKey,
-			shiftKey: !!data.shiftKey,
-			altKey: !!data.altKey,
-			metaKey: !!data.metaKey,
-			code: data.code || '',
-			key: data.key || '',
-			preventDefault: () => { },
-			stopPropagation: () => { }
-		};
-		onKey(ev);
-	});
-
 	ipcRenderer.on('open-soundfonts-folder', async () => {
 		const userDataPath = await helper.app.getPath('userData');
 		const userSoundfontsPath = path.join(userDataPath, 'soundfonts');
@@ -2317,7 +2301,7 @@ function collectMetadata(fp, metadata) {
 	
 	if (g.currentAudio.isMod) {
 		g.currentInfo.metadata = metadata;
-		result.type = 'tracker';
+		result.type = 'Tracker';
 		result.format = metadata.tracker;
 		result.artist = metadata.artist;
 		result.title = metadata.title;
@@ -2330,7 +2314,7 @@ function collectMetadata(fp, metadata) {
 			g.currentAudio.duration = md.duration;
 			result.duration = md.duration;
 		}
-		result.type = 'midi';
+		result.type = 'MIDI';
 		result.title = md.title;
 		result.copyright = md.copyright;
 		result.timeSignature = md.timeSignature;
@@ -2347,7 +2331,7 @@ function collectMetadata(fp, metadata) {
 		let metaFromOpen = metadata || {};
 		let metaFromFile = g.getMetadata ? g.getMetadata(fp) : {};
 		g.currentInfo.file = metaFromFile;
-		result.type = 'ffmpeg';
+		result.type = 'FFmpeg';
 		// Combine metadata from both sources for comprehensive info
 		result.codec = metaFromFile.codec || metaFromOpen.codec || '';
 		result.codecLongName = metaFromFile.codecLongName || metaFromOpen.codecLongName || '';

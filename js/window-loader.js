@@ -23,6 +23,7 @@ if (isElectron) {
 	bridge = {
 		sendToStage: (channel, data) => tools.sendToId(stageId, channel, data),
 		sendToId: (id, channel, data) => tools.sendToId(id, channel, data),
+		sendToMain: (channel, data) => ipcRenderer.send(channel, data),
 		broadcast: (channel, data) => tools.broadcast(channel, data),
 		on: (channel, cb) => {
 			// Always listen on IPC (for main-process messages)
@@ -263,6 +264,7 @@ else {
 	bridge = {
 		sendToStage: (channel, data) => console.log('→ Stage:', channel, data),
 		sendToId: (id, channel, data) => console.log('→ Window', id, ':', channel, data),
+		sendToMain: (channel, data) => console.log('→ Main:', channel, data),
 		broadcast: (channel, data) => console.log('→ Broadcast:', channel, data),
 		on: (channel, cb) => console.log('Listening:', channel),
 		once: (channel, cb) => console.log('Listening once:', channel),

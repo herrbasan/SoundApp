@@ -35,8 +35,9 @@ let g = {
     init_data: null
 };
 
-let currentMode = 'audio';
-let audioMode = 'tape'; // 'tape' or 'pitchtime'
+// Mode state is owned by main process - we render what main broadcasts
+// Use getCurrentMode() and getAudioMode() to read current state when needed
+// UI updates only happen via set-mode/update-params events from main
 const controls = {
     audio: {},
     tape: {},
@@ -70,6 +71,7 @@ async function init() {
         bridge = {
             on: (ch, cb) => {},
             sendToStage: (ch, data) => console.log('Mock IPC:', ch, data),
+            sendToMain: (ch, data) => console.log('Mock IPC to Main:', ch, data),
             once: (ch, cb) => {}, 
             window: { 
                 close: () => {}, 
@@ -116,8 +118,9 @@ async function init() {
             if (action) return;
         }
 
-        if (bridge && bridge.sendToStage) {
-            bridge.sendToStage('stage-keydown', {
+        // Forward shortcuts to main, which will relay to player window
+        if (bridge && bridge.sendToMain) {
+            bridge.sendToMain('stage-keydown', {
                 keyCode: e.keyCode | 0,
                 code: e.code || '',
                 key: e.key || '',
@@ -146,13 +149,12 @@ async function init() {
             resetAudioParams(false);  // Reset sliders UI (don't send to stage, it already reset)
             // Also reset tape speed
             resetTapeParams(false);
-            // Switch to tape mode visually
-            audioMode = 'tape';
+            // Switch to tape mode visually - UI updates only, main owns state
             const tapeSection = document.getElementById('tape-section');
             const pitchtimeSection = document.getElementById('pitchtime-section');
             if (tapeSection) tapeSection.classList.remove('disabled');
             if (pitchtimeSection) pitchtimeSection.classList.add('disabled');
-            console.log('[Parameters] Reset complete - audioMode=' + audioMode);
+            console.log('[Parameters] Reset complete - switched to tape mode');
             return;  // Don't call updateParams since we already reset
         }
         
@@ -184,13 +186,13 @@ async function init() {
             setMode(data.mode);
             updateParams(data.mode, data.params);
         } else {
-            updateParams(currentMode, data);
+            updateParams(getCurrentMode(), data);
         }
     });
 
     // Listen for tracker VU updates (from engine via main IPC)
     bridge.on('tracker-vu', (data) => {
-        if (currentMode !== 'tracker' || !data.vu) return;
+        if (getCurrentMode() !== 'tracker' || !data.vu) return;
         updateTrackerVu(data.vu, data.channels);
     });
     
@@ -205,13 +207,12 @@ async function init() {
             resetTapeParams(true);
             resetTrackerParams(true);
             resetTrackerSoloState();
-            // Reset audio mode to tape and send to stage
-            audioMode = 'tape';
+            // Reset audio mode to tape - send intent to main, UI updates via broadcast
             const tapeSection = document.getElementById('tape-section');
             const pitchtimeSection = document.getElementById('pitchtime-section');
             if (tapeSection) tapeSection.classList.remove('disabled');
             if (pitchtimeSection) pitchtimeSection.classList.add('disabled');
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: 'tape' });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'audioMode', value: 'tape' });
             // Uncheck lock checkbox
             const lockCheckbox = document.getElementById('audio_lock_settings');
             if (lockCheckbox) lockCheckbox.checked = false;
@@ -248,14 +249,20 @@ window.addEventListener('bridge-ready', async (e) => {
     // Initialize soundfont selector
     await initSoundfontSelector();
     
-    // Set mode if provided
-    if (data.mode) {
-        console.log('[Parameters] Setting mode from bridge-ready:', data.mode);
-        setMode(data.mode);
+    // Set mode if provided (from fileType in init_data)
+    // fileType: 'MIDI' | 'Tracker' | 'FFmpeg' → mode: 'midi' | 'tracker' | 'audio'
+    let initialMode = data.mode;
+    if (!initialMode && data.fileType) {
+        initialMode = data.fileType === 'MIDI' ? 'midi' : 
+                      data.fileType === 'Tracker' ? 'tracker' : 'audio';
+    }
+    if (initialMode) {
+        console.log('[Parameters] Setting mode from bridge-ready:', initialMode);
+        setMode(initialMode);
     }
     
     // Display original BPM for MIDI mode
-    if (data.mode === 'midi' && typeof data.originalBPM === 'number') {
+    if (initialMode === 'midi' && typeof data.originalBPM === 'number') {
         const origElem = document.getElementById('midi_original_bpm');
         if (origElem) origElem.textContent = `(Original: ${Math.round(data.originalBPM)})`;
         if (controls.midi && controls.midi.tempo && controls.midi.tempo.setDefault) {
@@ -266,7 +273,7 @@ window.addEventListener('bridge-ready', async (e) => {
     // Update params if provided
     if (data.params) {
         console.log('[Parameters] Updating params from bridge-ready:', data.params);
-        updateParams(data.mode || 'audio', data.params);
+        updateParams(initialMode || 'audio', data.params);
     }
 }, { once: true });
 
@@ -278,8 +285,26 @@ const modeTitles = {
     tracker: 'Parameters - Tracker (MOD)'
 };
 
+function getCurrentMode() {
+    // Derive current mode from which section is active
+    // Main process is the source of truth - we just render what it tells us
+    if (document.getElementById('midi-controls')?.classList.contains('active')) return 'midi';
+    if (document.getElementById('tracker-controls')?.classList.contains('active')) return 'tracker';
+    return 'audio';
+}
+
+function getAudioMode() {
+    // Derive audio sub-mode from section visibility
+    // Main process owns this state via audioState.mode
+    const tapeSection = document.getElementById('tape-section');
+    if (tapeSection && !tapeSection.classList.contains('disabled')) {
+        return 'tape';
+    }
+    return 'pitchtime';
+}
+
 function setMode(mode) {
-    currentMode = mode;
+    // Mode is driven by main process broadcasts - we just render
     document.querySelectorAll('.mode-container').forEach(el => el.classList.remove('active'));
     
     const target = document.getElementById(`${mode}-controls`);
@@ -321,8 +346,8 @@ function resetMidiParams(sendStage = false) {
     if (tempoVal) tempoVal.textContent = String(originalBPM);
     if (metronomeBtn) metronomeBtn.checked = metronome;
 
-    if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('midi-reset-params', {});
+    if (sendStage && bridge && bridge.sendToMain) {
+        bridge.sendToMain('midi-reset-params', {});
     }
 }
 
@@ -344,23 +369,26 @@ function resetAudioParams(sendStage = false) {
     if (formantCheckbox) formantCheckbox.checked = formant;
 
     if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: pitch });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempo });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'pitch', value: pitch });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'tempo', value: tempo });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'formant', value: formant });
     }
 }
 
 function resendAudioParams() {
-    if (!bridge || !bridge.sendToStage) return;
+    if (!bridge || !bridge.sendToMain) return;
 
+    // Get current mode from DOM - main owns the state
+    const currentAudioMode = getAudioMode();
+    
     // First send the current mode
-    bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: audioMode });
+    bridge.sendToMain('param-change', { mode: 'audio', param: 'audioMode', value: currentAudioMode });
 
-    if (audioMode === 'tape') {
+    if (currentAudioMode === 'tape') {
         // Tape mode: send tape speed
         if (controls.tape && controls.tape.speed) {
             const tapeVal = controls.tape.speed.getValue ? controls.tape.speed.getValue() : 0;
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: Math.round(tapeVal) });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'tapeSpeed', value: Math.round(tapeVal) });
         }
     } else {
         // Pitch/Time mode: send pitch, tempo, formant
@@ -371,20 +399,20 @@ function resendAudioParams() {
         const tempoVal = controls.audio.tempo.getValue ? controls.audio.tempo.getValue() : 1.0;
         const formant = formantCheckbox ? !!formantCheckbox.checked : false;
 
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: Math.round(pitchVal) });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: tempoVal });
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formant });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'pitch', value: Math.round(pitchVal) });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'tempo', value: tempoVal });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'formant', value: formant });
     }
 }
 
 function updateParams(mode, params) {
     if (mode === 'audio') {
-        // Handle audio mode switching
+        // Handle audio mode switching - UI only, state is owned by main
         if (typeof params.audioMode !== 'undefined') {
             const tapeSection = document.getElementById('tape-section');
             const pitchtimeSection = document.getElementById('pitchtime-section');
             
-            audioMode = params.audioMode;
+            // UI updates based on main's broadcast state
             if (params.audioMode === 'tape') {
                 tapeSection.classList.remove('disabled');
                 pitchtimeSection.classList.add('disabled');
@@ -540,7 +568,7 @@ function initTapeControls() {
         if (speedVal) speedVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         if (tapeSpeedTimeout) clearTimeout(tapeSpeedTimeout);
         tapeSpeedTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: rounded });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'tapeSpeed', value: rounded });
         }, 30);
     });
 
@@ -556,29 +584,18 @@ function initAudioModeSections() {
     const tapeSection = document.getElementById('tape-section');
     const pitchtimeSection = document.getElementById('pitchtime-section');
 
-    function setAudioMode(mode) {
-        if (audioMode === mode) return; // Already in this mode
-        console.log('[Parameters] setAudioMode called:', mode, 'previous:', audioMode);
-        audioMode = mode;
-        
-        // Send audioMode - this triggers pipeline switch in stage.js
-        console.log('[Parameters] Sending audioMode:', mode);
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'audioMode', value: mode });
-        
-        if (mode === 'tape') {
-            tapeSection.classList.remove('disabled');
-            pitchtimeSection.classList.add('disabled');
-        } else {
-            tapeSection.classList.add('disabled');
-            pitchtimeSection.classList.remove('disabled');
-        }
+    function sendAudioModeIntent(mode) {
+        // Send intent to main - main will update state and broadcast back
+        // UI updates only when main broadcasts via updateParams
+        console.log('[Parameters] Sending audioMode intent:', mode);
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'audioMode', value: mode });
     }
 
     // Click anywhere on disabled section to activate it
     if (tapeSection) {
         tapeSection.addEventListener('click', () => {
             if (tapeSection.classList.contains('disabled')) {
-                setAudioMode('tape');
+                sendAudioModeIntent('tape');
             }
         });
     }
@@ -586,13 +603,13 @@ function initAudioModeSections() {
     if (pitchtimeSection) {
         pitchtimeSection.addEventListener('click', () => {
             if (pitchtimeSection.classList.contains('disabled')) {
-                setAudioMode('pitchtime');
+                sendAudioModeIntent('pitchtime');
             }
         });
     }
     
-    // Expose setAudioMode for updateParams
-    window._setAudioMode = setAudioMode;
+    // Expose for updateParams - but it just sends intent, doesn't set local state
+    window._sendAudioModeIntent = sendAudioModeIntent;
 }
 
 function resetTapeParams(sendStage = false) {
@@ -607,7 +624,7 @@ function resetTapeParams(sendStage = false) {
     if (speedVal) speedVal.textContent = (tapeSpeed >= 0 ? '+' : '') + tapeSpeed;
 
     if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('param-change', { mode: 'audio', param: 'tapeSpeed', value: tapeSpeed });
+        bridge.sendToMain('param-change', { mode: 'audio', param: 'tapeSpeed', value: tapeSpeed });
     }
 }
 
@@ -618,7 +635,7 @@ function initAudioControls() {
         if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         if (audioPitchTimeout) clearTimeout(audioPitchTimeout);
         audioPitchTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'pitch', value: rounded });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'pitch', value: rounded });
         }, 30);
     });
 
@@ -629,7 +646,7 @@ function initAudioControls() {
         if (tempoVal) tempoVal.textContent = pct;
         if (audioTempoTimeout) clearTimeout(audioTempoTimeout);
         audioTempoTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'tempo', value: v });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'tempo', value: v });
         }, 30);
     });
 
@@ -637,8 +654,9 @@ function initAudioControls() {
     if (formantCheckbox) {
         formantCheckbox.addEventListener('change', () => {
             // Only send formant changes when in pitchtime mode
-            if (audioMode === 'pitchtime') {
-                bridge.sendToStage('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
+            // State is in DOM (main owns state, broadcasts updates)
+            if (getAudioMode() === 'pitchtime') {
+                bridge.sendToMain('param-change', { mode: 'audio', param: 'formant', value: formantCheckbox.checked });
             }
         });
     }
@@ -646,7 +664,7 @@ function initAudioControls() {
     const lockCheckbox = document.getElementById('audio_lock_settings');
     if (lockCheckbox) {
         lockCheckbox.addEventListener('change', () => {
-            bridge.sendToStage('param-change', { mode: 'audio', param: 'locked', value: lockCheckbox.checked });
+            bridge.sendToMain('param-change', { mode: 'audio', param: 'locked', value: lockCheckbox.checked });
         });
     }
 
@@ -662,7 +680,7 @@ function initMidiControls() {
         if (pitchVal) pitchVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         if (midiPitchTimeout) clearTimeout(midiPitchTimeout);
         midiPitchTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'midi', param: 'transpose', value: rounded });
+            bridge.sendToMain('param-change', { mode: 'midi', param: 'transpose', value: rounded });
         }, 30);
     });
 
@@ -673,12 +691,12 @@ function initMidiControls() {
         if (tempoVal) tempoVal.textContent = rounded;
         if (midiTempoTimeout) clearTimeout(midiTempoTimeout);
         midiTempoTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'midi', param: 'bpm', value: rounded });
+            bridge.sendToMain('param-change', { mode: 'midi', param: 'bpm', value: rounded });
         }, 30);
     });
 
     document.getElementById('btn_metronome').addEventListener('change', (e) => {
-        bridge.sendToStage('param-change', { mode: 'midi', param: 'metronome', value: e.target.checked });
+        bridge.sendToMain('param-change', { mode: 'midi', param: 'metronome', value: e.target.checked });
     });
 
     document.getElementById('btn_midi_reset').addEventListener('click', () => {
@@ -686,7 +704,7 @@ function initMidiControls() {
     });
     
     document.getElementById('btn_open_fonts').addEventListener('click', () => {
-        bridge.sendToStage('open-soundfonts-folder', {});
+        bridge.sendToMain('open-soundfonts-folder', {});
     });
 }
 
@@ -699,7 +717,7 @@ function initTrackerControls() {
         if (trackerPitchTimeout) clearTimeout(trackerPitchTimeout);
         trackerPitchTimeout = setTimeout(() => {
             const pitchFactor = Math.pow(2, rounded / 12);
-            bridge.sendToStage('param-change', { mode: 'tracker', param: 'pitch', value: pitchFactor });
+            bridge.sendToMain('param-change', { mode: 'tracker', param: 'pitch', value: pitchFactor });
         }, 30);
     });
 
@@ -710,7 +728,7 @@ function initTrackerControls() {
         if (tempoVal) tempoVal.textContent = pct;
         if (trackerTempoTimeout) clearTimeout(trackerTempoTimeout);
         trackerTempoTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'tracker', param: 'tempo', value: v });
+            bridge.sendToMain('param-change', { mode: 'tracker', param: 'tempo', value: v });
         }, 30);
     });
 
@@ -721,7 +739,7 @@ function initTrackerControls() {
         if (stereoVal) stereoVal.textContent = rounded;
         if (trackerStereoTimeout) clearTimeout(trackerStereoTimeout);
         trackerStereoTimeout = setTimeout(() => {
-            bridge.sendToStage('param-change', { mode: 'tracker', param: 'stereoSeparation', value: rounded });
+            bridge.sendToMain('param-change', { mode: 'tracker', param: 'stereoSeparation', value: rounded });
         }, 30);
     });
 
@@ -752,8 +770,8 @@ function resetTrackerParams(sendStage = false) {
     if (tempoVal) tempoVal.textContent = '100';
     if (stereoVal) stereoVal.textContent = String(stereoSeparation);
 
-    if (sendStage && bridge && bridge.sendToStage) {
-        bridge.sendToStage('tracker-reset-params', {});
+    if (sendStage && bridge && bridge.sendToMain) {
+        bridge.sendToMain('tracker-reset-params', {});
     }
 }
 
@@ -862,7 +880,7 @@ function applyTrackerSoloState() {
         strip.classList.toggle('muted', isMuted);
         
         // Send mute state to worklet
-        bridge.sendToStage('param-change', {
+        bridge.sendToMain('param-change', {
             mode: 'tracker',
             param: 'channelMute',
             value: { channel: i, mute: isMuted }
@@ -895,7 +913,7 @@ async function initSoundfontSelector() {
     
     // Get list of available soundfonts from stage
     const availableFonts = await new Promise((resolve) => {
-        bridge.sendToStage('get-available-soundfonts', { windowId: bridge.windowId });
+        bridge.sendToMain('get-available-soundfonts', { windowId: bridge.windowId });
         bridge.once('available-soundfonts', (data) => {
             console.log('[SoundFont] Received available soundfonts:', data);
             resolve(data.fonts || []);
@@ -943,6 +961,6 @@ async function initSoundfontSelector() {
     sfSelect.addEventListener('change', () => {
         const newFont = sfSelect.value;
         console.log('[SoundFont] Changed to:', newFont);
-        bridge.sendToStage('param-change', { mode: 'midi', param: 'soundfont', value: newFont });
+        bridge.sendToMain('param-change', { mode: 'midi', param: 'soundfont', value: newFont });
     });
 }

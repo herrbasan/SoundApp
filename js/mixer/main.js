@@ -1768,8 +1768,8 @@ function updateTransport(){
 if (window.bridge && window.bridge.window && window.bridge.window.hook_event) {
 	try {
 		window.bridge.window.hook_event('focus', () => {
-			console.log('[Mixer] window focused -> announcing monitoring focus to Stage');
-			if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('announce-monitoring-focus', 'mixer');
+			console.log('[Mixer] window focused -> sending monitoring source to main');
+			if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('monitoring:setSource', { source: 'mixer' });
 			// Keep monitoring active always; Stage/Monitoring decide which source to render
 			startMixerMonitoringLoop();
 		});
@@ -1783,7 +1783,7 @@ if (window.bridge && window.bridge.window && window.bridge.window.hook_event) {
 } else {
 	// Fallback to DOM focus events if hook_event unavailable
 	window.addEventListener('focus', () => {
-		try { if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('set-monitoring-source', 'mixer'); } catch (e) {}
+		try { if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('monitoring:setSource', { source: 'mixer' }); } catch (e) {}
 		_mixerMonitoringActive = true;
 		startMixerMonitoringLoop();
 	});

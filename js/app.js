@@ -155,7 +155,10 @@ const audioState = {
     
     // Metadata (for UI)
     metadata: null,
-    fileType: null          // 'MIDI' | 'Tracker' | 'FFmpeg'
+    fileType: null,         // 'MIDI' | 'Tracker' | 'FFmpeg'
+    
+    // Monitoring source ('main' | 'mixer')
+    monitoringSource: 'main'
 };
 
 // Engine window reference
@@ -1443,9 +1446,7 @@ function sendToPlayer(channel, data) {
 function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it exists
     // Window may be hidden (open=false) but still exist - send params anyway
-    console.log(`[DEBUG] sendParamsToParametersWindow called, reset=${reset}`);
-    console.log(`[DEBUG] childWindows.parameters: open=${childWindows.parameters.open}, windowId=${childWindows.parameters.windowId}`);
-    console.log(`[DEBUG] audioState.fileType: ${audioState.fileType}`);
+    console.log(`[sendParamsToParametersWindow] fileType=${audioState.fileType}, reset=${reset}`);
     
     if (!childWindows.parameters.windowId) {
         // Early return: no windowId
@@ -1500,7 +1501,6 @@ function sendParamsToParametersWindow(reset = false) {
     }
     
     if (paramsData) {
-        console.log(`Sending params to parameters window: ${paramsData.mode}`);
         // Send directly to parameters window using tools helper
         try {
             tools.sendToId(childWindows.parameters.windowId, 'set-mode', paramsData);
@@ -1530,14 +1530,19 @@ function broadcastState(excludeEngine = false) {
         maxSampleRate: audioState.maxSampleRate,
         currentSampleRate: audioState.currentSampleRate,
         playlist: audioState.playlist,
-        playlistIndex: audioState.playlistIndex
+        playlistIndex: audioState.playlistIndex,
+        monitoringSource: audioState.monitoringSource
     };
     
     // Send to player window
     sendToPlayer('state:update', stateUpdate);
     
-    // Optionally send to other windows (settings, monitoring, etc.)
-    // via tools.broadcast if needed
+    // Send monitoring source to monitoring window if open
+    if (childWindows.monitoring.windowId) {
+        try {
+            tools.sendToId(childWindows.monitoring.windowId, 'set-monitoring-source', audioState.monitoringSource);
+        } catch (e) {}
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1839,14 +1844,10 @@ function setupAudioIPC() {
     ipcMain.on('audio:loaded', (e, data) => {
         // audio:loaded received
         
-        const previousFileType = audioState.fileType;
-        const isRestorationFlow = audioState.isRestoration; // True during engine restoration
-        
         if (data.duration) audioState.duration = data.duration;
         if (data.file) audioState.file = data.file;
         if (data.fileType) {
             audioState.fileType = data.fileType;
-            // fileType updated
         }
         // Store metadata for parameters window (e.g., MIDI originalBPM, Tracker channels)
         if (data.metadata) {
@@ -1860,26 +1861,19 @@ function setupAudioIPC() {
         // We don't sync from engine to avoid race conditions during auto-advance
         broadcastState();
         
-        // UNIFIED STATE TRANSITION: Update parameters window when:
-        // 1. fileType changes (normal file switch), OR
-        // 2. Engine is being restored (parameters window may have stale state)
-        // This is the single source of truth for parameters window tab switching
-        const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
-        if (fileTypeChanged || isRestorationFlow) {
-            // Updating parameters window if needed
-            
-            // Determine if we should reset state to defaults:
-            // - Audio: reset only if NOT locked
-            // - MIDI/Tracker: always reset (no lock feature)
-            const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
-            
-            // Reset state to defaults before sending to UI
-            if (shouldReset) {
-                resetParamsToDefaults(audioState.fileType, data.metadata);
-            }
-            
-            sendParamsToParametersWindow(shouldReset);
+        // ALWAYS update parameters window on every file load
+        // The parameters window is a dumb renderer - main is the source of truth
+        // Determine if we should reset state to defaults:
+        // - Audio: reset only if NOT locked
+        // - MIDI/Tracker: always reset (no lock feature)
+        const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+        
+        // Reset state to defaults before sending to UI
+        if (shouldReset) {
+            resetParamsToDefaults(audioState.fileType, data.metadata);
         }
+        
+        sendParamsToParametersWindow(shouldReset);
     });
     
     ipcMain.on('audio:ended', () => {
@@ -1949,6 +1943,13 @@ function setupAudioIPC() {
         if (data && data.type === 'parameters') {
             sendParamsToParametersWindow();
         }
+        
+        // Send current monitoring source when monitoring window becomes visible
+        if (data && data.type === 'monitoring' && data.windowId) {
+            try {
+                tools.sendToId(data.windowId, 'set-monitoring-source', audioState.monitoringSource);
+            } catch (e) {}
+        }
     });
     
     ipcMain.on('window-hidden', (e, data) => {
@@ -2007,6 +2008,11 @@ function setupAudioIPC() {
         if (stateChanged) {
             broadcastState();
         }
+        
+        // Send updated params to parameters window if audio mode changed
+        if (data.mode === 'audio' && data.param === 'audioMode') {
+            sendParamsToParametersWindow();
+        }
     });
     
     // Other parameter-related messages
@@ -2026,6 +2032,44 @@ function setupAudioIPC() {
     
     ipcMain.on('get-available-soundfonts', (e, data) => {
         sendToEngine('get-available-soundfonts', data);
+    });
+    
+    // Monitoring source changes - centralize in main state
+    function handleMonitoringSourceChange(source) {
+        if (audioState.monitoringSource === source) return;
+        
+        audioState.monitoringSource = source;
+        console.log('[Main] Monitoring source changed to:', source);
+        
+        // Broadcast to monitoring window if open
+        if (childWindows.monitoring.windowId) {
+            try {
+                tools.sendToId(childWindows.monitoring.windowId, 'set-monitoring-source', source);
+            } catch (err) {
+                console.log('Failed to send monitoring source:', err.message);
+            }
+        }
+    }
+    
+    ipcMain.on('monitoring:setSource', (e, data) => {
+        handleMonitoringSourceChange(data?.source || 'main');
+    });
+    
+    // Backward compatibility: handle old channel names
+    ipcMain.on('set-monitoring-source', (e, source) => {
+        handleMonitoringSourceChange(source || 'main');
+    });
+    
+    ipcMain.on('announce-monitoring-focus', (e, source) => {
+        handleMonitoringSourceChange(source || 'main');
+    });
+    
+    // Forward keyboard events from child windows to player
+    ipcMain.on('stage-keydown', (e, data) => {
+        // Forward to player window to handle shortcuts
+        if (wins.main && !wins.main.isDestroyed()) {
+            wins.main.webContents.send('stage-keydown', data);
+        }
     });
     
     // Player requests current state (on startup)
@@ -2062,6 +2106,7 @@ function setupAudioIPC() {
                 volume: audioState.volume,
                 loop: audioState.loop,
                 activePipeline: audioState.activePipeline,
+                monitoringSource: audioState.monitoringSource,
                 engineAlive: audioState.engineAlive
             },
             midiParams: audioState.midiParams,
