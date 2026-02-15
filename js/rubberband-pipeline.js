@@ -28,6 +28,8 @@ class RubberbandPipeline {
         };
 
         this.initialized = false;
+        this._disposeTimeout = null;
+        this._disposing = false;
     }
 
     async init() {
@@ -96,12 +98,21 @@ class RubberbandPipeline {
     }
 
     async open(filePath) {
-        if (!this.initialized) await this.init();
+        console.log('[RubberbandPipeline] open() called, initialized:', this.initialized, 'rubberbandNode:', !!this.rubberbandNode, 'player:', !!this.player, 'filePath:', this.filePath, 'newFile:', filePath);
+        
+        // Cancel any pending disposal from previous clearAudio
+        this.cancelPendingDispose();
+        
+        if (!this.initialized) {
+            console.log('[RubberbandPipeline] Not initialized, calling init()...');
+            await this.init();
+        }
 
         // Recreate worklet if:
         // 1. It was disposed (rubberbandNode is null), OR
         // 2. We're changing files (prevents audio bleed from previous track's internal buffers)
         const needsRecreate = !this.rubberbandNode || (this.filePath && this.filePath !== filePath);
+        console.log('[RubberbandPipeline] needsRecreate:', needsRecreate, 'rubberbandNode exists:', !!this.rubberbandNode);
 
         if (needsRecreate) {
             console.log('[RubberbandPipeline] Recreating worklet, reason:', !this.rubberbandNode ? 'disposed' : 'file change');
@@ -179,6 +190,7 @@ class RubberbandPipeline {
     }
 
     setPitch(ratio) {
+        console.log('[RubberbandPipeline] setPitch called:', ratio, 'currentPitch:', this.currentPitch, 'rubberbandNode:', !!this.rubberbandNode);
         this.currentPitch = ratio;
 
         // Backlog Workaround:
@@ -194,6 +206,9 @@ class RubberbandPipeline {
 
         if (this.rubberbandNode) {
             this.rubberbandNode.port.postMessage(JSON.stringify(['pitch', finalPitch]));
+            console.log('[RubberbandPipeline] Pitch sent to worklet:', finalPitch);
+        } else {
+            console.warn('[RubberbandPipeline] Cannot set pitch - rubberbandNode is null');
         }
     }
 
@@ -315,33 +330,56 @@ class RubberbandPipeline {
         }
     }
 
-    async disposeWorklet() {
-        if (this.rubberbandNode) {
-            // Send close message to processor - this sets running=false 
-            // so process() returns false and processor can be GC'd
-            try {
-                this.rubberbandNode.port.postMessage(JSON.stringify(['close']));
-            } catch (e) { }
-
-            try {
-                this.rubberbandNode.disconnect();
-            } catch (e) {
-                console.error('[RubberbandPipeline] Error disconnecting worklet:', e);
-            }
-
-            // Clear port reference
-            try {
-                this.rubberbandNode.port.onmessage = null;
-            } catch (e) { }
-
-            // Give worklet time to clean up
-            await new Promise(resolve => setTimeout(resolve, 50));
-
-            this.rubberbandNode = null;
-            // Note: isConnected tracks gainNode→destination, not rubberband state
-
-            console.log('[RubberbandPipeline] Worklet disposed');
+    cancelPendingDispose() {
+        if (this._disposeTimeout) {
+            clearTimeout(this._disposeTimeout);
+            this._disposeTimeout = null;
+            this._disposing = false;
+            console.log('[RubberbandPipeline] Cancelled pending worklet disposal');
         }
+    }
+
+    async disposeWorklet() {
+        if (this._disposing) return; // Already disposing
+        if (!this.rubberbandNode) return;
+        
+        this._disposing = true;
+        
+        // Send close message to processor - this sets running=false 
+        // so process() returns false and processor can be GC'd
+        try {
+            this.rubberbandNode.port.postMessage(JSON.stringify(['close']));
+        } catch (e) { }
+
+        try {
+            this.rubberbandNode.disconnect();
+        } catch (e) {
+            console.error('[RubberbandPipeline] Error disconnecting worklet:', e);
+        }
+
+        // Clear port reference
+        try {
+            this.rubberbandNode.port.onmessage = null;
+        } catch (e) { }
+
+        // Give worklet time to clean up (track timeout so it can be cancelled)
+        await new Promise(resolve => {
+            this._disposeTimeout = setTimeout(() => {
+                this._disposeTimeout = null;
+                resolve();
+            }, 50);
+        });
+        
+        if (!this._disposing) {
+            // Disposal was cancelled
+            return;
+        }
+
+        this.rubberbandNode = null;
+        this._disposing = false;
+        // Note: isConnected tracks gainNode→destination, not rubberband state
+
+        console.log('[RubberbandPipeline] Worklet disposed');
     }
 
     async recreateWorklet() {

@@ -73,7 +73,9 @@ g.uiState = {
     duration: 0,
     volume: 0.5,
     metadata: null,
-    fileType: null
+    fileType: null,
+    maxSampleRate: null,
+    currentSampleRate: null
 };
 
 // File format support (for drag-drop filtering)
@@ -195,6 +197,8 @@ function setupIPC() {
         if (data.metadata !== undefined) g.uiState.metadata = data.metadata;
         if (data.fileType !== undefined) g.uiState.fileType = data.fileType;
         if (data.loop !== undefined) g.isLoop = data.loop;
+        if (data.maxSampleRate !== undefined) g.uiState.maxSampleRate = data.maxSampleRate;
+        if (data.currentSampleRate !== undefined) g.uiState.currentSampleRate = data.currentSampleRate;
         
         // Update playlist if provided
         if (data.playlist) {
@@ -623,9 +627,26 @@ function renderInfo(fp, metadata) {
             if (metadata.artist) g.text.appendChild(renderInfoItem('Artist:', metadata.artist));
             if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
             if (metadata.date) g.text.appendChild(renderInfoItem('Date:', metadata.date));
+        } else if (metadata.type === 'midi') {
+            // MIDI file
+            g.text.appendChild(renderInfoItem('Format:', 'MIDI'));
+            
+            let infoParts = [];
+            if (metadata.originalBPM) infoParts.push(`${metadata.originalBPM} BPM`);
+            if (metadata.timeSignature) infoParts.push(`Time: ${metadata.timeSignature}`);
+            if (metadata.ppq) infoParts.push(`${metadata.ppq} PPQ`);
+            if (metadata.channels) infoParts.push(`${metadata.channels} Ch`);
+            
+            const infoLine = infoParts.join(' / ');
+            if (infoLine) g.text.appendChild(renderInfoItem(' ', infoLine));
+            
+            g.text.appendChild(ut.htmlObject(`<div class="space"></div>`));
+            if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
+            if (metadata.copyright) g.text.appendChild(renderInfoItem('Copyright:', metadata.copyright));
+            if (metadata.keySignature) g.text.appendChild(renderInfoItem('Key:', metadata.keySignature));
         } else if (metadata.codec || metadata.format) {
             // Regular audio file
-            g.text.appendChild(renderInfoItem('Format:', metadata.codecLongName || metadata.codec || 'Unknown'));
+            g.text.appendChild(renderInfoItem('Format:', metadata.codecLongName || metadata.formatLongName || metadata.codec || metadata.format || 'Unknown'));
             
             let bitrateStr = metadata.bitrate ? Math.round(metadata.bitrate / 1000) + ' kbps' : '';
             let channelStr = metadata.channels == 2 ? 'stereo' : (metadata.channels == 1 ? 'mono' : (metadata.channels ? metadata.channels + ' ch' : ''));
@@ -638,11 +659,11 @@ function renderInfo(fp, metadata) {
             if (metadata.artist) g.text.appendChild(renderInfoItem('Artist:', metadata.artist));
             if (metadata.album) g.text.appendChild(renderInfoItem('Album:', metadata.album));
             if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
+            
+            // Load cover art only for regular audio files
+            loadCoverArt(metadata, parse);
         }
     }
-
-    // Load cover art
-    loadCoverArt(metadata, parse);
 }
 
 async function loadCoverArt(metadata, parse) {
@@ -673,7 +694,9 @@ function getCoverArtFromMetadata(meta) {
         if (meta && meta.coverArt && meta.coverArt.length > 0) {
             let img = new Image();
             let mime = meta.coverArtMimeType || 'image/jpeg';
-            img.src = 'data:' + mime + ';base64,' + meta.coverArt.toString('base64');
+            // coverArt arrives as Uint8Array after IPC (not Buffer), so we need manual base64 conversion
+            let base64 = arrayBufferToBase64(meta.coverArt);
+            img.src = 'data:' + mime + ';base64,' + base64;
             img.addEventListener('load', () => { resolve(img); }, { once: true });
             img.addEventListener('error', () => { resolve(null); }, { once: true });
         } else {
@@ -682,13 +705,19 @@ function getCoverArtFromMetadata(meta) {
     });
 }
 
+// Convert Uint8Array/Buffer to base64 string - works after IPC serialization
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+// Use tools.loadImage from helper instead - handles local/network paths via getFileURL
 function loadImage(url) {
-    return new Promise((resolve, reject) => {
-        let image = new Image();
-        image.src = url;
-        image.addEventListener('load', () => { resolve(image); }, { once: true });
-        image.addEventListener('error', () => { resolve(null); }, { once: true });
-    });
+    return tools.loadImage(url);
 }
 
 function renderInfoItem(label, text) {
@@ -723,44 +752,24 @@ function playPause() {
 }
 
 function playNext(e, autoAdvance = false) {
-    if (g.blocky) return;
-    if (g.idx >= g.max) {
-        g.idx = -1;
-    }
-    g.idx++;
-    
-    if (g.music[g.idx]) {
-        ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
-        sendPlaylistToApp(); // Update app.js with new index
-    }
+    // Just tell main to go to next track - main is the source of truth
+    ipcRenderer.send('audio:next');
 }
 
 function playPrev(e) {
-    if (g.blocky) return;
-    if (g.idx === 0) {
-        g.idx = g.max + 1;
-    }
-    g.idx--;
-    
-    if (g.music[g.idx]) {
-        ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
-        sendPlaylistToApp();
-    }
+    // Just tell main to go to previous track - main is the source of truth
+    ipcRenderer.send('audio:prev');
 }
 
 function toggleLoop() {
-    g.isLoop = !g.isLoop;
-    ipcRenderer.send('audio:setParams', { loop: g.isLoop });
-    checkState();
+    // Just tell main to toggle loop - main is source of truth
+    // Main will broadcast new state back to us
+    ipcRenderer.send('audio:setParams', { loop: !g.isLoop });
 }
 
 function shufflePlaylist() {
-    ut.shuffleArray(g.music);
-    g.idx = 0;
-    sendPlaylistToApp();
-    if (g.music[g.idx]) {
-        ipcRenderer.send('audio:load', { file: g.music[g.idx], position: 0, paused: false });
-    }
+    // Just tell main to shuffle - main is source of truth
+    ipcRenderer.send('audio:shuffle');
 }
 
 function seekTo(s) {
@@ -1182,7 +1191,9 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         configName: g.configName,
         config: g.config,
         currentFile: g.uiState.file,
-        currentTime: g.uiState.position
+        currentTime: g.uiState.position,
+        maxSampleRate: g.uiState.maxSampleRate,
+        currentSampleRate: g.uiState.currentSampleRate
     };
 
     if (type === 'mixer') {

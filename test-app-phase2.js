@@ -40,7 +40,7 @@ test('createEngineWindow function', content.includes('async function createEngin
 test('disposeEngineWindow function', content.includes('function disposeEngineWindow'));
 test('sendToEngine function', content.includes('function sendToEngine'));
 test('engineWindow variable', content.includes('let engineWindow = null'));
-test('playerWindow variable', content.includes('let playerWindow = null'));
+test('wins object for window management', content.includes('let wins = {}') || content.includes('wins = {}'));
 
 // IPC Setup
 console.log('\nIPC SETUP:');

@@ -330,6 +330,7 @@ export const main = {
             const innerWidth = containerWidth - (padding * 2);
             
             // Convert click position from container space to inner waveform space
+            // The playhead is 2px wide and centered on the position, so no offset needed
             const clickX = e.x - padding;
             const normalizedX = Math.max(0, Math.min(1, clickX / innerWidth));
             const seekTime = normalizedX * duration;
@@ -351,7 +352,8 @@ export const main = {
         const normalizedPos = pos / duration;
         const pixelPos = padding + (normalizedPos * innerWidth);
         
-        this.playhead.style.left = `${pixelPos}px`;
+        // Center the 2px playhead on the position (subtract 1px = half width)
+        this.playhead.style.left = `${pixelPos - 1}px`;
     },
 
     /**

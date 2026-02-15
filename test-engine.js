@@ -52,7 +52,7 @@ test('initMonitoring', content.includes('function initMonitoring'));
 console.log('\nPOSITION PUSH (new IPC feature):');
 test('startPositionPush function', content.includes('function startPositionPush'));
 test('stopPositionPush function', content.includes('function stopPositionPush'));
-test('POSITION_PUSH_MS constant', content.includes('POSITION_PUSH_MS'));
+test('POSITION_PUSH_INTERVALS constant', content.includes('POSITION_PUSH_INTERVALS'));
 test('audio:position IPC send', content.includes("ipcRenderer.send('audio:position'"));
 
 // IPC Command handlers (should exist)

@@ -1315,7 +1315,7 @@ async function restoreEngineIfNeeded() {
         }
         
         // Single IPC call to register all windows with engine
-        console.log(`[DEBUG] Pushing window IDs to restored engine: ${JSON.stringify(existingWindows)}`);
+        // Pushing window IDs to restored engine
         sendToEngine('windows:init', { windows: existingWindows });
         
         // Recreate MessageChannels for direct communication after engine restoration
@@ -1358,7 +1358,7 @@ async function restoreEngineIfNeeded() {
         // This ensures the correct tab is shown in the parameters window after engine restoration
         if (loadedData && loadedData.fileType) {
             audioState.fileType = loadedData.fileType;
-            console.log(`[DEBUG] Updated audioState.fileType from loadedData: ${audioState.fileType}`);
+            // Updated audioState.fileType from loadedData
         }
         
         // ── Step 4: Apply params to active players after load ──
@@ -1395,7 +1395,7 @@ async function restoreEngineIfNeeded() {
         // This ensures single source of truth for parameters window tab switching
         // We only need to pass reset flag if we reset params in Step 0
         if (didResetParams) {
-            console.log(`[DEBUG] Sending reset=true to parameters window after restoration`);
+            // Sending reset=true to parameters window after restoration
             sendParamsToParametersWindow(true);
         }
         
@@ -1448,7 +1448,7 @@ function sendParamsToParametersWindow(reset = false) {
     console.log(`[DEBUG] audioState.fileType: ${audioState.fileType}`);
     
     if (!childWindows.parameters.windowId) {
-        console.log(`[DEBUG] Early return: no windowId (window doesn't exist)`);
+        // Early return: no windowId
         return;
     }
     
@@ -1526,7 +1526,11 @@ function broadcastState(excludeEngine = false) {
         loop: audioState.loop,
         activePipeline: audioState.activePipeline,
         metadata: audioState.metadata,
-        fileType: audioState.fileType
+        fileType: audioState.fileType,
+        maxSampleRate: audioState.maxSampleRate,
+        currentSampleRate: audioState.currentSampleRate,
+        playlist: audioState.playlist,
+        playlistIndex: audioState.playlistIndex
     };
     
     // Send to player window
@@ -1663,6 +1667,8 @@ function setupAudioIPC() {
             }
         }
         
+        // Note: cmd:playlist should be sent BEFORE calling audio:load
+        // We don't send it here to avoid duplicates when handleTrackEnded sends it
         sendToEngine('cmd:load', {
             file: data.file,
             position: data.position || 0,
@@ -1675,49 +1681,80 @@ function setupAudioIPC() {
     ipcMain.on('audio:next', async () => {
         recordUserActivity();
         logStateDebugAction('next-track', audioState.engineAlive ? 'Next track (engine alive)' : 'Next track (engine was disposed)');
+        // Advance playlist index in app.js (main is source of truth)
+        if (audioState.playlist.length > 0) {
+            audioState.playlistIndex++;
+            if (audioState.playlistIndex >= audioState.playlist.length) {
+                audioState.playlistIndex = 0;
+            }
+        }
         
-        // If engine was disposed, we need to handle next track differently
+        const nextFile = audioState.playlist[audioState.playlistIndex];
+        if (!nextFile) return;
+        
+        audioState.file = nextFile;
+        audioState.fileType = getFileType(nextFile);
+        audioState.position = 0;
+        audioState.isPlaying = true;
+        
+        // If engine was disposed, restore it (will load file at new index)
         if (!audioState.engineAlive) {
-            console.log('[] ');
-            // Let the track-end handler manage the next track logic
-            await handleTrackEnded();
+            await restoreEngineIfNeeded();
             return;
         }
         
-        sendToEngine('cmd:next');
+        // Engine is alive - update engine's playlist index and load the file directly
+        // Don't use cmd:next since it would double-increment the index
+        sendToEngine('cmd:playlist', {
+            music: audioState.playlist,
+            idx: audioState.playlistIndex,
+            max: audioState.playlist.length - 1
+        });
+        sendToEngine('cmd:load', {
+            file: nextFile,
+            position: 0,
+            paused: false
+        });
     });
     
     ipcMain.on('audio:prev', async () => {
         recordUserActivity();
         logStateDebugAction('prev-track', audioState.engineAlive ? 'Previous track (engine alive)' : 'Previous track (engine was disposed)');
         
-        // If engine was disposed, we need to handle prev track differently
-        if (!audioState.engineAlive) {
-            console.log('[] ');
-            // Decrement playlist index and load previous file
-            if (audioState.playlist.length > 0) {
-                audioState.playlistIndex--;
-                if (audioState.playlistIndex < 0) {
-                    audioState.playlistIndex = audioState.playlist.length - 1;
-                }
-                const prevFile = audioState.playlist[audioState.playlistIndex];
-                if (prevFile) {
-                    audioState.file = prevFile;
-                    audioState.fileType = getFileType(prevFile);
-                    audioState.position = 0;
-                    audioState.isPlaying = true;
-                    
-                    const restored = await restoreEngineIfNeeded();
-                    if (restored) {
-                        sendToEngine('cmd:play');
-                    }
-                    broadcastState();
-                }
+        // Decrement playlist index in app.js (main is source of truth)
+        if (audioState.playlist.length > 0) {
+            audioState.playlistIndex--;
+            if (audioState.playlistIndex < 0) {
+                audioState.playlistIndex = audioState.playlist.length - 1;
             }
+        }
+        
+        const prevFile = audioState.playlist[audioState.playlistIndex];
+        if (!prevFile) return;
+        
+        audioState.file = prevFile;
+        audioState.fileType = getFileType(prevFile);
+        audioState.position = 0;
+        audioState.isPlaying = true;
+        
+        // If engine was disposed, restore it (will load file at new index)
+        if (!audioState.engineAlive) {
+            await restoreEngineIfNeeded();
             return;
         }
         
-        sendToEngine('cmd:prev');
+        // Engine is alive - update engine's playlist index and load the file directly
+        // Don't use cmd:prev since it would double-decrement the index
+        sendToEngine('cmd:playlist', {
+            music: audioState.playlist,
+            idx: audioState.playlistIndex,
+            max: audioState.playlist.length - 1
+        });
+        sendToEngine('cmd:load', {
+            file: prevFile,
+            position: 0,
+            paused: false
+        });
     });
     
     ipcMain.on('audio:setParams', (e, data) => {
@@ -1749,6 +1786,39 @@ function setupAudioIPC() {
         });
     });
     
+    ipcMain.on('audio:shuffle', (e) => {
+        // Shuffle playlist in main process (source of truth)
+        if (audioState.playlist.length > 1) {
+            // Fisher-Yates shuffle
+            for (let i = audioState.playlist.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [audioState.playlist[i], audioState.playlist[j]] = [audioState.playlist[j], audioState.playlist[i]];
+            }
+            // Reset to first item after shuffle
+            audioState.playlistIndex = 0;
+            const firstFile = audioState.playlist[0];
+            if (firstFile) {
+                audioState.file = firstFile;
+                audioState.fileType = getFileType(firstFile);
+                audioState.position = 0;
+                audioState.isPlaying = true;
+                
+                // Update engine and load first file
+                sendToEngine('cmd:playlist', {
+                    music: audioState.playlist,
+                    idx: 0,
+                    max: audioState.playlist.length - 1
+                });
+                sendToEngine('cmd:load', {
+                    file: firstFile,
+                    position: 0,
+                    paused: false
+                });
+            }
+            broadcastState();
+        }
+    });
+    
     // Events from engine → update state and broadcast to player
     ipcMain.on('audio:position', (e, position) => {
         audioState.position = position;
@@ -1767,7 +1837,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:loaded', (e, data) => {
-        console.log(`[DEBUG] audio:loaded received: fileType=${data.fileType}, file=${data.file ? path.basename(data.file) : 'null'}`);
+        // audio:loaded received
         
         const previousFileType = audioState.fileType;
         const isRestorationFlow = audioState.isRestoration; // True during engine restoration
@@ -1776,7 +1846,7 @@ function setupAudioIPC() {
         if (data.file) audioState.file = data.file;
         if (data.fileType) {
             audioState.fileType = data.fileType;
-            console.log(`[DEBUG] audioState.fileType set to: ${audioState.fileType}`);
+            // fileType updated
         }
         // Store metadata for parameters window (e.g., MIDI originalBPM, Tracker channels)
         if (data.metadata) {
@@ -1786,6 +1856,8 @@ function setupAudioIPC() {
                 audioState.midiParams.bpm = Math.round(data.metadata.originalBPM);
             }
         }
+        // Note: playlistIndex is managed by app.js (main process is source of truth)
+        // We don't sync from engine to avoid race conditions during auto-advance
         broadcastState();
         
         // UNIFIED STATE TRANSITION: Update parameters window when:
@@ -1794,7 +1866,7 @@ function setupAudioIPC() {
         // This is the single source of truth for parameters window tab switching
         const fileTypeChanged = data.fileType && data.fileType !== previousFileType;
         if (fileTypeChanged || isRestorationFlow) {
-            console.log(`[DEBUG] Updating parameters window (fileTypeChanged=${fileTypeChanged}, isRestorationFlow=${isRestorationFlow})`);
+            // Updating parameters window if needed
             
             // Determine if we should reset state to defaults:
             // - Audio: reset only if NOT locked
@@ -1811,6 +1883,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('audio:ended', () => {
+        // audio:ended received
         // Handle track end - advance playlist
         handleTrackEnded();
     });
@@ -1822,17 +1895,34 @@ function setupAudioIPC() {
         broadcastState();
     });
     
+    // Sample rate info from engine (max supported and current)
+    ipcMain.on('audio:sample-rate-info', (e, data) => {
+        if (data.maxSampleRate) audioState.maxSampleRate = data.maxSampleRate;
+        if (data.currentSampleRate) audioState.currentSampleRate = data.currentSampleRate;
+        // Broadcast to player so it can include in settings window init
+        broadcastState();
+    });
+    
     // Window lifecycle - track in main and forward to engine
     ipcMain.on('window-created', (e, data) => {
-        console.log(`[DEBUG] window-created: type=${data?.type}, windowId=${data?.windowId}`);
+        // window-created
         if (data && data.type) {
             // Track in main state for engine restoration
             if (childWindows[data.type]) {
                 childWindows[data.type].open = true;
                 childWindows[data.type].windowId = data.windowId;
-                console.log(`[DEBUG] childWindows.${data.type} tracked: open=true, windowId=${data.windowId}`);
+                // childWindows tracked
             }
             sendToEngine('window-created', data);
+            
+            // Send correct stageId (engine window ID) to child window
+            // Child windows are created with player window ID as stageId, but engine is separate
+            if (engineWindow && !engineWindow.isDestroyed() && data.windowId) {
+                const childWin = BrowserWindow.fromId(data.windowId);
+                if (childWin && !childWin.isDestroyed()) {
+                    childWin.webContents.send('update-stage-id', { stageId: engineWindow.id });
+                }
+            }
             
             // Create MessageChannel for direct communication
             // Only for windows that need high-frequency data (parameters, monitoring)
@@ -1848,7 +1938,7 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-visible', (e, data) => {
-        console.log(`[DEBUG] window-visible: type=${data?.type}, windowId=${data?.windowId}`);
+        // window-visible
         if (data && data.type && childWindows[data.type]) {
             childWindows[data.type].open = true;
             childWindows[data.type].windowId = data.windowId;
@@ -1862,16 +1952,16 @@ function setupAudioIPC() {
     });
     
     ipcMain.on('window-hidden', (e, data) => {
-        console.log(`[DEBUG] window-hidden: type=${data?.type}, windowId=${data?.windowId}`);
+        // window-hidden
         if (data && data.type && childWindows[data.type]) {
             // Window is hidden but not closed - keep tracking it
-            console.log(`[DEBUG] childWindows.${data.type}: open stays true, windowId stays ${childWindows[data.type].windowId}`);
+            // childWindows: open stays true
         }
         sendToEngine('window-hidden', data);
     });
     
     ipcMain.on('window-closed', (e, data) => {
-        console.log(`[DEBUG] window-closed: type=${data?.type}, windowId=${data?.windowId}`);
+        // window-closed
         if (data && data.type) {
             // Destroy MessageChannel if exists
             if (data.windowId) {
@@ -1882,7 +1972,7 @@ function setupAudioIPC() {
             if (childWindows[data.type]) {
                 childWindows[data.type].open = false;
                 childWindows[data.type].windowId = null;
-                console.log(`[DEBUG] childWindows.${data.type} cleared`);
+                // childWindows cleared
             }
             sendToEngine('window-closed', data);
         }
@@ -2071,8 +2161,6 @@ function setupAudioIPC() {
 }
 
 async function handleTrackEnded() {
-    console.log('[] ');
-    
     if (audioState.loop && audioState.file) {
         // Loop current track
         audioState.position = 0;
@@ -2103,9 +2191,17 @@ async function handleTrackEnded() {
             
             // If engine is not alive, restore it (which will load the file)
             if (!audioState.engineAlive) {
+                // Engine not alive, restoring
                 await restoreEngineIfNeeded();
             } else {
-                // Engine is alive, just load the new file
+                // Engine is alive, update its playlist index and load the new file
+                // Engine needs g.idx to stay in sync with app.js playlistIndex
+                // Sending cmd:playlist and cmd:load
+                sendToEngine('cmd:playlist', {
+                    music: audioState.playlist,
+                    idx: audioState.playlistIndex,
+                    max: audioState.playlist.length - 1
+                });
                 sendToEngine('cmd:load', {
                     file: nextFile,
                     position: 0,

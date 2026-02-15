@@ -182,7 +182,7 @@ test('player.js does not import engines.js', !playerContent.includes("require('.
 // TEST 8: Position Push Configuration
 // ============================================================================
 testSection('POSITION PUSH CONFIGURATION');
-test('POSITION_PUSH_MS defined in engines.js', enginesContent.includes('POSITION_PUSH_MS'));
+test('POSITION_PUSH_INTERVALS defined in engines.js', enginesContent.includes('POSITION_PUSH_INTERVALS'));
 test('startPositionPush function exists', enginesContent.includes('function startPositionPush'));
 test('stopPositionPush function exists', enginesContent.includes('function stopPositionPush'));
 test('app.js handles audio:position', appContent.includes("ipcMain.on('audio:position'"));
