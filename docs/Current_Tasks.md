@@ -59,7 +59,7 @@
 | Waveform cache (survives disposal) | ✅ |
 | Parameter preservation across disposal | ✅ |
 | Parameters window tab switching | ✅ |
-| Shortcuts in child windows | ✅ |
+| Shortcuts in child windows | ⚠️ Partial - Settings/Help window shortcuts broken |
 
 ---
 
@@ -169,10 +169,16 @@ waveformCache.getStats()  // Cache hit/miss stats
 ## Remaining Work (Future Sessions)
 
 ### High Priority
+- **Window Management System** - Currently broken, needs refactoring:
+  - Parameters window hide should return focus to player (not engine window)
+  - Settings window shortcuts not working (should have all window shortcuts)
+  - Help window doesn't open at all
+  - Window shortcuts sometimes need to be hit twice
+  - Missing/incorrect visibility state tracking in app.js
 - **Mixer window state** - Track/mixer state should be partially centralized or documented as exception
 - **Mixer - FFmpeg streaming** - Files are loaded completely to memory instead of streaming through FFmpeg
-- **Monitoring Window** - Does not survive engine dispose cycle (needs restoration handling)
-- **Player - MIDI metadata** - MIDI files show no metadata in player window
+- ~~**Monitoring Window**~~ - ✅ Fixed - Now survives engine dispose cycle
+- ~~**Player - MIDI metadata**~~ - ✅ Fixed - Case mismatch resolved
 
 ### Medium Priority
 - **Parameters Window - MIDI Tab** - Soundfont select does not show currently selected model at startup
@@ -185,4 +191,4 @@ waveformCache.getStats()  // Cache hit/miss stats
 
 ---
 
-**Status:** Core architecture stable. Main process is single source of truth. Player window now properly receives state from broadcasts (fixed Feb 2026). Parameters/monitoring windows are dumb renderers.
+**Status:** Core architecture stable. Main process is single source of truth. Player window now properly receives state from broadcasts (fixed Feb 2026). Parameters/monitoring windows are dumb renderers. **Window management system needs fixing.**
