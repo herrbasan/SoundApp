@@ -1426,11 +1426,12 @@ async function init() {
 				await applyRoutingState();
 			}
 			else if (data.param === 'tapeSpeed') {
-
+				ipcRenderer.send('debug:log', `[Engine] tapeSpeed changed from ${g.audioParams.tapeSpeed} to ${data.value}`);
 				g.audioParams.tapeSpeed = data.value;
 				applyTapeSpeed(data.value);
 			}
 			else if (data.param === 'locked') {
+				ipcRenderer.send('debug:log', `[Engine] locked changed from ${g.audioParams.locked} to ${!!data.value}`);
 				g.audioParams.locked = !!data.value;
 			}
 			else if (data.param === 'pipeline') {

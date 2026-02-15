@@ -950,6 +950,7 @@ const IdleTransitions = {
     [IdleState.DISPOSED]: {
         onEnter: () => {
             console.log('[Idle] Engine disposed (0% CPU mode)');
+            console.log(`[Disposal] State is now DISPOSED, isDisposing=${audioState.isDisposing}`);
         },
         canDispose: () => false,
         nextDelay: null
@@ -990,8 +991,10 @@ function transitionIdleState(newState) {
 }
 
 function scheduleDisposalTimer(delayMs) {
+    console.log(`[Disposal] scheduleDisposalTimer(${delayMs}ms)`);
     clearTimeout(idleStateMachine.timer);
     idleStateMachine.timer = setTimeout(() => {
+        console.log(`[Disposal] Timer fired after ${delayMs}ms`);
         idleStateMachine.timer = null;
         onDisposalTimeout();
     }, delayMs);
@@ -1005,34 +1008,45 @@ function cancelEngineDisposalTimer() {
 }
 
 function onDisposalTimeout() {
+    console.log(`[Disposal] onDisposalTimeout called`);
     // Re-verify conditions before disposal
     const desiredState = computeIdleState();
+    console.log(`[Disposal] desiredState: ${desiredState}`);
     
     if (desiredState === IdleState.PAUSED_VISIBLE || desiredState === IdleState.PAUSED_HIDDEN) {
         const handler = IdleTransitions[desiredState];
-        if (handler && handler.canDispose && handler.canDispose()) {
+        const canDispose = handler && handler.canDispose ? handler.canDispose() : false;
+        console.log(`[Disposal] canDispose: ${canDispose}`);
+        if (canDispose) {
             transitionIdleState(IdleState.DISPOSING);
         } else {
             // Conditions changed, transition to correct state
+            console.log(`[Disposal] Conditions changed, transitioning to ${desiredState}`);
             transitionIdleState(desiredState);
         }
     } else {
         // No longer should dispose (e.g., started playing)
+        console.log(`[Disposal] No longer should dispose, transitioning to ${desiredState}`);
         transitionIdleState(desiredState);
     }
 }
 
 async function performDisposal() {
     if (!engineWindow || audioState.isDisposing) {
+        console.log(`[Disposal] performDisposal early exit: engineWindow=${!!engineWindow}, isDisposing=${audioState.isDisposing}`);
         transitionIdleState(IdleState.ACTIVE);
         return;
     }
     
+    console.log(`[Disposal] performDisposal starting`);
     audioState.isDisposing = true;
     
     try {
         disposeEngineWindow();
         transitionIdleState(IdleState.DISPOSED);
+        // Reset isDisposing after successful disposal so next disposal can happen
+        audioState.isDisposing = false;
+        console.log(`[Disposal] performDisposal completed, isDisposing reset to false`);
     } catch (err) {
         console.error('[Idle] Disposal failed:', err);
         audioState.isDisposing = false;
@@ -1053,16 +1067,24 @@ function recordUserActivity() {
 
 function updateIdleState() {
     const desired = computeIdleState();
+    console.log(`[Disposal] updateIdleState: current=${idleStateMachine.current}, desired=${desired}`);
     
     // Only auto-transition to disposable states from ACTIVE
     if (idleStateMachine.current === IdleState.ACTIVE && desired !== IdleState.ACTIVE) {
+        console.log(`[Disposal] Transitioning from ACTIVE to ${desired}`);
         transitionIdleState(desired);
     }
-    // If DISPOSED and conditions change, restore engine
-    else if (idleStateMachine.current === IdleState.DISPOSED && desired === IdleState.ACTIVE) {
+    // If DISPOSED and need to go to a disposable state, restore engine first
+    else if (idleStateMachine.current === IdleState.DISPOSED && desired !== IdleState.ACTIVE) {
+        console.log(`[Disposal] Restoring engine from DISPOSED to handle ${desired}`);
         restoreEngineIfNeeded().then(() => {
             if (audioState.engineAlive) {
+                // After restoration, go to ACTIVE first, then to desired state
                 transitionIdleState(IdleState.ACTIVE);
+                // Then immediately transition to the desired disposable state
+                if (desired !== IdleState.ACTIVE) {
+                    transitionIdleState(desired);
+                }
             }
         });
     }
@@ -1101,6 +1123,7 @@ function shouldDisposeEngine() {
 }
 
 function recordUserActivity() {
+    console.log(`[Disposal] recordUserActivity called`);
     // Called on any user interaction that should reset idle timer
     idleState.lastActivityTime = Date.now();
     
@@ -1120,17 +1143,27 @@ function scheduleEngineDisposal() {
     }
     
     // Only schedule if engine exists and should be disposed
-    if (!engineWindow || !shouldDisposeEngine()) return;
+    const shouldDispose = shouldDisposeEngine();
+    console.log(`[Disposal] scheduleEngineDisposal called, engineWindow: ${!!engineWindow}, shouldDispose: ${shouldDispose}`);
+    if (!engineWindow || !shouldDispose) {
+        console.log(`[Disposal] Not scheduling - engineWindow: ${!!engineWindow}, shouldDisposeEngine: ${shouldDispose}`);
+        return;
+    }
     
     const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
     const timeoutMs = isWindowVisible ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
     
-    console.log(`Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`);
+    console.log(`[Disposal] Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`);
     
     audioState.engineDisposalTimeout = setTimeout(() => {
         audioState.engineDisposalTimeout = null;
-        if (shouldDisposeEngine()) {
-            disposeEngineWindow();
+        const stillShouldDispose = shouldDisposeEngine();
+        console.log(`[Disposal] Timeout fired, shouldDisposeEngine: ${stillShouldDispose}`);
+        if (stillShouldDispose) {
+            console.log(`[Disposal] Calling performDisposal()`);
+            performDisposal();
+        } else {
+            console.log(`[Disposal] Not disposing - conditions changed`);
         }
     }, timeoutMs);
 }
@@ -1150,8 +1183,8 @@ function scheduleVisibleIdleDisposal() {
     idleState.visibleDisposeTimeout = setTimeout(() => {
         idleState.visibleDisposeTimeout = null;
         if (shouldDisposeEngine()) {
-            console.log('[] ');
-            disposeEngineWindow();
+            console.log('[Disposal] visible timeout fired, calling performDisposal');
+            performDisposal();
         }
     }, IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
 }
@@ -1169,16 +1202,16 @@ function cancelEngineDisposal() {
 }
 
 function disposeEngineWindow() {
-    if (!engineWindow) return;
-    
-    // Guard against concurrent disposal (both timers firing simultaneously)
-    if (audioState.isDisposing) return;
-    audioState.isDisposing = true;
+    console.log(`[Disposal] disposeEngineWindow called, engineWindow=${!!engineWindow}`);
+    if (!engineWindow) {
+        console.log(`[Disposal] disposeEngineWindow early return: engineWindow is null`);
+        return;
+    }
     
     // Cancel any pending disposal timeout
     cancelEngineDisposal();
     
-    console.log('[] ');
+    console.log('[Disposal] disposeEngineWindow: closing engine');
     logStateDebugAction('engine-disposed', 'Engine disposed (0% CPU mode)');
     audioState.engineAlive = false;
     
@@ -1241,8 +1274,8 @@ async function restoreEngineIfNeeded() {
         // ── Step 0: Reset audioState to defaults ──
         // FFmpeg: reset only if locked=false
         // MIDI/Tracker: always reset (no lock feature)
-        const shouldReset = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
-        if (shouldReset) {
+        const didResetParams = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+        if (didResetParams) {
             resetParamsToDefaults(audioState.fileType, audioState.metadata);
         }
         
@@ -1536,6 +1569,7 @@ function setupAudioIPC() {
     
     ipcMain.on('audio:pause', () => {
         logStateDebugAction('pause', 'Playback paused');
+        console.log(`[Disposal] Pause received, locked=${audioState.locked}, wasPlaying=${audioState.isPlaying}`);
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
@@ -1856,6 +1890,7 @@ function setupAudioIPC() {
     
     // Param changes from parameters window → track in state and forward to engine
     ipcMain.on('param-change', (e, data) => {
+        console.log(`[Main] param-change: ${data.mode}.${data.param} = ${data.value}`);
         // Track format-specific params in main state so we can restore after disposal
         let stateChanged = false;
         if (data.mode === 'midi') {
@@ -1966,8 +2001,8 @@ function setupAudioIPC() {
     
     // DEBUG: Close engine window (for CPU testing)
     ipcMain.on('debug:close-engine', (e) => {
-        console.log('[] ');
-        disposeEngineWindow();
+        console.log('[Disposal] debug:close-engine received');
+        performDisposal();
     });
     
     // DEBUG: Reopen engine window (for CPU testing)
@@ -2020,9 +2055,13 @@ function setupAudioIPC() {
         e.sender.send('debug:idle-status-response', status);
     });
     
+    ipcMain.on('debug:log', (e, msg) => {
+        console.log(msg);
+    });
+    
     ipcMain.on('debug:idle-force-dispose', (e) => {
-        console.log('[] ');
-        disposeEngineWindow();
+        console.log('[Disposal] debug:idle-force-dispose received');
+        performDisposal();
     });
     
     ipcMain.on('debug:idle-reset-timer', (e) => {
