@@ -120,13 +120,13 @@ let _trackerInitialized = false;
  * Returns existing instance or initializes on first access.
  */
 async function getTrackerPlayer() {
-    // Check if lazy loading is enabled (default: false for compatibility)
-    const lazyLoadEnabled = (typeof g !== 'undefined' && g?.main_env && (g.main_env.lazyLoadTracker || g.main_env.lazyLoadEngines)) || 
+    // Check if lazy-init is enabled (default: false for compatibility)
+    const lazyInitEnabled = (typeof g !== 'undefined' && g?.main_env && (g.main_env.lazyLoadTracker || g.main_env.lazyLoadEngines)) || 
                             (typeof main_env !== 'undefined' && main_env?.lazyLoadTracker);
     
-    // If not lazy loading, initialize immediately on first call
-    if (!lazyLoadEnabled) {
-        console.log('[Tracker] Lazy loading disabled, creating instance immediately');
+    // If not lazy-init, initialize immediately on first call
+    if (!lazyInitEnabled) {
+        console.log('[Tracker] Lazy-init disabled, creating instance immediately');
         if (!_trackerInstance && window.chiptune) {
             _trackerInstance = createTrackerPlayer();
             player = _trackerInstance;  // Legacy compatibility
@@ -134,10 +134,19 @@ async function getTrackerPlayer() {
         return _trackerInstance;
     }
     
-    console.log('[Tracker] Lazy loading enabled, initializing on first access...');
+    console.log('[Tracker] Lazy-init enabled, initializing on first access...');
     
-    // Return existing instance
-    if (_trackerInstance) return _trackerInstance;
+    // Return existing instance if still valid (not disposed)
+    if (_trackerInstance) {
+        // Verify instance is still connected to current AudioContext
+        if (g.isDisposed) {
+            console.warn('[Tracker] Existing instance tied to disposed engine, resetting');
+            _trackerInstance = null;
+            _trackerInitialized = false;
+        } else {
+            return _trackerInstance;
+        }
+    }
     
     // Return in-progress initialization
     if (_trackerInitPromise) return _trackerInitPromise;
@@ -146,12 +155,24 @@ async function getTrackerPlayer() {
     _trackerInitPromise = initTrackerPlayerLazy();
     
     try {
-        _trackerInstance = await _trackerInitPromise;
+        const instance = await _trackerInitPromise;
+        // Check again if disposed during init
+        if (g.isDisposed) {
+            console.warn('[Tracker] Engine disposed during init, discarding instance');
+            try { instance.stop(); } catch (e) {}
+            try { if (instance.gain) instance.gain.disconnect(); } catch (e) {}
+            _trackerInstance = null;
+            _trackerInitialized = false;
+            return null;
+        }
+        _trackerInstance = instance;
         _trackerInitialized = true;
         player = _trackerInstance;  // Legacy compatibility
         return _trackerInstance;
     } catch (err) {
         console.error('[Tracker] Failed to initialize:', err);
+        _trackerInstance = null;
+        _trackerInitialized = false;
         return null;
     } finally {
         _trackerInitPromise = null;
@@ -244,7 +265,15 @@ async function initTrackerPlayerLazy() {
     
     if (!tracker.gain) {
         console.warn('[Tracker] Gain node not created after 500ms, proceeding anyway');
-    } else {
+    }
+    
+    // Check if engine was disposed during initialization
+    // Prevents returning stale instance tied to destroyed AudioContext
+    if (g.isDisposed) {
+        console.warn('[Tracker] Engine disposed during init, aborting');
+        try { tracker.stop(); } catch (e) {}
+        try { if (tracker.gain) tracker.gain.disconnect(); } catch (e) {}
+        return null;
     }
     
     return tracker;
@@ -278,9 +307,15 @@ g.audioParams = {
     locked: false      // lock settings across track changes
 };
 
-// Position push interval (≤15ms for smooth UI)
+// Position push interval - adaptive based on user activity
 let positionPushInterval = null;
-const POSITION_PUSH_MS = 15;
+let positionPushMode = 'normal'; // 'scrubbing' | 'normal' | 'idle' | 'minimal'
+const POSITION_PUSH_INTERVALS = {
+    scrubbing: 16,  // User dragging seek bar - max responsiveness
+    normal: 50,     // Standard playback - good enough for UI
+    idle: 250,      // Window hidden/background - conserve CPU
+    minimal: 500    // Deep background - minimal updates
+};
 
 // =============================================================================
 // ROUTING COORDINATOR - Centralized State Machine
@@ -612,15 +647,31 @@ async function detectMaxSampleRate() {
 
 /**
  * Start position push interval - sends currentTime to app.js
+ * Adaptive: faster when scrubbing, slower when idle
  */
 function startPositionPush() {
     if (positionPushInterval) return;
+    const interval = POSITION_PUSH_INTERVALS[positionPushMode] || POSITION_PUSH_INTERVALS.normal;
     positionPushInterval = setInterval(() => {
         if (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') {
             const pos = g.currentAudio.getCurrentTime();
             ipcRenderer.send('audio:position', pos);
         }
-    }, POSITION_PUSH_MS);
+    }, interval);
+}
+
+/**
+ * Set position push mode and restart interval if active
+ * @param {string} mode - 'scrubbing' | 'normal' | 'idle' | 'minimal'
+ */
+function setPositionPushMode(mode) {
+    if (positionPushMode === mode) return;
+    positionPushMode = mode;
+    // Restart interval with new timing if currently pushing
+    if (positionPushInterval) {
+        stopPositionPush();
+        startPositionPush();
+    }
 }
 
 /**
@@ -636,6 +687,10 @@ function stopPositionPush() {
 init();
 
 async function init() {
+    // Set process title for identification in task manager
+    if (process && process.title) {
+        process.title = 'SoundApp Engine';
+    }
     
     g.main_env = await helper.global.get('main_env');
     g.basePath = await helper.global.get('base_path');
@@ -794,9 +849,9 @@ async function init() {
 
 	// Rubberband pipeline is initialized lazily by ensureRubberbandPipeline()
 
-	// Initialize MIDI player BEFORE tracker player callbacks
-	// (appStart() may be triggered by onInitialized before this function returns)
-	await initMidiPlayer();
+	// MIDI and Tracker are lazy-init: modules load at startup, instances init on first use
+	// MIDI: initMidiPlayer() called in playAudio() when isMIDI && !midi
+	// Tracker: getTrackerPlayer() called in playAudio() when isTracker
 
 
 		// Check if tracker lazy loading is enabled (via env.json)
@@ -906,6 +961,13 @@ async function init() {
 
 		if (g.currentAudio && typeof data.position === 'number') {
 			seekTo(data.position);
+		}
+	});
+	
+	// Adaptive position push mode - reduces CPU when not scrubbing
+	ipcRenderer.on('engine:set-position-mode', (e, data) => {
+		if (data && data.mode) {
+			setPositionPushMode(data.mode);
 		}
 	});
 	
@@ -1229,7 +1291,11 @@ async function init() {
 			midi = null;
 		}
 
-		await initMidiPlayer();
+		// Only re-init MIDI if it was previously initialized (lazy-init respect)
+		// If MIDI was never used, don't init it now
+		if (isMIDI || midi) {
+			await initMidiPlayer();
+		}
 
 		if (isMIDI && currentFile) {
 			try {
@@ -1836,11 +1902,14 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 		}
 
 		if (isMIDI) {
-
+			// Lazy-init MIDI on first use
 			if (!midi) {
-				console.error('[Engine] MIDI init error:', g.midiInitError || 'MIDI playback not initialized.');
-				g.blocky = false;
-				return false;
+				await initMidiPlayer();
+				if (!midi) {
+					console.error('[Engine] MIDI init error:', g.midiInitError || 'MIDI playback not initialized.');
+					g.blocky = false;
+					return false;
+				}
 			}
 			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
 			const initialVol = startPaused ? 0 : targetVol;
@@ -2726,21 +2795,33 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	// Connect to destination (monitoring taps managed lazily by applyRoutingState())
 	g.ffmpegPlayer.gainNode.connect(g.audioContext.destination);
 
-	const modConfig = {
-		repeatCount: 0,
-		stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
-		context: g.audioContext
-	};
-	player = new window.chiptune(modConfig);
+	// Check if tracker lazy-init is enabled
+	const lazyInitTracker = g.main_env?.lazyLoadEngines || g.main_env?.lazyLoadTracker || false;
+	
+	if (lazyInitTracker) {
+		console.log('[toggleHQMode] Tracker lazy-init enabled, skipping eager initialization');
+		// Reset tracker state - will lazy-init on next tracker file
+		_trackerInstance = null;
+		_trackerInitPromise = null;
+		_trackerInitialized = false;
+		player = null;
+	} else {
+		// Eager-init: Create tracker player immediately
+		const modConfig = {
+			repeatCount: 0,
+			stereoSeparation: (g.config && g.config.tracker && g.config.tracker.stereoSeparation !== undefined) ? (g.config.tracker.stereoSeparation | 0) : 100,
+			context: g.audioContext
+		};
+		player = new window.chiptune(modConfig);
 
-	await new Promise((resolve) => {
-		player.onInitialized(() => {
-
-			player.gain.connect(g.audioContext.destination);
-			// Monitoring taps are managed lazily by applyRoutingState()
-			resolve();
+		await new Promise((resolve) => {
+			player.onInitialized(() => {
+				player.gain.connect(g.audioContext.destination);
+				// Monitoring taps are managed lazily by applyRoutingState()
+				resolve();
+			});
 		});
-	});
+	}
 
 	// Re-initialize monitoring if window is still open (new context)
 	await applyRoutingState();
@@ -2769,7 +2850,12 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	});
 	player.onEnded(audioEnded);
 	player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
-	await initMidiPlayer();
+	
+	// Only re-init MIDI if it was previously initialized (lazy-init respect)
+	// If MIDI was never used, don't init it now
+	if (midi) {
+		await initMidiPlayer();
+	}
 
 	if (currentFile) {
 		if (currentIdx >= 0) {
@@ -3161,13 +3247,18 @@ window.disposeEngines = {
 	
 	// Dispose tracker player (stops chiptune worklet)
 	tracker: () => {
-		if (player) {
-
-			player.stop();
-
-		} else {
-
+		if (player || _trackerInstance) {
+			const tracker = _trackerInstance || player;
+			try { tracker.stop(); } catch (e) {}
+			try { 
+				if (tracker.gain) tracker.gain.disconnect(); 
+			} catch (e) {}
 		}
+		// Reset module-scope lazy-init state
+		_trackerInstance = null;
+		_trackerInitPromise = null;
+		_trackerInitialized = false;
+		player = null;
 	},
 	
 	// Dispose FFmpeg players

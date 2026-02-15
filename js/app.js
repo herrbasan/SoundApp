@@ -8,6 +8,9 @@ const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 const configDefaults = require('./config-defaults.js');
 
+// Set process title for identification in task manager
+process.title = 'SoundApp Main';
+
 squirrel_startup().then((ret, cmd) => { if (ret) { app.quit(); return; } init(cmd); });
 
 let main_env = { channel: 'stable' };
@@ -481,6 +484,12 @@ async function appStart() {
 	}
 
 	user_cfg = await helper.config.initMain(configName, configDefaults, { log: configLog });
+	
+	// Initialize audioState.volume from user config (not hardcoded default)
+	const initialCfg = user_cfg ? user_cfg.get() : {};
+	if (initialCfg && initialCfg.audio && initialCfg.audio.volume !== undefined) {
+		audioState.volume = initialCfg.audio.volume;
+	}
 
 	// Determine initial minHeight based on showControls setting
 	const cfg = user_cfg ? user_cfg.get() : {};

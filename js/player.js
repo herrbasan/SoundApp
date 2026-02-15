@@ -91,6 +91,9 @@ g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedM
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Set process title for identification in task manager
+process.title = 'SoundApp UI';
+
 init();
 async function init() {
     fb('Init Player UI');
@@ -784,8 +787,16 @@ function seekBack() {
 }
 
 function timelineSlider(e) {
-    if (e.type === 'end') return; // Ignore end event
     if (!g.uiState.duration) return;
+    
+    if (e.type === 'start') {
+        // User started dragging - tell engine to use faster position updates
+        ipcRenderer.send('engine:set-position-mode', { mode: 'scrubbing' });
+    } else if (e.type === 'end') {
+        // User finished dragging - back to normal update rate
+        ipcRenderer.send('engine:set-position-mode', { mode: 'normal' });
+        return;
+    }
     
     const s = g.uiState.duration * e.prozX;
     seekTo(s);

@@ -41,36 +41,39 @@ These optimizations are **active now** - no configuration needed.
 |------|----------|-----------|
 | `scrubbing` | 16ms | User dragging seek bar |
 | `normal` | 50ms | Standard playback |
-| `idle` | 250ms | UI not visible |
-| `minimal` | 500ms | Background mode |
 
-**Impact:** ~70% reduction in IPC traffic.
+**Impact:** ~60% reduction in IPC traffic during normal playback (66Hz → 20Hz).
 
-**Files:** `js/engines.js`
+**Files:** `js/engines.js`, `js/player.js`
 
 ---
 
-### 4. MIDI Lazy Loading
+### 4. MIDI Lazy-Init
 **Problem:** MIDI player used 0.3-0.5% CPU constantly, even when idle.  
 **Solution:** Initialize only on first MIDI file playback.
 
-**Always enabled** - no configuration.
+**Status:** ✅ **Fixed**  
+Module loads at startup, instance initializes on first MIDI file.
 
 **Files:** `js/engines.js`, `html/engines.html`
 
 ---
 
-### 5. Tracker Lazy Loading
+### 5. Tracker Lazy-Init
 **Problem:** Chiptune player initialized on startup, wasting resources.  
-**Solution:** Same lazy pattern as MIDI.
+**Solution:** Module loads at startup, instance initializes on first tracker file.
 
-**Status:** ✅ Working  
-**Key fix:** Wait for `onInitialized` callback before returning from lazy init to ensure gain node is connected.
+**Status:** ✅ **Fixed**  
+**Key fixes:** 
+- Wait for `onInitialized` callback before returning from lazy init
+- Module-scope state properly reset on engine disposal
+- Race condition handled (aborts if disposed during init)
+- Respects lazy-init flag in `toggleHQMode()`
 
 **Toggle in `env.json`:**
 ```json
 {
-  "lazyLoadEngines": true,  // Enables both MIDI and Tracker lazy loading
+  "lazyLoadEngines": true,  // Enables both MIDI and Tracker lazy-init
   "lazyLoadTracker": true   // Specifically for tracker (optional)
 }
 ```
@@ -145,7 +148,7 @@ debugIdle.forceDispose()
 waveformCache.getStats()
 
 // Check MIDI init status
-_midiInstance?.config ? "initialized" : "not loaded"
+midi?._isInitialized ? "initialized" : "not loaded"
 
 // Check tracker init status  
 _trackerInstance ? "initialized" : "not loaded"
@@ -183,7 +186,7 @@ Load MIDI/Tracker code only when needed (requires build changes).
 | File | Changes |
 |------|---------|
 | `js/app.js` | Idle state machine, LRU cache |
-| `js/engines.js` | Lazy loading, adaptive scheduler, transactions |
+| `js/engines.js` | Lazy-init, adaptive scheduler, transactions |
 | `js/rubberband-pipeline.js` | Worklet ready handshake |
 | `bin/win_bin/realtime-pitch-shift-processor.js` | Ready acknowledgment |
 | `bin/linux_bin/realtime-pitch-shift-processor.js` | Ready acknowledgment |
@@ -194,6 +197,6 @@ Load MIDI/Tracker code only when needed (requires build changes).
 
 ## ⚠️ Known Limitations
 
-1. **First MIDI load:** 1-2s delay on first MIDI file (library initialization)
-2. **First Tracker load:** Slight delay on first tracker file
+1. **First MIDI load:** 1-2s delay on first MIDI file (lazy-init working)
+2. **First Tracker load:** Slight delay on first tracker file (lazy-init working)
 3. **Position update:** 50ms is slightly less smooth than 15ms (barely noticeable)
