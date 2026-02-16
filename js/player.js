@@ -53,21 +53,11 @@ window.disposeIPC = {
 };
 
 let g = {};
-g.test = {};
-// Window tracking - player.js only tracks window IDs
-// Visibility state lives in main process (app.js childWindows) - ground truth
 g.windows = { help: null, settings: null, playlist: null, mixer: null, pitchtime: null, 'midi': null, parameters: null, monitoring: null, 'state-debug': null };
 g.windowsClosing = { help: false, settings: false, playlist: false, mixer: false, pitchtime: false, 'midi': false, parameters: false, monitoring: false, 'state-debug': false };
 g.lastNavTime = 0;
 g.mixerPlaying = false;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// STATE: All state lives in app.js - we render directly from broadcasts
-// NO local state mirroring - single source of truth in main process
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Current state snapshot from main (read-only cache for rendering only)
-// This is NOT source of truth - just the last known state from main
 g.state = {
     file: null,
     isPlaying: false,
@@ -438,14 +428,7 @@ function setupIPC() {
         }
     };
 
-    // Listen for shortcuts from other windows - DEPRECATED: Handled directly by app.js now
-    /*
-    ipcRenderer.on('shortcut', (event, data) => {
-        // ... (code removed) ...
-    });
-    */
-
-    // Listen for window close events (to update UI toggle buttons)e
+    // Listen for window close events (to update UI toggle buttons)
     ipcRenderer.on('debug:idle-status-response', (e, status) => {
         console.log('[Debug] Idle Status:', status);
     });

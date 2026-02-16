@@ -11,15 +11,11 @@ if (isElectron) {
 	const helper = require('../libs/electron_helper/helper_new.js');
 	const tools = helper.tools;
 
-	// Global Shortcuts Helper logic moved to after bridge definition
-
-
-	// Safe logger initialization - don't let logging break window loading
 	let logger;
 	try {
 		logger = require('./logger-renderer');
 	} catch (e) {
-		// Fallback logger that just logs to console
+		// Fallback logger for development
 		logger = {
 			init: () => { },
 			debug: () => { },
@@ -29,7 +25,6 @@ if (isElectron) {
 		};
 	}
 
-	// Global Error Handling - Pipe to logger
 	window.onerror = function (message, source, lineno, colno, error) {
 		const msg = `[Global Error] ${message} at ${source}:${lineno}:${colno}`;
 		if (logger && logger.error) {
@@ -53,9 +48,7 @@ if (isElectron) {
 	let windowId = null;
 	let windowType = null;
 
-	// MessagePort for direct engine communication (set when received)
 	let messagePort = null;
-	// Handlers that should also be attached to MessagePort when it arrives
 	const portHandlers = new Map();
 
 	bridge = {
@@ -101,9 +94,8 @@ if (isElectron) {
 		config: helper.config,
 		window: helper.window,
 		closeWindow: () => {
-			console.log('[CHILD] closeWindow called for', windowType, 'sending to stageId:', stageId);
-			// Debug: Log current window state
-			console.log('[CHILD] windowId:', windowId, 'windowType:', windowType);
+			logger.debug('window', 'closeWindow called', { windowType, stageId });
+			logger.debug('window', 'window state', { windowId, windowType });
 			// Always trigger local hide-window listeners (e.g. Mixer cleanup) before we hide/close.
 			ipcRenderer.emit('hide-window', {}, {});
 

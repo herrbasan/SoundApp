@@ -400,7 +400,6 @@ async function init(cmd) {
             app.on('second-instance', (event, commandLine, workingDirectory) => {
                 if (wins.main.webContents) {
 
-                    //let argv = commandLine.slice(4);
                     let argv = [];
                     for (let i = 1; i < commandLine.length; i++) {
                         if (commandLine[i].substr(0, 2) != '--') {
@@ -987,6 +986,7 @@ async function createEngineWindow(options = {}) {
 const IDLE_DISPOSE_TIMEOUT_MS = 5000;        // 5s when hidden to tray
 const IDLE_DISPOSE_VISIBLE_TIMEOUT_MS = 10000; // 10s when visible but paused
 const IDLE_CHECK_INTERVAL_MS = 1000;         // Check every second
+const ENGINE_READY_TIMEOUT_MS = 2000;         // Timeout for engine ready check
 
 let idleDisposalState = {
     lastActivityTime: Date.now(),
@@ -1127,7 +1127,7 @@ function disposeEngineWindow() {
  * Promise-based wait for engine:ready event
  * Replaces polling loop with event-driven approach for faster restoration
  */
-function waitForEngineReady(timeoutMs = 2000) {
+function waitForEngineReady(timeoutMs = ENGINE_READY_TIMEOUT_MS) {
     return new Promise((resolve) => {
         if (audioState.engineAlive) {
             resolve(true);
@@ -1192,7 +1192,7 @@ async function restoreEngineIfNeeded() {
         timings.windowCreated = Date.now();
 
         // Wait for engine to be ready (event-driven, not polling)
-        const engineReady = await waitForEngineReady(2000);
+        const engineReady = await waitForEngineReady(ENGINE_READY_TIMEOUT_MS);
         timings.engineReady = Date.now();
         if (!engineReady) {
             logger.error('main', 'restoreEngineIfNeeded: engine failed to become ready');

@@ -83,7 +83,6 @@ function broadcastToWindow(windowType, channel, data) {
 let player;
 let midi;
 let g = {};
-g.test = {};
 g.audioContext = null;
 g.rubberbandContext = null;
 g.rubberbandPlayer = null;
