@@ -1191,6 +1191,17 @@ async function openWindow(type, forceShow = false, contextFile = null) {
             paths: playlist.paths.slice(0, 20),
             idx: playlist.idx
         };
+        
+        // Add FFmpeg paths for streaming support (fixes "Mixer - FFmpeg streaming" issue)
+        const os = require('os');
+        let appPath = helper.app_path || '';
+        if (helper.isPackaged) { appPath = path.dirname(appPath); }
+        
+        const isLinux = os.platform() === 'linux';
+        const binDir = isLinux ? 'linux_bin' : 'win_bin';
+        init_data.ffmpeg_napi_path = path.resolve(appPath, 'bin', binDir, 'ffmpeg_napi.node');
+        init_data.ffmpeg_player_path = path.resolve(appPath, 'bin', binDir, 'player-sab.js');
+        init_data.ffmpeg_worklet_path = path.resolve(appPath, 'bin', binDir, 'ffmpeg-worklet-sab.js');
     }
 
     if (type === 'monitoring') {

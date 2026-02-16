@@ -177,7 +177,7 @@ waveformCache.getStats()  // Cache hit/miss stats
   - Child windows now properly return focus to player on hide/close
 - ~~**Settings/Help Shortcuts**~~ - ✅ **Fixed** - Shortcuts now work in Settings and Help windows
 - **Mixer window state** - Track/mixer state should be partially centralized or documented as exception
-- **Mixer - FFmpeg streaming** - Files are loaded completely to memory instead of streaming through FFmpeg
+- ~~**Mixer - FFmpeg streaming**~~ - ✅ **Fixed** - Added FFmpeg paths to mixer init_data for streaming support
 - ~~**Monitoring Window**~~ - ✅ Fixed - Survives engine dispose cycle, zero CPU when hidden
 - ~~**Player - MIDI metadata**~~ - ✅ Fixed - Case mismatch resolved
 
