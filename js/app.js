@@ -1489,9 +1489,8 @@ async function restoreEngineIfNeeded() {
             });
         }
 
-        // ── Step 4b: Start monitoring if window is open ──
-        if (childWindows.monitoring.open) {
-            console.log('[] ');
+        // ── Step 4b: Start monitoring if window is visible ──
+        if (childWindows.monitoring.visible) {
             sendToEngine('window-visible', { type: 'monitoring', windowId: childWindows.monitoring.windowId });
         }
 
@@ -1667,8 +1666,8 @@ function broadcastState(excludeEngine = false) {
     // Send to player window
     sendToPlayer('state:update', stateUpdate);
 
-    // Send monitoring source to monitoring window if open
-    if (childWindows.monitoring.windowId) {
+    // Send monitoring source to monitoring window only if visible
+    if (childWindows.monitoring.windowId && childWindows.monitoring.visible) {
         try {
             tools.sendToId(childWindows.monitoring.windowId, 'set-monitoring-source', audioState.monitoringSource);
         } catch (e) { }
@@ -2369,8 +2368,8 @@ function setupAudioIPC() {
         audioState.monitoringSource = source;
         console.log('[Main] Monitoring source changed to:', source);
 
-        // Broadcast to monitoring window if open
-        if (childWindows.monitoring.windowId) {
+        // Broadcast to monitoring window only if visible
+        if (childWindows.monitoring.windowId && childWindows.monitoring.visible) {
             try {
                 tools.sendToId(childWindows.monitoring.windowId, 'set-monitoring-source', source);
             } catch (err) {

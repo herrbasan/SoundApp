@@ -126,6 +126,7 @@
 | First Tracker load delay | Slight delay |
 | Position update interval | 50ms (was 15ms) |
 | ~~Engine restoration delay~~ | ✅ **Optimized** - Event-driven restoration, reduced timeouts, removed setTimeout delays |
+| ~~Monitoring window CPU usage~~ | ✅ **Fixed** - No data sent when hidden, RAF cancelled, visibility check on restoration |
 | Mixer window state | Partially decentralized - uses local track state |
 | ~~Tracker pitch by semitones~~ | ✅ **Fixed** - Was double-converting semitones to ratio |
 
@@ -177,7 +178,7 @@ waveformCache.getStats()  // Cache hit/miss stats
 - ~~**Settings/Help Shortcuts**~~ - ✅ **Fixed** - Shortcuts now work in Settings and Help windows
 - **Mixer window state** - Track/mixer state should be partially centralized or documented as exception
 - **Mixer - FFmpeg streaming** - Files are loaded completely to memory instead of streaming through FFmpeg
-- ~~**Monitoring Window**~~ - ✅ Fixed - Now survives engine dispose cycle
+- ~~**Monitoring Window**~~ - ✅ Fixed - Survives engine dispose cycle, zero CPU when hidden
 - ~~**Player - MIDI metadata**~~ - ✅ Fixed - Case mismatch resolved
 
 ### Medium Priority

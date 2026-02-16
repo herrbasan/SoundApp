@@ -1647,7 +1647,8 @@ async function init() {
 	});
 
 	ipcRenderer.on('waveform-chunk', (e, chunk) => {
-		if (!g.windows.monitoring) return;
+		// Only send if monitoring window is visible
+		if (!g.windows.monitoring || !g.windowsVisible.monitoring) return;
 		try {
 			sendToWindow(g.windows.monitoring, 'waveform-chunk', {
 				...chunk,
@@ -1660,9 +1661,9 @@ async function init() {
 
 	// Forward analysis data and source-selection commands from other windows (e.g. Mixer)
 	ipcRenderer.on('ana-data', (e, data) => {
-		if (!g.windows.monitoring) return;
+		// Only forward if monitoring window is visible and ready
+		if (!g.windows.monitoring || !g.windowsVisible.monitoring || !g.monitoringReady) return;
 		try {
-
 			sendToWindow(g.windows.monitoring, 'ana-data', data, 'monitoring');
 		} catch (err) {
 			console.warn('[Stage] failed to forward ana-data', err && err.message);

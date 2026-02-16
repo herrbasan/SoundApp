@@ -274,6 +274,15 @@ export const main = {
             }
         });
 
+        // Cancel pending RAF when window is hidden to save CPU
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+                pendingData = null;
+            }
+        });
+
         // Allow external windows to switch the active monitoring source
         window.bridge.on('set-monitoring-source', (src) => {
             // set-monitoring-source received
