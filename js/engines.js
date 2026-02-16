@@ -10,7 +10,6 @@ const path = require('path');
 const helper = require('../libs/electron_helper/helper_new.js');
 const tools = helper.tools;
 const os = require('node:os');
-const RubberbandPipeline = require('./rubberband-pipeline.js');
 const logger = require('./logger-renderer');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -40,14 +39,6 @@ function sendToWindow(windowId, channel, data, windowType) {
 		tools.sendToId(windowId, channel, data);
 	} catch (err) {
 		// Window may not exist or be destroyed, fail silently
-	}
-}
-
-// Broadcast to all windows of a given type (parameters, monitoring)
-function broadcastToWindow(windowType, channel, data) {
-	const windowId = g.windows[windowType];
-	if (windowId) {
-		sendToWindow(windowId, channel, data);
 	}
 }
 
