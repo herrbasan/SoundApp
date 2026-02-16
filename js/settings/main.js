@@ -57,7 +57,7 @@ function initHQMode() {
 	hqToggle.addEventListener('change', () => {
 		setCfgValue(['audio', 'hqMode'], !!hqToggle.checked);
 		hqNotice.classList.add('visible');
-		
+
 		setTimeout(() => {
 			hqNotice.classList.remove('visible');
 		}, 3000);
@@ -129,7 +129,7 @@ async function initOutputDevice() {
 			});
 
 			const options = [
-				{ name: 'System Default', value: '', selected: !getCfg(['audio','output','deviceId'], '') }
+				{ name: 'System Default', value: '', selected: !getCfg(['audio', 'output', 'deviceId'], '') }
 			];
 
 			audioOutputs.forEach(device => {
@@ -141,7 +141,7 @@ async function initOutputDevice() {
 				options.push({
 					name: label,
 					value: device.deviceId,
-					selected: device.deviceId === getCfg(['audio','output','deviceId'], '')
+					selected: device.deviceId === getCfg(['audio', 'output', 'deviceId'], '')
 				});
 			});
 
@@ -160,7 +160,7 @@ async function initOutputDevice() {
 				deviceSelectWidget = superSelect(deviceSelect, { searchable: false });
 			}
 
-			const currentDevId = getCfg(['audio','output','deviceId'], '');
+			const currentDevId = getCfg(['audio', 'output', 'deviceId'], '');
 			if (currentDevId) {
 				const deviceExists = audioOutputs.some(d => d.deviceId === currentDevId);
 				if (!deviceExists) {
@@ -173,7 +173,7 @@ async function initOutputDevice() {
 	}
 
 	await loadAudioDevices();
-	
+
 	navigator.mediaDevices.addEventListener('devicechange', () => {
 		if (deviceLoadDebounce) clearTimeout(deviceLoadDebounce);
 		deviceLoadDebounce = setTimeout(loadAudioDevices, 500);
@@ -181,7 +181,7 @@ async function initOutputDevice() {
 
 	deviceSelect.addEventListener('change', () => {
 		const deviceId = deviceSelect.value;
-		setCfgValue(['audio','output','deviceId'], deviceId || '');
+		setCfgValue(['audio', 'output', 'deviceId'], deviceId || '');
 		deviceNotice.classList.add('visible');
 
 		setTimeout(() => {
@@ -192,7 +192,7 @@ async function initOutputDevice() {
 
 function initBufferSize() {
 	const bufferSizeSelect = document.getElementById('bufferSizeSelect');
-	bufferSizeSelect.value = getCfg(['ffmpeg','stream','prebufferChunks'], 10);
+	bufferSizeSelect.value = getCfg(['ffmpeg', 'stream', 'prebufferChunks'], 10);
 	superSelect(bufferSizeSelect, { searchable: false });
 
 	let bufferChangeTimeout = null;
@@ -200,14 +200,14 @@ function initBufferSize() {
 		clearTimeout(bufferChangeTimeout);
 		bufferChangeTimeout = setTimeout(() => {
 			const bufferSize = parseInt(bufferSizeSelect.value);
-			setCfgValue(['ffmpeg','stream','prebufferChunks'], bufferSize);
+			setCfgValue(['ffmpeg', 'stream', 'prebufferChunks'], bufferSize);
 		}, 200);
 	});
 }
 
 function initDecoderThreads() {
 	const decoderThreadsSelect = document.getElementById('decoderThreadsSelect');
-	decoderThreadsSelect.value = getCfg(['ffmpeg','decoder','threads'], 0);
+	decoderThreadsSelect.value = getCfg(['ffmpeg', 'decoder', 'threads'], 0);
 	superSelect(decoderThreadsSelect, { searchable: false });
 
 	let threadsChangeTimeout = null;
@@ -215,14 +215,14 @@ function initDecoderThreads() {
 		clearTimeout(threadsChangeTimeout);
 		threadsChangeTimeout = setTimeout(() => {
 			const threadCount = parseInt(decoderThreadsSelect.value);
-			setCfgValue(['ffmpeg','decoder','threads'], threadCount);
+			setCfgValue(['ffmpeg', 'decoder', 'threads'], threadCount);
 		}, 200);
 	});
 }
 
 function initMixerPreBuffer() {
 	const mixerPreBufferSelect = document.getElementById('mixerPreBufferSelect');
-	mixerPreBufferSelect.value = getCfg(['mixer','preBuffer'], 50);
+	mixerPreBufferSelect.value = getCfg(['mixer', 'preBuffer'], 50);
 	superSelect(mixerPreBufferSelect, { searchable: false });
 
 	let preBufferChangeTimeout = null;
@@ -230,7 +230,7 @@ function initMixerPreBuffer() {
 		clearTimeout(preBufferChangeTimeout);
 		preBufferChangeTimeout = setTimeout(() => {
 			const preBuffer = parseInt(mixerPreBufferSelect.value);
-			setCfgValue(['mixer','preBuffer'], preBuffer);
+			setCfgValue(['mixer', 'preBuffer'], preBuffer);
 		}, 200);
 	});
 }
@@ -244,7 +244,7 @@ function initDefaultDirectory() {
 		clearDirBtn.style.display = dirInput.value ? 'flex' : 'none';
 	}
 
-	const cfgDir = getCfg(['ui','defaultDir'], '');
+	const cfgDir = getCfg(['ui', 'defaultDir'], '');
 	if (cfgDir) {
 		dirInput.value = cfgDir;
 	}
@@ -257,13 +257,13 @@ function initDefaultDirectory() {
 	clearDirBtn.addEventListener('click', () => {
 		dirInput.value = '';
 		updateClearBtn();
-		setCfgValue(['ui','defaultDir'], '');
+		setCfgValue(['ui', 'defaultDir'], '');
 	});
 
 	bridge.on('directory-selected', (dirPath) => {
 		dirInput.value = dirPath;
 		updateClearBtn();
-		setCfgValue(['ui','defaultDir'], dirPath);
+		setCfgValue(['ui', 'defaultDir'], dirPath);
 	});
 }
 
@@ -300,9 +300,47 @@ async function init(data) {
 	config_obj = data.config_obj || null;
 
 	if (bridge && bridge.isElectron) {
-		const shortcuts = require('../js/shortcuts.js');
-		window.addEventListener('keydown', (keyEvent) => {
-			shortcuts.handleShortcut(keyEvent, 'settings');
+		window.addEventListener('keydown', (e) => {
+			const code = e.code || '';
+
+			// Don't trigger if typing in an input (handled by shortcuts.js check usually, but good to have explicit check for local handlers)
+			const target = e.target;
+			const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+			// Handle global shortcuts via shared module
+			let action = '';
+			if (!isInput && window.shortcuts && window.shortcuts.handleShortcut) {
+				action = window.shortcuts.handleShortcut(e, 'settings');
+			}
+
+			// Local overrides: S or Escape closes settings
+			if ((action === 'toggle-settings' || code === 'Escape') && !isInput) {
+				e.preventDefault();
+				bridge.closeWindow();
+				return;
+			}
+
+			// F12: Toggle DevTools
+			if (code === 'F12') {
+				e.preventDefault();
+				if (bridge.toggleDevTools) bridge.toggleDevTools();
+				return;
+			}
+
+			if (action) return;
+
+			// Relay other keys to stage (e.g. space for play/pause) - ONLY if not typing
+			if (!isInput && bridge.sendToStage) {
+				bridge.sendToStage('stage-keydown', {
+					keyCode: e.keyCode | 0,
+					code: e.code || '',
+					key: e.key || '',
+					ctrlKey: !!e.ctrlKey,
+					shiftKey: !!e.shiftKey,
+					altKey: !!e.altKey,
+					metaKey: !!e.metaKey
+				});
+			}
 		});
 	}
 

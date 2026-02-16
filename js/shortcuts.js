@@ -24,18 +24,49 @@ function handleShortcut(e, windowType = 'stage') {
 	// Prevent default to avoid key propagation
 	e.preventDefault();
 
+	// Map window types to their toggle actions to prevent IPC loop/race
+	const selfToggleMap = {
+		'monitoring': 'toggle-monitoring',
+		'mixer': 'toggle-mixer',
+		'help': 'toggle-help',
+		'settings': 'toggle-settings',
+		'parameters': 'toggle-pitchtime'
+	};
+
 	// Send command to appropriate handler based on window type
 	if (windowType !== 'stage') {
-		// Help/Settings windows forward to stage via bridge
-		if (typeof window.bridge !== 'undefined') {
-			window.bridge.sendToStage('shortcut', { action: shortcut.action });
+		const isSelfToggle = selfToggleMap[windowType] === shortcut.action;
+
+		// Only forward if it's NOT a self-toggle (self-toggles are handled locally by the window to close itself)
+		if (!isSelfToggle && typeof window.bridge !== 'undefined') {
+			// Map actions to window types for direct Main Process toggling
+			const actionToWindowType = {
+				'toggle-monitoring': 'monitoring',
+				'toggle-mixer': 'mixer',
+				'toggle-help': 'help',
+				'toggle-settings': 'settings',
+				'toggle-pitchtime': 'parameters'
+			};
+
+			const targetWindowType = actionToWindowType[shortcut.action];
+
+			if (targetWindowType) {
+				// Send directly to Main Process (app.js handles window:toggle)
+				window.bridge.sendToMain('window:toggle', { type: targetWindowType });
+			} else if (shortcut.action === 'toggle-theme') {
+				// Toggle theme is handled by Main Process
+				window.bridge.sendToMain('command', { command: 'toggle-theme' });
+			} else {
+				// Fallback: Send to stage (Player) for other actions (e.g. toggle-controls)
+				window.bridge.sendToStage('shortcut', { action: shortcut.action });
+			}
 		}
 	} else {
-		// Stage window handles directly
+		// Stage window handles directly (return action for caller to handle)
 		return shortcut.action;
 	}
 
-	return true;
+	return shortcut.action;
 }
 
 // For browser context (non-Electron preview)

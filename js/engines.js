@@ -1751,6 +1751,17 @@ async function engineReady() {
 	// Notify main process that engine is ready
 	logger.info('Engine ready');
 	ipcRenderer.send('engine:ready');
+	
+	// Safety: Engine should NEVER have focus. If it somehow gets focus, report to main.
+	// Main will redirect focus back to player window.
+	helper.window.hook_event('focus', () => {
+		logger.warn('engine', 'ENGINE FOCUS STEAL - Window received focus!');
+		console.error('[ENGINE] FOCUS STEAL DETECTED - Engine window should never have focus!');
+		ipcRenderer.send('engine:focus-steal');
+	});
+	
+	// Log initial focus state
+	console.log('[ENGINE] Window initialized, focusable:', !!window.focus);
 }
 
 function _clamp01(v) {

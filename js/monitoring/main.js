@@ -57,7 +57,7 @@ export const main = {
         if (this.visualizers.meters.targetPreset) {
             // Initialize nui-select
             superSelect(this.visualizers.meters.targetPreset);
-            
+
             this.visualizers.meters.targetPreset.addEventListener('change', (e) => {
                 const val = e.target.value;
                 // Toggle loudness calculations on/off
@@ -111,34 +111,23 @@ export const main = {
             window.addEventListener('keydown', (e) => {
                 const code = e.code || '';
 
-                // N: Toggle monitoring window (hide when already open)
-                if (e.key === 'n' || e.key === 'N') {
-                    e.preventDefault();
-                    if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
-                    else if (window.bridge && window.bridge.window && window.bridge.window.hide) window.bridge.window.hide();
-                    return;
-                }
-
-                // Escape: Close monitoring window
-                if (code === 'Escape') {
-                    e.preventDefault();
-                    if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
-                    else if (window.bridge && window.bridge.window && window.bridge.window.hide) window.bridge.window.hide();
-                    return;
-                }
-
-                // F12: Toggle DevTools
-                if (code === 'F12') {
-                    e.preventDefault();
-                    if (window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
-                    return;
-                }
-
-                // Handle global shortcuts via shared module
+                // Handle global shortcuts via shared module first to identify action
+                let action = '';
                 if (window.shortcuts && window.shortcuts.handleShortcut) {
-                    const action = window.shortcuts.handleShortcut(e, 'monitoring');
-                    if (action) return;
+                    action = window.shortcuts.handleShortcut(e, 'monitoring');
                 }
+
+                // Local overrides for Close/Toggle-Self behavior
+                // The shared module sends 'toggle-monitoring' to stage, but IF we are the focused window,
+                // we want to close ourselves.
+                if (action === 'toggle-monitoring' || code === 'Escape') {
+                    e.preventDefault();
+                    if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
+                    return;
+                }
+
+                // If action was handled and not our own toggle, return
+                if (action) return;
 
                 // Relay playback shortcuts to stage (volume, seek, play/pause, loop, shuffle, prev/next)
                 if (window.bridge && window.bridge.sendToStage) {
@@ -182,7 +171,7 @@ export const main = {
         // File change notification with type
         window.bridge.on('file-change', (data) => {
             // File change event received - update UI accordingly
-            
+
             // Handle MIDI files: fetch and parse timeline for visualization
             if (data.isMIDI) {
                 // MIDI file detected - parsing timeline
@@ -228,7 +217,7 @@ export const main = {
 
         // Peak data for static waveform (complete, legacy path for small files)
         window.bridge.on('waveform-data', (data) => {
-            
+
             // Handle MIDI files specially - set null data to clear waveform
             if (data && data.isMIDI) {
                 this.visualizers.setWaveformData(null);
@@ -237,7 +226,7 @@ export const main = {
                 }
                 return;
             }
-            
+
             this.visualizers.setWaveformData(data);
             if (data && data.filePath) {
                 this.fileInfo.innerText = data.filePath;
@@ -319,7 +308,7 @@ export const main = {
         ut.dragSlider(container, (e) => {
             // Ignore end event - it causes duplicate seeks after start/move
             if (e.type === 'end') return;
-            
+
             // Use stored duration (available even for MIDI files without waveform)
             const duration = this.visualizers.currentDuration;
             if (!duration) return;
@@ -328,13 +317,13 @@ export const main = {
             const padding = (this.visualizers.layout && this.visualizers.layout.padding) || 0;
             const containerWidth = container.offsetWidth;
             const innerWidth = containerWidth - (padding * 2);
-            
+
             // Convert click position from container space to inner waveform space
             // The playhead is 2px wide and centered on the position, so no offset needed
             const clickX = e.x - padding;
             const normalizedX = Math.max(0, Math.min(1, clickX / innerWidth));
             const seekTime = normalizedX * duration;
-            
+
             // Seeking to new position
             window.bridge.sendToStage('player-seek', { time: seekTime });
         });
@@ -342,16 +331,16 @@ export const main = {
 
     updatePlayhead(pos, duration) {
         if (!duration) return;
-        
+
         // Account for canvas padding (waveform is drawn with padding on both sides)
         const padding = (this.visualizers.layout && this.visualizers.layout.padding) || 0;
         const containerWidth = this.canvasWaveform.parentElement.offsetWidth;
         const innerWidth = containerWidth - (padding * 2);
-        
+
         // Position playhead within the inner waveform area
         const normalizedPos = pos / duration;
         const pixelPos = padding + (normalizedPos * innerWidth);
-        
+
         // Center the 2px playhead on the position (subtract 1px = half width)
         this.playhead.style.left = `${pixelPos - 1}px`;
     },

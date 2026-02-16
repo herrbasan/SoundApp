@@ -6,11 +6,14 @@ let bridge;
 
 if (isElectron) {
 	document.body.classList.add('electron');
-	
+
 	const { ipcRenderer } = require('electron');
 	const helper = require('../libs/electron_helper/helper_new.js');
 	const tools = helper.tools;
-	
+
+	// Global Shortcuts Helper logic moved to after bridge definition
+
+
 	// Safe logger initialization - don't let logging break window loading
 	let logger;
 	try {
@@ -18,28 +21,68 @@ if (isElectron) {
 	} catch (e) {
 		// Fallback logger that just logs to console
 		logger = {
-			init: () => {},
-			debug: () => {},
+			init: () => { },
+			debug: () => { },
 			info: (...args) => console.log('[INFO]', ...args),
 			warn: (...args) => console.warn('[WARN]', ...args),
 			error: (...args) => console.error('[ERROR]', ...args)
 		};
 	}
-	
+
+	// Global Error Handling - Pipe to logger
+	window.onerror = function (message, source, lineno, colno, error) {
+		const msg = `[Global Error] ${message} at ${source}:${lineno}:${colno}`;
+		if (logger && logger.error) {
+			logger.error(msg, error);
+		} else {
+			console.error(msg, error);
+		}
+		return false; // Let default handler run (log to console)
+	};
+
+	window.onunhandledrejection = function (event) {
+		const msg = `[Unhandled Rejection] ${event.reason}`;
+		if (logger && logger.error) {
+			logger.error(msg, event.reason);
+		} else {
+			console.error(msg, event.reason);
+		}
+	};
+
 	let stageId = null;
 	let windowId = null;
 	let windowType = null;
-	
+
 	// MessagePort for direct engine communication (set when received)
 	let messagePort = null;
 	// Handlers that should also be attached to MessagePort when it arrives
 	const portHandlers = new Map();
-	
+
 	bridge = {
-		sendToStage: (channel, data) => tools.sendToId(stageId, channel, data),
-		sendToId: (id, channel, data) => tools.sendToId(id, channel, data),
+		sendToStage: (channel, data) => {
+			if (stageId) {
+				// Use invoke to call main process tool
+				ipcRenderer.invoke('tools', {
+					command: 'sendToId',
+					data: { id: stageId, channel: channel, data: data }
+				}).catch(err => console.error('[WindowLoader] sendToStage failed', err));
+			} else {
+				console.warn('[WindowLoader] sendToStage called but stageId is null');
+			}
+		},
+		sendToId: (id, channel, data) => {
+			ipcRenderer.invoke('tools', {
+				command: 'sendToId',
+				data: { id: id, channel: channel, data: data }
+			}).catch(err => console.error('[WindowLoader] sendToId failed', err));
+		},
 		sendToMain: (channel, data) => ipcRenderer.send(channel, data),
-		broadcast: (channel, data) => tools.broadcast(channel, data),
+		broadcast: (channel, data) => {
+			ipcRenderer.invoke('tools', {
+				command: 'broadcast',
+				data: { channel: channel, data: data }
+			}).catch(err => console.error('[WindowLoader] broadcast failed', err));
+		},
 		on: (channel, cb) => {
 			// Always listen on IPC (for main-process messages)
 			ipcRenderer.on(channel, (e, d) => cb(d));
@@ -58,20 +101,25 @@ if (isElectron) {
 		config: helper.config,
 		window: helper.window,
 		closeWindow: () => {
+			console.log('[CHILD] closeWindow called for', windowType, 'sending to stageId:', stageId);
+			// Debug: Log current window state
+			console.log('[CHILD] windowId:', windowId, 'windowType:', windowType);
 			// Always trigger local hide-window listeners (e.g. Mixer cleanup) before we hide/close.
 			ipcRenderer.emit('hide-window', {}, {});
 
 			// For Mixer we want a real close/destroy (memory experiments).
-			if(windowType === 'mixer'){
-				try { helper.window.close(); } catch(e) {}
+			if (windowType === 'mixer') {
+				try { helper.window.close(); } catch (e) { }
 				return;
 			}
 
 			// Default behavior for secondary windows: hide (fast reopen)
-			if (stageId && windowType) {
-				tools.sendToId(stageId, 'window-hidden', { type: windowType, windowId: windowId });
-			}
+			// Hide FIRST, then notify - this ensures focus returns to player properly
 			helper.window.hide();
+			if (stageId && windowType) {
+				// Use the patched sendToStage/sendToId logic
+				bridge.sendToStage('window-hidden', { type: windowType, windowId: windowId });
+			}
 		},
 		isElectron: true,
 		get stageId() { return stageId; },
@@ -79,7 +127,29 @@ if (isElectron) {
 		toggleDevTools: () => helper.window.toggleDevTools(),
 		logger: logger
 	};
-	
+
+	// Expose bridge globally
+	window.bridge = bridge;
+
+	// Global Shortcuts Helper - Load AFTER bridge is defined
+	try {
+		// Try path relative to HTML location (usually inside html/ folder -> so ../js/shortcuts.js)
+		const shortcutsPath = '../js/shortcuts.js';
+		const shortcuts = require(shortcutsPath);
+		window.shortcuts = shortcuts;
+
+		// Send success log to main process
+		if (window.bridge && window.bridge.sendToMain) {
+			window.bridge.sendToMain('log', { level: 'info', message: '[WindowLoader] shortcuts.js loaded successfully', data: { path: shortcutsPath } });
+		}
+	} catch (e) {
+		console.error('[WindowLoader] Failed to load shortcuts.js', e);
+		// Send error log to main process
+		if (window.bridge && window.bridge.sendToMain) {
+			window.bridge.sendToMain('log', { level: 'error', message: '[WindowLoader] Failed to load shortcuts.js', data: { error: e.message, stack: e.stack } });
+		}
+	}
+
 	// Listen for theme changes (register early)
 	ipcRenderer.on('theme-changed', (e, data) => {
 		if (data.dark) {
@@ -88,32 +158,32 @@ if (isElectron) {
 			document.body.classList.remove('dark');
 		}
 	});
-	
+
 	// Listen for engine recreation - update stageId so messages reach the new engine
 	ipcRenderer.on('update-stage-id', (e, data) => {
 		if (data && data.stageId) {
 			stageId = data.stageId;
 		}
 	});
-	
+
 	// Receive MessagePort from main for direct engine-to-window communication
 	ipcRenderer.on('message-channel', (e, meta) => {
 		const port = e.ports[0];
 		if (!port) return;
-		
+
 		if (meta.role === 'window') {
 			// Close old port if exists
 			if (messagePort) {
-				try { messagePort.close(); } catch (e) {}
+				try { messagePort.close(); } catch (e) { }
 			}
-			
+
 			// Store port for direct communication
 			messagePort = port;
-			
+
 			// IMPORTANT: Start the port to receive messages
 			// Without this, messages queue up in memory causing OOM
 			port.start();
-			
+
 			// Attach existing handlers to the port
 			port.onmessage = (e) => {
 				if (e.data && e.data.channel) {
@@ -131,12 +201,12 @@ if (isElectron) {
 		helper.window.show();
 		helper.window.focus();
 	});
-	
+
 	// Listen for hide window command
 	ipcRenderer.on('hide-window', () => {
 		helper.window.hide();
 	});
-	
+
 	// Listen for close window command
 	ipcRenderer.on('close-window', () => {
 		bridge.closeWindow();
@@ -145,63 +215,63 @@ if (isElectron) {
 	// Tray / main-process helper: reset window bounds (e.g. after disconnected monitors)
 	ipcRenderer.on('windows-reset', async (e, windowsConfig) => {
 		try {
-			if(!windowsConfig || !windowType) return;
+			if (!windowsConfig || !windowType) return;
 			let b = windowsConfig[windowType];
-			if(!b) return;
-			await helper.window.setBounds({ x: b.x|0, y: b.y|0, width: b.width|0, height: b.height|0 });
+			if (!b) return;
+			await helper.window.setBounds({ x: b.x | 0, y: b.y | 0, width: b.width | 0, height: b.height | 0 });
 			helper.window.show();
 			helper.window.focus();
-		} catch(err) {
+		} catch (err) {
 			console.error('windows-reset failed:', err);
 		}
 	});
-	
+
 	// Add global keyboard shortcuts
 	document.addEventListener('keydown', (e) => {
 		// F12 (keyCode 123) or F11 (keyCode 122) - toggle DevTools
-		if(e.keyCode === 123 || e.keyCode === 122){
+		if (e.keyCode === 123 || e.keyCode === 122) {
 			helper.window.toggleDevTools();
 		}
 	});
-	
+
 	// Setup window chrome functionality
 	setupChrome();
-	
+
 	// Wait for init_data from stage
 	ipcRenderer.once('init_data', async (e, data) => {
 		stageId = data.stageId;
-		
-		if(data.windowId){
+
+		if (data.windowId) {
 			windowId = data.windowId;
 		} else {
 			windowId = await helper.window.getId();
 		}
-		
+
 		windowType = data.type;
-		
+
 		// Initialize logger with detected window type (safely)
 		// captureConsole=true to redirect all console.* to log file
 		if (logger && logger.init) {
 			logger.init(windowType, true);
 			if (logger.info) logger.info('Window initialized', { windowType, windowId, stageId });
 		}
-		
+
 		let closedSent = false;
 		let boundsSaveTimer = 0;
 		let lastBounds = null;
 		const sendClosedOnce = () => {
-			if(closedSent) return;
+			if (closedSent) return;
 			closedSent = true;
-			if(stageId && windowType){
+			if (stageId && windowType) {
 				tools.sendToId(stageId, 'window-closed', { type: windowType, windowId: windowId });
 			}
 		};
 		// If user closes via OS controls / Alt+F4, ensure stage gets the cleanup message.
 		window.addEventListener('beforeunload', sendClosedOnce);
 
-		function applyTheme(cnf){
+		function applyTheme(cnf) {
 			const theme = (cnf && cnf.ui && cnf.ui.theme) ? cnf.ui.theme : ((cnf && cnf.theme) ? cnf.theme : 'dark');
-			if(theme === 'dark'){
+			if (theme === 'dark') {
 				document.body.classList.add('dark');
 			}
 			else {
@@ -220,28 +290,28 @@ if (isElectron) {
 				data.config = newConfig;
 				applyTheme(newConfig);
 			}, { initialConfig: data.config });
-		} catch(err) {
+		} catch (err) {
 			console.error('window-loader: initRenderer failed, falling back to init_data.config', err);
 		}
 
-		function scheduleSaveBounds(){
-			if(!config_obj || !windowType) return;
-			if(boundsSaveTimer) clearTimeout(boundsSaveTimer);
+		function scheduleSaveBounds() {
+			if (!config_obj || !windowType) return;
+			if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
 			boundsSaveTimer = setTimeout(async () => {
-				if(!config_obj || !windowType) return;
+				if (!config_obj || !windowType) return;
 				let bounds = await helper.window.getBounds();
-				if(!bounds) return;
-				if(lastBounds && bounds.x === lastBounds.x && bounds.y === lastBounds.y && bounds.width === lastBounds.width && bounds.height === lastBounds.height) return;
+				if (!bounds) return;
+				if (lastBounds && bounds.x === lastBounds.x && bounds.y === lastBounds.y && bounds.width === lastBounds.width && bounds.height === lastBounds.height) return;
 				lastBounds = bounds;
 				let cnf = config_obj.get() || {};
-				if(!cnf.windows) cnf.windows = {};
-				if(!cnf.windows[windowType]) cnf.windows[windowType] = {};
+				if (!cnf.windows) cnf.windows = {};
+				if (!cnf.windows[windowType]) cnf.windows[windowType] = {};
 				cnf.windows[windowType] = {
 					...cnf.windows[windowType],
-					x: bounds.x|0,
-					y: bounds.y|0,
-					width: bounds.width|0,
-					height: bounds.height|0
+					x: bounds.x | 0,
+					y: bounds.y | 0,
+					width: bounds.width | 0,
+					height: bounds.height | 0
 				};
 				config_obj.set(cnf);
 			}, 350);
@@ -252,25 +322,25 @@ if (isElectron) {
 		helper.window.hook_event('resize', scheduleSaveBounds);
 
 		data.config_obj = config_obj;
-		if(config_obj){
+		if (config_obj) {
 			data.config = config_obj.get() || data.config;
 		}
 		applyTheme(data.config);
 		dispatchBridgeReady(data);
-		
+
 		// Signal that window is ready to receive messages
-		if(stageId){
+		if (stageId) {
 			tools.sendToId(stageId, 'window-ready', { type: windowType, windowId: windowId });
 		}
 	});
-	
+
 	function setupChrome() {
 		// Close button (NUI framework selector)
 		let closeBtn = document.querySelector('.nui-app .controls .close');
 		if (closeBtn) {
 			closeBtn.addEventListener('click', () => bridge.closeWindow());
 		}
-		
+
 		// Focus/blur states
 		helper.window.hook_event('blur', (e, data) => {
 			document.body.classList.remove('focus');
@@ -278,11 +348,11 @@ if (isElectron) {
 		helper.window.hook_event('focus', (e, data) => {
 			document.body.classList.add('focus');
 		});
-		
+
 		// Window is shown via 'show-window' IPC from stage after creation
 		// Don't auto-show here to avoid white flash before content is ready
 	}
-} 
+}
 else {
 	// Browser preview mode - mock bridge
 	bridge = {
@@ -293,29 +363,29 @@ else {
 		on: (channel, cb) => console.log('Listening:', channel),
 		once: (channel, cb) => console.log('Listening once:', channel),
 		config: createMockConfig(),
-		window: { show: () => {}, hide: () => {}, close: () => {} },
+		window: { show: () => { }, hide: () => { }, close: () => { } },
 		closeWindow: () => console.log('Close window'),
 		isElectron: false,
 		stageId: null,
 		windowId: null
 	};
-	
+
 	// Browser preview: Load theme from localStorage
 	let savedTheme = localStorage.getItem('preview-theme') || 'dark';
 	if (savedTheme === 'dark') {
 		document.body.classList.add('dark');
 	}
-	
+
 	// Browser preview: X key toggles theme
 	document.addEventListener('keydown', (e) => {
-		if(e.keyCode == 88){ // X key
+		if (e.keyCode == 88) { // X key
 			document.body.classList.toggle('dark');
 			let isDark = document.body.classList.contains('dark');
 			localStorage.setItem('preview-theme', isDark ? 'dark' : 'light');
 			console.log('Preview theme toggled:', isDark ? 'dark' : 'light');
 		}
 	});
-	
+
 	// Simulate init_data after short delay to ensure page modules are ready
 	setTimeout(() => {
 		dispatchBridgeReady(getMockInitData());

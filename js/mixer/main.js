@@ -12,25 +12,25 @@ let engine;
 let Transport;
 
 let tools;
-if(typeof window !== 'undefined' && window.bridge && window.bridge.isElectron){
+if (typeof window !== 'undefined' && window.bridge && window.bridge.isElectron) {
 	try {
 		tools = require('../../libs/electron_helper/helper_new.js').tools;
-	} catch(e) {}
+	} catch (e) { }
 }
 
 let webUtils;
-if(typeof window !== 'undefined' && window.bridge && window.bridge.isElectron){
+if (typeof window !== 'undefined' && window.bridge && window.bridge.isElectron) {
 	try {
 		webUtils = require('electron').webUtils;
-	} catch(e) {}
+	} catch (e) { }
 }
 
-function _getElectronPathForFile(f){
-	if(!webUtils || !f) return '';
+function _getElectronPathForFile(f) {
+	if (!webUtils || !f) return '';
 	try {
 		const p = webUtils.getPathForFile(f);
 		return p ? ('' + p) : '';
-	} catch(e) {}
+	} catch (e) { }
 	return '';
 }
 
@@ -81,14 +81,14 @@ function stopMixerMonitoringLoop() {
 	}
 }
 
-function _copyToClipboard(text){
-	if(text == null) return false;
+function _copyToClipboard(text) {
+	if (text == null) return false;
 	text = '' + text;
-	if(typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText){
+	if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
 		try {
 			navigator.clipboard.writeText(text);
 			return true;
-		} catch(e) {}
+		} catch (e) { }
 	}
 	try {
 		const ta = document.createElement('textarea');
@@ -102,19 +102,19 @@ function _copyToClipboard(text){
 		const ok = document.execCommand && document.execCommand('copy');
 		document.body.removeChild(ta);
 		return !!ok;
-	} catch(e) {}
+	} catch (e) { }
 	return false;
 }
 
-function _setSyncOverlayVisible(v){
+function _setSyncOverlayVisible(v) {
 	v = !!v;
 	g.sync_overlay_visible = v;
-	if(g.sync_overlay){
+	if (g.sync_overlay) {
 		g.sync_overlay.style.display = v ? 'flex' : 'none';
 	}
 }
 
-function _buildSyncSnapshot(){
+function _buildSyncSnapshot() {
 	const cfg = (engine && engine.initData && engine.initData.config) ? engine.initData.config : (g && g.initData ? g.initData.config : null);
 	const rawBuf = (cfg && cfg.ffmpeg && cfg.ffmpeg.stream && cfg.ffmpeg.stream.prebufferChunks !== undefined) ? (cfg.ffmpeg.stream.prebufferChunks | 0) : undefined;
 	const effBuf = Math.max(20, ((rawBuf !== undefined) ? rawBuf : 10));
@@ -149,16 +149,16 @@ function _buildSyncSnapshot(){
 		tracks: []
 	};
 
-	if(!g || !g.currentChannels || !g.currentChannels.length) return snap;
+	if (!g || !g.currentChannels || !g.currentChannels.length) return snap;
 
 	let refSec = snap.transportSeconds;
 	const tr0 = g.currentChannels[0] ? g.currentChannels[0].track : null;
-	if(tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function'){
+	if (tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function') {
 		refSec = tr0.ffPlayer.getCurrentTime();
 	}
 	snap.refSeconds = refSec;
 
-	for(let i=0; i<g.currentChannels.length; i++){
+	for (let i = 0; i < g.currentChannels.length; i++) {
 		const item = g.currentChannels[i];
 		const tr = item ? item.track : null;
 		const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
@@ -181,7 +181,7 @@ function _buildSyncSnapshot(){
 			lastLoadError: tr && tr.lastLoadError ? ('' + tr.lastLoadError) : ''
 		};
 
-		if(fp && typeof fp.getCurrentTime === 'function'){
+		if (fp && typeof fp.getCurrentTime === 'function') {
 			const t = fp.getCurrentTime();
 			entry.timeSeconds = t;
 			entry.driftTransportMs = (t - snap.transportSeconds) * 1000;
@@ -195,7 +195,7 @@ function _buildSyncSnapshot(){
 		}
 		else {
 			let t = NaN;
-			if(tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0){
+			if (tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0) {
 				t = (tr.engine.ctx.currentTime - tr._bufStartCtxTime) + (tr._bufStartOffset || 0);
 			}
 			entry.timeSeconds = t;
@@ -210,17 +210,17 @@ function _buildSyncSnapshot(){
 	let qMax = -1;
 	let qSum = 0;
 	let qN = 0;
-	for(let i=0; i<snap.tracks.length; i++){
+	for (let i = 0; i < snap.tracks.length; i++) {
 		const t = snap.tracks[i];
-		if(!t || t.type !== 'ff') continue;
+		if (!t || t.type !== 'ff') continue;
 		const q = (t.queuedChunks !== null && t.queuedChunks !== undefined) ? (t.queuedChunks | 0) : -1;
-		if(q < 0) continue;
+		if (q < 0) continue;
 		qN++;
 		qSum += q;
-		if(q < qMin) qMin = q;
-		if(q > qMax) qMax = q;
+		if (q < qMin) qMin = q;
+		if (q > qMax) qMax = q;
 	}
-	if(qN > 0){
+	if (qN > 0) {
 		snap.queue.count = qN;
 		snap.queue.min = qMin;
 		snap.queue.max = qMax;
@@ -230,37 +230,37 @@ function _buildSyncSnapshot(){
 	return snap;
 }
 
-function _formatMs(v){
-	if(!isFinite(v)) return '---.-';
+function _formatMs(v) {
+	if (!isFinite(v)) return '---.-';
 	return (v >= 0 ? '+' : '') + v.toFixed(1);
 }
 
-function _padRight(s, n){
+function _padRight(s, n) {
 	s = '' + (s == null ? '' : s);
-	if(s.length >= n) return s;
+	if (s.length >= n) return s;
 	return s + ' '.repeat(n - s.length);
 }
 
-function _padLeft(s, n){
+function _padLeft(s, n) {
 	s = '' + (s == null ? '' : s);
-	if(s.length >= n) return s;
+	if (s.length >= n) return s;
 	return ' '.repeat(n - s.length) + s;
 }
 
-async function _resetUiToEmpty(){
-	if(!g || !g.channels || !g.add_zone) return;
-	if(g.currentChannels){
-		for(let i=0; i<g.currentChannels.length; i++){
-			try { await g.currentChannels[i].track.dispose(); } catch(e) {}
-			try { ut.killMe(g.currentChannels[i].el); } catch(e) {}
+async function _resetUiToEmpty() {
+	if (!g || !g.channels || !g.add_zone) return;
+	if (g.currentChannels) {
+		for (let i = 0; i < g.currentChannels.length; i++) {
+			try { await g.currentChannels[i].track.dispose(); } catch (e) { }
+			try { ut.killMe(g.currentChannels[i].el); } catch (e) { }
 		}
 	}
 	// Remove any remaining strips/dummies, keep add-zone.
 	const kids = g.channels.children;
-	for(let i=kids.length-1; i>=0; i--){
+	for (let i = kids.length - 1; i >= 0; i--) {
 		const el = kids[i];
-		if(!el) continue;
-		if(el === g.add_zone) continue;
+		if (!el) continue;
+		if (el === g.add_zone) continue;
 		ut.killMe(el);
 	}
 	// Restore dummy placeholder.
@@ -271,11 +271,11 @@ async function _resetUiToEmpty(){
 	g.currentChannels = null;
 	g.duration = 0;
 	hideNameTooltip();
-	if(g.transport_current) g.transport_current.innerText = '0:00';
-	if(g.transport_duration) g.transport_duration.innerText = '0:00';
-	if(g.transport_bar) g.transport_bar.style.width = '0%';
-	if(g.btn_play) g.btn_play.classList.remove('playing');
-	if(g.transport){
+	if (g.transport_current) g.transport_current.innerText = '0:00';
+	if (g.transport_duration) g.transport_duration.innerText = '0:00';
+	if (g.transport_bar) g.transport_bar.style.width = '0%';
+	if (g.btn_play) g.btn_play.classList.remove('playing');
+	if (g.transport) {
 		g.transport.duration = -1;
 		g.transport.current = -1;
 		g.transport.proz = -1;
@@ -283,61 +283,61 @@ async function _resetUiToEmpty(){
 	}
 }
 
-async function _disposeEngine(){
-	if(!engine) return;
-	try { await engine.dispose(); } catch(e) { console.error('Engine dispose error:', e); }
+async function _disposeEngine() {
+	if (!engine) return;
+	try { await engine.dispose(); } catch (e) { console.error('Engine dispose error:', e); }
 	engine = null;
 	Transport = null;
 }
 
-async function resetForNewPlaylist(paths){
-	if(!engine){
+async function resetForNewPlaylist(paths) {
+	if (!engine) {
 		// No engine yet - create fresh
 		await _resetUiToEmpty();
 		engine = new MixerEngine(g && g.initData ? g.initData : null);
 		Transport = engine.Transport;
-		if(paths && paths.length) await loadPaths(paths);
+		if (paths && paths.length) await loadPaths(paths);
 		return;
 	}
-	
+
 	// Reuse engine and tracks where possible
 	engine.resetForReuse();
-	
+
 	const oldChannels = g.currentChannels || [];
 	const newCount = paths ? paths.length : 0;
-	
+
 	// Reset UI state
 	g.duration = 0;
 	hideNameTooltip();
-	if(g.transport_current) g.transport_current.innerText = '0:00';
-	if(g.transport_duration) g.transport_duration.innerText = '0:00';
-	if(g.transport_bar) g.transport_bar.style.width = '0%';
-	if(g.btn_play) g.btn_play.classList.remove('playing');
-	if(g.transport){
+	if (g.transport_current) g.transport_current.innerText = '0:00';
+	if (g.transport_duration) g.transport_duration.innerText = '0:00';
+	if (g.transport_bar) g.transport_bar.style.width = '0%';
+	if (g.btn_play) g.btn_play.classList.remove('playing');
+	if (g.transport) {
 		g.transport.duration = -1;
 		g.transport.current = -1;
 		g.transport.proz = -1;
 		g.transport.last_state = '';
 	}
-	
+
 	// Dispose and remove excess tracks
-	for(let i = newCount; i < oldChannels.length; i++){
+	for (let i = newCount; i < oldChannels.length; i++) {
 		const ch = oldChannels[i];
-		if(ch){
-			try { await ch.track.dispose(); } catch(e) {}
-			try { engine.removeTrack(ch.track); } catch(e) {}
-			try { ut.killMe(ch.el); } catch(e) {}
+		if (ch) {
+			try { await ch.track.dispose(); } catch (e) { }
+			try { engine.removeTrack(ch.track); } catch (e) { }
+			try { ut.killMe(ch.el); } catch (e) { }
 		}
 	}
-	
-	if(newCount === 0){
+
+	if (newCount === 0) {
 		// No new tracks - reset to empty state
-		for(let i = 0; i < oldChannels.length; i++){
+		for (let i = 0; i < oldChannels.length; i++) {
 			const ch = oldChannels[i];
-			if(ch){
-				try { await ch.track.dispose(); } catch(e) {}
-				try { engine.removeTrack(ch.track); } catch(e) {}
-				try { ut.killMe(ch.el); } catch(e) {}
+			if (ch) {
+				try { await ch.track.dispose(); } catch (e) { }
+				try { engine.removeTrack(ch.track); } catch (e) { }
+				try { ut.killMe(ch.el); } catch (e) { }
 			}
 		}
 		g.currentChannels = null;
@@ -348,28 +348,28 @@ async function resetForNewPlaylist(paths){
 		g.channels.classList.add('empty');
 		return;
 	}
-	
+
 	await engine.start();
 	g.channels.classList.remove('empty');
-	if(!g.currentChannels){
+	if (!g.currentChannels) {
 		g.currentChannels = [];
 		ut.killMe(ut.el('.channels .dummy'));
 	}
-	if(!_loopStarted){ _loopStarted = true; loop(); }
-	
+	if (!_loopStarted) { _loopStarted = true; loop(); }
+
 	// Reuse existing tracks or create new ones
-	for(let i = 0; i < newCount; i++){
+	for (let i = 0; i < newCount; i++) {
 		const fp = paths[i];
 		let ch = oldChannels[i];
-		
-		if(ch){
+
+		if (ch) {
 			// Reuse existing track - just reload
 			try {
 				await ch.track.load(fp);
-				if(ch.track.duration > g.duration) g.duration = ch.track.duration;
+				if (ch.track.duration > g.duration) g.duration = ch.track.duration;
 				// Update channel strip label
 				const labelEl = ch.el.querySelector('.name');
-				if(labelEl) labelEl.textContent = fileBaseName(fp);
+				if (labelEl) labelEl.textContent = fileBaseName(fp);
 				ch.el.setAttribute('data-path', fp);
 				// Reset strip UI state
 				ch.el.state.solo = false;
@@ -377,19 +377,19 @@ async function resetForNewPlaylist(paths){
 				ch.el.state.mute_mem = false;
 				const gainKnob = ch.el.querySelector('.knob.gain');
 				const panKnob = ch.el.querySelector('.knob.pan');
-				if(gainKnob && gainKnob.nui) gainKnob.nui.set(1);
-				if(panKnob && panKnob.nui) panKnob.nui.set(0.5);
+				if (gainKnob && gainKnob.nui) gainKnob.nui.set(1);
+				if (panKnob && panKnob.nui) panKnob.nui.set(0.5);
 				ch.track.setGain(1);
 				// Ensure visible slider reflects 100% (middle) default
 				try {
 					const s = ch.el.querySelector('.gain .slider');
 					const sn = ch.el.querySelector('.gain .slider .num');
-					if(s) s.style.top = (0.5 * 100) + '%';
-					if(sn) sn.innerText = '1.00';
-				} catch(e) {}
+					if (s) s.style.top = (0.5 * 100) + '%';
+					if (sn) sn.innerText = '1.00';
+				} catch (e) { }
 				ch.track.setPan(0);
 				ch.track.setMute(false);
-			} catch(err) {
+			} catch (err) {
 				console.error('Mixer reload failed:', fp, err);
 			}
 		} else {
@@ -398,61 +398,61 @@ async function resetForNewPlaylist(paths){
 			const el = g.channels.insertBefore(renderChannel(i, fp, i + 1), g.add_zone);
 			try {
 				await track.load(fp);
-				if(track.duration > g.duration) g.duration = track.duration;
-			} catch(err) {
+				if (track.duration > g.duration) g.duration = track.duration;
+			} catch (err) {
 				console.error('Mixer load failed:', fp, err);
 			}
 			g.currentChannels.push({ el, track });
 		}
 	}
-	
+
 	// Trim currentChannels array if we had more before
-	if(oldChannels.length > newCount){
+	if (oldChannels.length > newCount) {
 		g.currentChannels = g.currentChannels.slice(0, newCount);
 	}
-	
+
 	// Clear solo state
 	g.exclusiveSoloTrack = null;
 	g.soloSnapshot = null;
 }
 
-function fileBaseName(fp){
-	if(!fp) return '';
+function fileBaseName(fp) {
+	if (!fp) return '';
 	let s = '' + fp;
 	s = s.replace(/\\/g, '/');
 	let i = s.lastIndexOf('/');
-	if(i >= 0) s = s.substring(i+1);
+	if (i >= 0) s = s.substring(i + 1);
 	return s;
 }
 
-function _decodeFileUri(u){
+function _decodeFileUri(u) {
 	let s = (u || '').trim();
-	if(!s) return '';
-	if(s.startsWith('file:///')) s = s.substring(8);
-	else if(s.startsWith('file://')) s = s.substring(7);
-	try { s = decodeURIComponent(s); } catch(e) {}
+	if (!s) return '';
+	if (s.startsWith('file:///')) s = s.substring(8);
+	else if (s.startsWith('file://')) s = s.substring(7);
+	try { s = decodeURIComponent(s); } catch (e) { }
 	// Normalize slashes for Windows paths
 	s = s.replace(/\//g, '\\');
 	return s;
 }
 
-function getDroppedPaths(dt){
+function getDroppedPaths(dt) {
 	const out = [];
-	if(!dt || !dt.getData) return out;
+	if (!dt || !dt.getData) return out;
 	let s = '';
-	try { s = '' + (dt.getData('text/uri-list') || ''); } catch(e) {}
-	if(!s){
-		try { s = '' + (dt.getData('text/plain') || ''); } catch(e) {}
+	try { s = '' + (dt.getData('text/uri-list') || ''); } catch (e) { }
+	if (!s) {
+		try { s = '' + (dt.getData('text/plain') || ''); } catch (e) { }
 	}
-	if(!s) return out;
+	if (!s) return out;
 	const lines = s.split(/\r?\n/);
-	for(let i=0; i<lines.length; i++){
+	for (let i = 0; i < lines.length; i++) {
 		let line = (lines[i] || '').trim();
-		if(!line) continue;
-		if(line[0] === '#') continue;
-		if(line.startsWith('file:')){
+		if (!line) continue;
+		if (line[0] === '#') continue;
+		if (line.startsWith('file:')) {
 			const p = _decodeFileUri(line);
-			if(p) out.push(p);
+			if (p) out.push(p);
 		}
 		else {
 			// Plain paths (Windows) may appear here.
@@ -462,19 +462,19 @@ function getDroppedPaths(dt){
 	return out;
 }
 
-function dumpDataTransfer(dt){
+function dumpDataTransfer(dt) {
 	const o = {};
-	if(!dt) return o;
+	if (!dt) return o;
 	try {
-		if(dt.types && dt.types.length){
+		if (dt.types && dt.types.length) {
 			const ar = [];
-			for(let i=0; i<dt.types.length; i++) ar.push('' + dt.types[i]);
+			for (let i = 0; i < dt.types.length; i++) ar.push('' + dt.types[i]);
 			o.types = ar;
 		}
-	} catch(e) {}
+	} catch (e) { }
 	try {
 		o.filesLen = dt.files ? (dt.files.length | 0) : 0;
-		if(o.filesLen > 0){
+		if (o.filesLen > 0) {
 			const f0 = dt.files[0];
 			const p0 = _getElectronPathForFile(f0);
 			o.file0 = {
@@ -486,39 +486,39 @@ function dumpDataTransfer(dt){
 				webUtilsPath: p0 ? p0 : ''
 			};
 		}
-	} catch(e) {}
-	if(dt.getData){
+	} catch (e) { }
+	if (dt.getData) {
 		try {
 			let s = '' + (dt.getData('text/uri-list') || '');
 			s = s.replace(/\r/g, '');
-			if(s.length > 800) s = s.substring(0, 800) + '...';
+			if (s.length > 800) s = s.substring(0, 800) + '...';
 			o.uriList = s;
-		} catch(e) {}
+		} catch (e) { }
 		try {
 			let s = '' + (dt.getData('text/plain') || '');
 			s = s.replace(/\r/g, '');
-			if(s.length > 800) s = s.substring(0, 800) + '...';
+			if (s.length > 800) s = s.substring(0, 800) + '...';
 			o.textPlain = s;
-		} catch(e) {}
+		} catch (e) { }
 	}
 	return o;
 }
 
-function collectDroppedFiles(dt){
+function collectDroppedFiles(dt) {
 	const out = [];
 	// In Electron, dt.files provides File objects with a .path property.
 	// dt.items.getAsFile() often drops .path, which forces us into the slower buffer decode path.
-	if(window.bridge && window.bridge.isElectron && dt && dt.files && dt.files.length){
+	if (window.bridge && window.bridge.isElectron && dt && dt.files && dt.files.length) {
 		const files = dt.files;
-		for(let i=0; i<files.length; i++){
+		for (let i = 0; i < files.length; i++) {
 			const f = files[i];
-			if(!f) continue;
+			if (!f) continue;
 			const name = '' + (f.name || '');
 			const hasExt = name.lastIndexOf('.') > 0;
 			// Heuristic: folders often come through with empty type, size=0, and no extension.
-			if(!f.type && !f.size && !hasExt) {
+			if (!f.type && !f.size && !hasExt) {
 				// In Electron, allow folders (they have a path)
-				if(!(window.bridge && window.bridge.isElectron && f.path)){
+				if (!(window.bridge && window.bridge.isElectron && f.path)) {
 					continue;
 				}
 			}
@@ -526,43 +526,43 @@ function collectDroppedFiles(dt){
 		}
 		return out;
 	}
-	if(dt && dt.items && dt.items.length){
+	if (dt && dt.items && dt.items.length) {
 		const items = dt.items;
-		for(let i=0; i<items.length; i++){
+		for (let i = 0; i < items.length; i++) {
 			const it = items[i];
-			if(!it || it.kind !== 'file') continue;
+			if (!it || it.kind !== 'file') continue;
 			let entry = null;
-			if(it.webkitGetAsEntry){
-				try { entry = it.webkitGetAsEntry(); } catch(e) {}
+			if (it.webkitGetAsEntry) {
+				try { entry = it.webkitGetAsEntry(); } catch (e) { }
 			}
-			if(entry && entry.isDirectory) continue;
+			if (entry && entry.isDirectory) continue;
 			let f = null;
-			if(it.getAsFile){
-				try { f = it.getAsFile(); } catch(e) {}
+			if (it.getAsFile) {
+				try { f = it.getAsFile(); } catch (e) { }
 			}
-			if(f) out.push(f);
+			if (f) out.push(f);
 		}
-		if(out.length) return out;
+		if (out.length) return out;
 	}
-	if(dt && dt.files && dt.files.length){
+	if (dt && dt.files && dt.files.length) {
 		const files = dt.files;
-		for(let i=0; i<files.length; i++){
+		for (let i = 0; i < files.length; i++) {
 			const f = files[i];
-			if(!f) continue;
+			if (!f) continue;
 			const name = '' + (f.name || '');
 			const hasExt = name.lastIndexOf('.') > 0;
 			// Heuristic: folders often come through with empty type, size=0, and no extension.
-			if(!f.type && !f.size && !hasExt) continue;
+			if (!f.type && !f.size && !hasExt) continue;
 			out.push(f);
 		}
 	}
 	return out;
 }
 
-async function init(initData){
+async function init(initData) {
 	console.log('Mixer init', initData);
 	g.initData = initData || {};
-	if(g.initData && g.initData.config){
+	if (g.initData && g.initData.config) {
 		const cnf = g.initData.config;
 		const rawBuf = (cnf && cnf.ffmpeg && cnf.ffmpeg.stream && cnf.ffmpeg.stream.prebufferChunks !== undefined) ? (cnf.ffmpeg.stream.prebufferChunks | 0) : undefined;
 		const rawThr = (cnf && cnf.ffmpeg && cnf.ffmpeg.decoder && cnf.ffmpeg.decoder.threads !== undefined) ? (cnf.ffmpeg.decoder.threads | 0) : undefined;
@@ -587,10 +587,10 @@ async function init(initData){
 	// Floating sync debug overlay (kept separate from the strips for readability)
 	g.sync_overlay = document.createElement('div');
 	g.sync_overlay.className = 'sync-overlay';
-	
+
 	g.sync_overlay_hdr = document.createElement('div');
 	g.sync_overlay_hdr.className = 'hdr';
-	
+
 	const title = document.createElement('div');
 	title.className = 'title';
 	title.textContent = 'Sync Debug';
@@ -626,7 +626,7 @@ async function init(initData){
 	let dragStartX, dragStartY, initialLeft, initialTop;
 
 	g.sync_overlay_hdr.addEventListener('mousedown', (e) => {
-		if(e.target === g.sync_overlay_btn) return;
+		if (e.target === g.sync_overlay_btn) return;
 		isDragging = true;
 		dragStartX = e.clientX;
 		dragStartY = e.clientY;
@@ -637,7 +637,7 @@ async function init(initData){
 	});
 
 	window.addEventListener('mousemove', (e) => {
-		if(!isDragging) return;
+		if (!isDragging) return;
 		const dx = e.clientX - dragStartX;
 		const dy = e.clientY - dragStartY;
 		g.sync_overlay.style.left = (initialLeft + dx) + 'px';
@@ -652,7 +652,7 @@ async function init(initData){
 
 	// Resize Observer for Canvas
 	const ro = new ResizeObserver(entries => {
-		for(let entry of entries){
+		for (let entry of entries) {
 			const cr = entry.contentRect;
 			const dpr = window.devicePixelRatio || 1;
 			g.sync_overlay_cvs.width = cr.width * dpr;
@@ -673,57 +673,66 @@ async function init(initData){
 	_setSyncOverlayVisible(false);
 
 	window.addEventListener('keydown', (e) => {
-		if(!e) return;
+		if (!e) return;
 		const code = '' + (e.code || '');
 		const key = ('' + (e.key || '')).toLowerCase();
 
 		// F12: Toggle DevTools (standard shortcut)
-		if(code === 'F12'){
+		if (code === 'F12') {
 			e.preventDefault();
-			if(window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+			if (window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
 			return;
 		}
 
 		// Handle global shortcuts via shared module
-		if(window.shortcuts && window.shortcuts.handleShortcut){
-			const action = window.shortcuts.handleShortcut(e, 'mixer');
-			if(action) return; // Shortcut handled
+		let action = '';
+		if (window.shortcuts && window.shortcuts.handleShortcut) {
+			action = window.shortcuts.handleShortcut(e, 'mixer');
 		}
 
-		if(e.ctrlKey && e.shiftKey){
-			if(code === 'KeyD' || key === 'd'){
+		// Local overrides: M or Escape closes mixer
+		if (action === 'toggle-mixer' || code === 'Escape') {
+			e.preventDefault();
+			if (window.bridge && window.bridge.closeWindow) window.bridge.closeWindow();
+			return;
+		}
+
+		if (action) return; // Other shortcuts handled/forwarded by shared module
+
+		if (e.ctrlKey && e.shiftKey) {
+			if (code === 'KeyD' || key === 'd') {
 				e.preventDefault();
 				e.stopPropagation();
 				_setSyncOverlayVisible(!g.sync_overlay_visible);
 				return;
 			}
 			// Ctrl+Shift+I: Toggle DevTools
-			if(code === 'KeyI' || key === 'i'){
+			if (code === 'KeyI' || key === 'i') {
 				e.preventDefault();
-				if(window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
+				if (window.bridge && window.bridge.toggleDevTools) window.bridge.toggleDevTools();
 				return;
 			}
 		}
 
 		// Space: Toggle Playback
-		if(code === 'Space'){
+		if (code === 'Space') {
 			e.preventDefault();
 			g.btn_play.click();
 			return;
 		}
 
 		// Arrow Up/Down: Master Volume (normalized 0..1 -> actual gain 0..2)
-		if(code === 'ArrowUp'){
+		if (code === 'ArrowUp') {
 			e.preventDefault();
-			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
+			if (typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
 			g.master_gain_val = Math.min(1.0, g.master_gain_val + 0.05);
 			engine.setMasterGain(g.master_gain_val * 2);
 			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
 			return;
 		}
-		if(code === 'ArrowDown'){
+		if (code === 'ArrowDown') {
 			e.preventDefault();
-			if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
+			if (typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
 			g.master_gain_val = Math.max(0.0, g.master_gain_val - 0.05);
 			engine.setMasterGain(g.master_gain_val * 2);
 			g.master_bar.style.width = (g.master_gain_val * 100) + '%';
@@ -731,18 +740,18 @@ async function init(initData){
 		}
 
 		// Arrow Left/Right: Skip 10%
-		if(code === 'ArrowLeft'){
+		if (code === 'ArrowLeft') {
 			e.preventDefault();
-			if(g.duration > 0){
+			if (g.duration > 0) {
 				const current = Transport.seconds;
 				const target = Math.max(0, current - (g.duration * 0.1));
 				seek(target);
 			}
 			return;
 		}
-		if(code === 'ArrowRight'){
+		if (code === 'ArrowRight') {
 			e.preventDefault();
-			if(g.duration > 0){
+			if (g.duration > 0) {
 				const current = Transport.seconds;
 				const target = Math.min(g.duration, current + (g.duration * 0.1));
 				seek(target);
@@ -751,9 +760,9 @@ async function init(initData){
 		}
 
 		// F1-F10: Solo Tracks 1-10 (Indices 0-9)
-		if(code.startsWith('F') && code.length >= 2 && code.length <= 3){
+		if (code.startsWith('F') && code.length >= 2 && code.length <= 3) {
 			const fNum = parseInt(code.substring(1));
-			if(!isNaN(fNum) && fNum >= 1 && fNum <= 10){
+			if (!isNaN(fNum) && fNum >= 1 && fNum <= 10) {
 				e.preventDefault();
 				handleSolo(fNum - 1, e.shiftKey);
 				return;
@@ -761,11 +770,11 @@ async function init(initData){
 		}
 
 		// 1-0: Solo Tracks 11-20 (Indices 10-19)
-		if(key >= '0' && key <= '9'){
-			if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+		if (key >= '0' && key <= '9') {
+			if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 			e.preventDefault();
 			let idx = -1;
-			if(key === '0') idx = 19;
+			if (key === '0') idx = 19;
 			else idx = 9 + parseInt(key);
 			handleSolo(idx, e.shiftKey);
 			return;
@@ -784,15 +793,15 @@ async function init(initData){
 	g.master_bar = g.master_slider.el('.inner');
 
 	// Default master slider position: middle == 100% (normalized 0.5 -> actual gain 1.0)
-	if(typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
-	try { engine.setMasterGain(1.0); } catch(e) {}
-	if(g.master_bar) g.master_bar.style.width = (g.master_gain_val * 100) + '%';
+	if (typeof g.master_gain_val === 'undefined') g.master_gain_val = 0.5;
+	try { engine.setMasterGain(1.0); } catch (e) { }
+	if (g.master_bar) g.master_bar.style.width = (g.master_gain_val * 100) + '%';
 
 	g.duration = 0;
 	g.channels.classList.add('empty');
 
 	// Prototype behavior: drag/drop add zone
-	if(g.add_zone){
+	if (g.add_zone) {
 		g.add_zone.addEventListener('dragover', (e) => {
 			e.preventDefault();
 			e.dataTransfer.dropEffect = 'copy';
@@ -804,83 +813,83 @@ async function init(initData){
 		g.add_zone.addEventListener('drop', async (e) => {
 			e.preventDefault();
 			g.add_zone.classList.remove('dragover');
-			if(DEBUG_DND) console.log('[Mixer DnD] add-zone drop', dumpDataTransfer(e.dataTransfer));
+			if (DEBUG_DND) console.log('[Mixer DnD] add-zone drop', dumpDataTransfer(e.dataTransfer));
 			const files = collectDroppedFiles(e.dataTransfer);
 			const dtPaths = (window.bridge && window.bridge.isElectron) ? getDroppedPaths(e.dataTransfer) : null;
-			if(files.length > 0){
-				if(!g.currentChannels) {
+			if (files.length > 0) {
+				if (!g.currentChannels) {
 					await engine.start();
 					g.currentChannels = [];
 					ut.killMe(ut.el('.channels .dummy'));
 					g.channels.classList.remove('empty');
-					if(!_loopStarted){ _loopStarted = true; loop(); }
+					if (!_loopStarted) { _loopStarted = true; loop(); }
 				}
 
 				// Expand folders if in Electron
 				const finalItems = [];
-				for(let i=0; i<files.length; i++){
+				for (let i = 0; i < files.length; i++) {
 					const file = files[i];
 					let src = file;
-					if(window.bridge && window.bridge.isElectron){
+					if (window.bridge && window.bridge.isElectron) {
 						const p = _getElectronPathForFile(file);
-						if(p) src = p;
-						else if(dtPaths && dtPaths.length){
+						if (p) src = p;
+						else if (dtPaths && dtPaths.length) {
 							src = dtPaths[i] || dtPaths[0];
 						}
 
-						if(typeof src === 'string'){
+						if (typeof src === 'string') {
 							try {
 								const fs = require('fs');
 								const path = require('path');
 								const stat = await fs.promises.stat(src);
-								if(stat.isDirectory()){
+								if (stat.isDirectory()) {
 									const getFiles = async (dir) => {
 										let res = [];
-										const entries = await fs.promises.readdir(dir, {withFileTypes:true});
-										for(const e of entries){
+										const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+										for (const e of entries) {
 											const full = path.join(dir, e.name);
-											if(e.isDirectory()) res = res.concat(await getFiles(full));
-											else if(/\.(mp3|wav|ogg|flac|m4a|aac|wma|aiff|mod|xm|it|s3m)$/i.test(e.name)) res.push({name: e.name, src: full});
+											if (e.isDirectory()) res = res.concat(await getFiles(full));
+											else if (/\.(mp3|wav|ogg|flac|m4a|aac|wma|aiff|mod|xm|it|s3m)$/i.test(e.name)) res.push({ name: e.name, src: full });
 										}
 										return res;
 									};
 									const found = await getFiles(src);
-									for(const f of found) finalItems.push(f);
+									for (const f of found) finalItems.push(f);
 									continue;
 								}
-							} catch(e){}
+							} catch (e) { }
 						}
 					}
-					finalItems.push({name: file.name, src: src});
+					finalItems.push({ name: file.name, src: src });
 				}
 
 				const promises = [];
-				for(let i=0; i<finalItems.length; i++){
+				for (let i = 0; i < finalItems.length; i++) {
 					const item = finalItems[i];
-					if(DEBUG_DND) console.log('[Mixer DnD] add-zone item', item);
-					
+					if (DEBUG_DND) console.log('[Mixer DnD] add-zone item', item);
+
 					const track = engine.createTrack();
 					const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, item.name, g.currentChannels.length + 1), g.add_zone);
-					g.currentChannels.push({el, track});
-					
+					g.currentChannels.push({ el, track });
+
 					promises.push((async () => {
 						try {
 							await track.load(item.src);
-							if(track.duration > g.duration) g.duration = track.duration;
-							if(Transport.state === 'started') {
-								if(track.ffPlayer) track.ffPlayer.seek(Transport.seconds);
+							if (track.duration > g.duration) g.duration = track.duration;
+							if (Transport.state === 'started') {
+								if (track.ffPlayer) track.ffPlayer.seek(Transport.seconds);
 								track._startAt(Transport.seconds);
 							}
-						} catch(err) {
+						} catch (err) {
 							console.error('Mixer load failed:', item.name, err);
 						}
 					})());
 				}
 				await Promise.all(promises);
 				// Auto-play when dropping files into the add-zone if not already playing
-				if(Transport.state !== 'started' && g.currentChannels && g.currentChannels.length > 0){
+				if (Transport.state !== 'started' && g.currentChannels && g.currentChannels.length > 0) {
 					Transport.start();
-				} else if(Transport.state === 'started'){
+				} else if (Transport.state === 'started') {
 					// Re-sync all tracks to current transport time to ensure alignment
 					seek(Transport.seconds);
 				}
@@ -888,7 +897,7 @@ async function init(initData){
 		});
 	}
 
-	ut.dragSlider(g.transport, (e) => { 
+	ut.dragSlider(g.transport, (e) => {
 		// Ignore end event to prevent duplicate seeks
 		if (e.type === 'end') return;
 		seekProz(e.prozX);
@@ -900,10 +909,10 @@ async function init(initData){
 		g.master_gain_val = e.prozX;
 	}, -1, g.master_slider);
 
-	g.btn_play.addEventListener("click", async () =>  {
-		if(g.currentChannels){
+	g.btn_play.addEventListener("click", async () => {
+		if (g.currentChannels) {
 			await engine.start();
-			if(Transport.state == 'started'){
+			if (Transport.state == 'started') {
 				Transport.pause();
 			}
 			else {
@@ -919,36 +928,36 @@ async function init(initData){
 	g.btn_loop.addEventListener("click", () => {
 		const newState = !engine.loop;
 		engine.setLoop(newState);
-		if(newState) g.btn_loop.classList.add('active');
+		if (newState) g.btn_loop.classList.add('active');
 		else g.btn_loop.classList.remove('active');
 	});
-	if(engine.loop) g.btn_loop.classList.add('active');
+	if (engine.loop) g.btn_loop.classList.add('active');
 
 	// If Stage provides playlist data later, this is where we will hook it in.
 	const pl = initData && initData.playlist ? initData.playlist : null;
 	const paths = pl && Array.isArray(pl.paths) ? pl.paths : null;
-	if(paths && paths.length){
+	if (paths && paths.length) {
 		await loadPaths(paths);
 		// Auto-play when opened with tracks (e.g. "Open in Mixer")
-		if(g.currentChannels && g.currentChannels.length > 0){
+		if (g.currentChannels && g.currentChannels.length > 0) {
 			Transport.start();
 		}
 	}
 
 	// Reset + reload when Stage hands over a new playlist to an already-open mixer window.
-	if(window.bridge && window.bridge.isElectron && window.bridge.on){
+	if (window.bridge && window.bridge.isElectron && window.bridge.on) {
 		window.bridge.on('sample-rate-updated', async (data) => {
 			const sr = (data && data.currentSampleRate) ? (data.currentSampleRate | 0) : 0;
-			if(!(sr > 0)) return;
-			if(g && g.initData){
+			if (!(sr > 0)) return;
+			if (g && g.initData) {
 				g.initData.currentSampleRate = sr;
-				if(data && data.maxSampleRate) g.initData.maxSampleRate = data.maxSampleRate | 0;
+				if (data && data.maxSampleRate) g.initData.maxSampleRate = data.maxSampleRate | 0;
 			}
-			if(engine && engine.initData) engine.initData.currentSampleRate = sr;
+			if (engine && engine.initData) engine.initData.currentSampleRate = sr;
 			const oldSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
 			console.log('Mixer: sample-rate-updated', { oldSampleRate: oldSr, newSampleRate: sr, maxSampleRate: (g && g.initData) ? (g.initData.maxSampleRate | 0) : undefined });
-			if(oldSr === sr) return;
-			if(!g.currentChannels || g.currentChannels.length === 0) return;
+			if (oldSr === sr) return;
+			if (!g.currentChannels || g.currentChannels.length === 0) return;
 
 			const pos = Transport ? Transport.seconds : 0;
 			const wasPlaying = Transport ? (Transport.state === 'started') : false;
@@ -957,37 +966,37 @@ async function init(initData){
 			const pl = (g && g.initData && g.initData.playlist) ? g.initData.playlist : null;
 			const paths = (pl && Array.isArray(pl.paths)) ? pl.paths : (g.currentChannels.map(c => c.track ? c.track.src : null).filter(v => !!v));
 
-			if(Transport) Transport.stop();
+			if (Transport) Transport.stop();
 			await resetForNewPlaylist(paths);
 			try {
 				engine.setLoop(wasLoop);
-				if(wasLoop) g.btn_loop.classList.add('active');
+				if (wasLoop) g.btn_loop.classList.add('active');
 				else g.btn_loop.classList.remove('active');
-				if(masterGain !== undefined){
+				if (masterGain !== undefined) {
 					// masterGain stored as normalized 0..1 -> apply actual gain 0..2
 					engine.setMasterGain(masterGain * 2);
 					g.master_bar.style.width = (masterGain * 100) + '%';
 					g.master_gain_val = masterGain;
 				}
-			} catch(e) {}
+			} catch (e) { }
 
 			const newEngineSr = (engine && engine.ctx && engine.ctx.sampleRate) ? (engine.ctx.sampleRate | 0) : undefined;
 			console.log('Mixer: engine rebuilt for SR change', { requestedSampleRate: sr, actualSampleRate: newEngineSr });
 
-			if(pos > 0) seek(pos);
-			if(wasPlaying) Transport.start();
+			if (pos > 0) seek(pos);
+			if (wasPlaying) Transport.start();
 		});
 
 		window.bridge.on('mixer-playlist', async (data) => {
 			const p = data && Array.isArray(data.paths) ? data.paths : null;
-			if(!p) return;
+			if (!p) return;
 			// Keep initData (ffmpeg paths/config) but update playlist payload for consistency.
-			if(g && g.initData){
-				g.initData.playlist = { paths: p, idx: (data && (data.idx|0)) ? (data.idx|0) : 0 };
+			if (g && g.initData) {
+				g.initData.playlist = { paths: p, idx: (data && (data.idx | 0)) ? (data.idx | 0) : 0 };
 			}
 			await resetForNewPlaylist(p);
 			// Auto-play when receiving new playlist via "M" key
-			if(g.currentChannels && g.currentChannels.length > 0){
+			if (g.currentChannels && g.currentChannels.length > 0) {
 				Transport.start();
 			}
 		});
@@ -1038,16 +1047,16 @@ async function init(initData){
 			});
 
 			engine.initData.config = newConfig;
-			if(g && g.initData) g.initData.config = newConfig;
+			if (g && g.initData) g.initData.config = newConfig;
 
 			// HQ mode affects AudioContext sampleRate -> Stage will broadcast 'sample-rate-updated'.
 			// We keep this log for clarity, but defer the actual rebuild to the sample-rate-updated handler
 			// so we always use the real effective sample rate.
-			if(oldHq !== newHq){
+			if (oldHq !== newHq) {
 				console.log('Mixer: hqMode changed in config (waiting for sample-rate-updated)', { oldHq, newHq });
 			}
 
-			if(rawChangedThr){
+			if (rawChangedThr) {
 				console.log('Mixer note: decoderThreads changed in config but mixer forces 1 thread per track');
 			}
 
@@ -1084,10 +1093,10 @@ async function init(initData){
 				}
 			}
 			else {
-				if(!g.currentChannels){
+				if (!g.currentChannels) {
 					console.log('Mixer: Config changed, no tracks loaded yet');
 				}
-				else if(rawChangedBuf && !effectiveChangedBuf){
+				else if (rawChangedBuf && !effectiveChangedBuf) {
 					console.log('Mixer: Buffer size changed, but effective buffer is unchanged (clamped to min 20)');
 				}
 			}
@@ -1096,48 +1105,48 @@ async function init(initData){
 
 	// Cleanup on close (Electron) and on reload/close (browser preview).
 	window.addEventListener('beforeunload', () => {
-		try { _resetUiToEmpty(); } catch(e) {}
-		try { _disposeEngine(); } catch(e) {}
+		try { _resetUiToEmpty(); } catch (e) { }
+		try { _disposeEngine(); } catch (e) { }
 	});
 }
 
-async function loadPaths(paths){
-	if(!paths || !paths.length) return;
+async function loadPaths(paths) {
+	if (!paths || !paths.length) return;
 	await engine.start();
 
-	if(!g.currentChannels) {
+	if (!g.currentChannels) {
 		g.currentChannels = [];
 		ut.killMe(ut.el('.channels .dummy'));
 		g.channels.classList.remove('empty');
-		if(!_loopStarted){ _loopStarted = true; loop(); }
+		if (!_loopStarted) { _loopStarted = true; loop(); }
 	}
 
-	for(let i=0; i<paths.length; i++){
+	for (let i = 0; i < paths.length; i++) {
 		const fp = paths[i];
 		const track = engine.createTrack();
 		const el = g.channels.insertBefore(renderChannel(g.currentChannels.length, fp, g.currentChannels.length + 1), g.add_zone);
 		try {
 			await track.load(fp);
-			if(track.duration > g.duration) g.duration = track.duration;
-		} catch(err) {
+			if (track.duration > g.duration) g.duration = track.duration;
+		} catch (err) {
 			console.error('Mixer load failed:', fp, err);
 		}
 		g.currentChannels.push({ el, track });
 	}
 }
 
-function seekProz(proz){ if(g.currentChannels){ seek(g.duration * proz); }}
-function seek(sec){ Transport.seconds = sec; }
+function seekProz(proz) { if (g.currentChannels) { seek(g.duration * proz); } }
+function seek(sec) { Transport.seconds = sec; }
 
-function handleSolo(index, exclusive){
-	if(!g.currentChannels || !g.currentChannels[index]) return;
+function handleSolo(index, exclusive) {
+	if (!g.currentChannels || !g.currentChannels[index]) return;
 	const item = g.currentChannels[index];
 	const el = item.el;
 
-	if(exclusive){
-		if(g.exclusiveSoloTrack === item){
+	if (exclusive) {
+		if (g.exclusiveSoloTrack === item) {
 			// Restore
-			if(g.soloSnapshot){
+			if (g.soloSnapshot) {
 				g.currentChannels.forEach((ch, i) => {
 					ch.el.state.solo = g.soloSnapshot[i].solo;
 					ch.el.state.mute = g.soloSnapshot[i].mute;
@@ -1148,17 +1157,17 @@ function handleSolo(index, exclusive){
 			g.exclusiveSoloTrack = null;
 		} else {
 			// Save snapshot if not already in exclusive mode
-			if(!g.exclusiveSoloTrack){
+			if (!g.exclusiveSoloTrack) {
 				g.soloSnapshot = g.currentChannels.map(ch => ({
 					solo: ch.el.state.solo,
 					mute: ch.el.state.mute,
 					mute_mem: ch.el.state.mute_mem
 				}));
 			}
-			
+
 			// Exclusive solo: Solo this one, mute all others
 			g.currentChannels.forEach(ch => {
-				if(ch === item){
+				if (ch === item) {
 					ch.el.state.solo = true;
 					ch.el.state.mute = false;
 				} else {
@@ -1170,17 +1179,17 @@ function handleSolo(index, exclusive){
 		}
 	} else {
 		// Standard Solo Logic (Toggle)
-		if(g.exclusiveSoloTrack){
-			 g.exclusiveSoloTrack = null;
-			 g.soloSnapshot = null;
+		if (g.exclusiveSoloTrack) {
+			g.exclusiveSoloTrack = null;
+			g.soloSnapshot = null;
 		}
 
 		let soloCount = 0;
-		g.currentChannels.forEach(ch => { if(ch.el.state.solo) soloCount++; });
+		g.currentChannels.forEach(ch => { if (ch.el.state.solo) soloCount++; });
 
-		if(el.state.solo){
+		if (el.state.solo) {
 			// Un-soloing
-			if(soloCount === 1){
+			if (soloCount === 1) {
 				// Last solo being removed -> restore mutes
 				g.currentChannels.forEach(ch => {
 					ch.el.state.mute = ch.el.state.mute_mem;
@@ -1196,7 +1205,7 @@ function handleSolo(index, exclusive){
 			// Soloing
 			// Mute everyone who isn't soloed
 			g.currentChannels.forEach(ch => {
-				if(!ch.el.state.solo){
+				if (!ch.el.state.solo) {
 					ch.el.state.mute = true;
 				}
 			});
@@ -1207,7 +1216,7 @@ function handleSolo(index, exclusive){
 	updateState();
 }
 
-function renderChannel(idx, fp, total){
+function renderChannel(idx, fp, total) {
 	let html = ut.htmlObject(/*html*/ `
 		<div class="strip">
 			<div class="mute">M</div>
@@ -1236,15 +1245,15 @@ function renderChannel(idx, fp, total){
 
 	html.idx = idx;
 	html.state = {
-		gain:0.5,
-		pan:0.5,
-		mute:false,
+		gain: 0.5,
+		pan: 0.5,
+		mute: false,
 		mute_mem: false,
-		solo:false,
-		last_gain:0.5,
-		last_pan:0.5,
-		last_mute:false,
-		last_solo:false
+		solo: false,
+		last_gain: 0.5,
+		last_pan: 0.5,
+		last_mute: false,
+		last_solo: false
 	};
 
 	html.meter = html.el('.meter .bar');
@@ -1259,16 +1268,16 @@ function renderChannel(idx, fp, total){
 	html.solo = html.el('.solo');
 	html.btn_close = html.el('.info .close');
 	html.filename = fileBaseName(fp);
-	if(html.trackno){
+	if (html.trackno) {
 		const n = (total || (idx + 1)) | 0;
 		html.trackno.textContent = (n > 0 && n < 10 ? '0' : '') + n;
 	}
 
 	// Initialize slider visuals to middle (100% gain) by default
-	if(html.slider){
+	if (html.slider) {
 		html.slider.style.top = (html.state.gain * 100) + '%';
 	}
-	if(html.slider_num){
+	if (html.slider_num) {
 		html.slider_num.innerText = Math.abs((2 * html.state.gain) - 2).toFixed(2);
 	}
 
@@ -1286,33 +1295,33 @@ function renderChannel(idx, fp, total){
 	html.addEventListener('drop', async (e) => {
 		e.preventDefault();
 		html.classList.remove('dragover');
-		if(DEBUG_DND) console.log('[Mixer DnD] strip drop', dumpDataTransfer(e.dataTransfer));
+		if (DEBUG_DND) console.log('[Mixer DnD] strip drop', dumpDataTransfer(e.dataTransfer));
 		const files = collectDroppedFiles(e.dataTransfer);
 		const dtPaths = (window.bridge && window.bridge.isElectron) ? getDroppedPaths(e.dataTransfer) : null;
-		if(files.length > 0){
+		if (files.length > 0) {
 			const file = files[0];
 			let src = file;
-			if(window.bridge && window.bridge.isElectron){
+			if (window.bridge && window.bridge.isElectron) {
 				const p = _getElectronPathForFile(file);
-				if(p) src = p;
-				else if(dtPaths && dtPaths.length) src = dtPaths[0];
+				if (p) src = p;
+				else if (dtPaths && dtPaths.length) src = dtPaths[0];
 			}
-			if(DEBUG_DND) console.log('[Mixer DnD] strip item', { name: file && file.name ? file.name : '', hasFilePath: !!(file && file.path), webUtilsPath: _getElectronPathForFile(file), chosenSrcType: typeof src, chosenSrc: (typeof src === 'string' ? src : '[object]') });
+			if (DEBUG_DND) console.log('[Mixer DnD] strip item', { name: file && file.name ? file.name : '', hasFilePath: !!(file && file.path), webUtilsPath: _getElectronPathForFile(file), chosenSrcType: typeof src, chosenSrc: (typeof src === 'string' ? src : '[object]') });
 			html.filename = file.name;
 			const trackObj = g.currentChannels.find(c => c.el === html);
-			if(trackObj){
+			if (trackObj) {
 				try {
 					await trackObj.track.load(src);
-					if(Transport.state === 'started') {
+					if (Transport.state === 'started') {
 						trackObj.track._stopSource();
 						trackObj.track._startAt(Transport.seconds);
 					}
-				} catch(err) {
+				} catch (err) {
 					console.error('Mixer load failed:', file && file.name ? file.name : file, err);
 				}
 				let maxD = 0;
-				for(let i=0; i<g.currentChannels.length; i++){
-					if(g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
+				for (let i = 0; i < g.currentChannels.length; i++) {
+					if (g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
 				}
 				g.duration = maxD;
 			}
@@ -1329,14 +1338,14 @@ function renderChannel(idx, fp, total){
 		removeTrack(html);
 	});
 
-	function mute(){
+	function mute() {
 		const soloCount = g.currentChannels.filter(c => c.el.state.solo).length;
-		if(soloCount > 0){
+		if (soloCount > 0) {
 			const currentIdx = g.currentChannels.findIndex(c => c.el === html);
 			handleSolo(currentIdx, false);
 		}
 		else {
-			if(html.state.mute){
+			if (html.state.mute) {
 				html.state.mute = false;
 			}
 			else {
@@ -1358,24 +1367,24 @@ function renderChannel(idx, fp, total){
 	return html;
 }
 
-function removeTrack(el){
-	if(!g.currentChannels) return;
+function removeTrack(el) {
+	if (!g.currentChannels) return;
 	let idx = -1;
-	for(let i=0; i<g.currentChannels.length; i++){
-		if(g.currentChannels[i].el === el){
+	for (let i = 0; i < g.currentChannels.length; i++) {
+		if (g.currentChannels[i].el === el) {
 			idx = i;
 			break;
 		}
 	}
-	if(idx >= 0){
+	if (idx >= 0) {
 		const item = g.currentChannels[idx];
 
 		// Handle Solo/Mute state before removal
-		if(g.exclusiveSoloTrack === item){
+		if (g.exclusiveSoloTrack === item) {
 			// If removing the exclusive solo track, restore others
-			if(g.soloSnapshot){
+			if (g.soloSnapshot) {
 				g.currentChannels.forEach((ch, i) => {
-					if(ch !== item){
+					if (ch !== item) {
 						ch.el.state.solo = g.soloSnapshot[i].solo;
 						ch.el.state.mute = g.soloSnapshot[i].mute;
 						ch.el.state.mute_mem = g.soloSnapshot[i].mute_mem;
@@ -1384,44 +1393,44 @@ function removeTrack(el){
 				g.soloSnapshot = null;
 			}
 			g.exclusiveSoloTrack = null;
-		} else if(item.el.state.solo){
+		} else if (item.el.state.solo) {
 			// Standard solo removal
 			let soloCount = 0;
-			g.currentChannels.forEach(ch => { if(ch.el.state.solo) soloCount++; });
-			
-			if(soloCount === 1){
+			g.currentChannels.forEach(ch => { if (ch.el.state.solo) soloCount++; });
+
+			if (soloCount === 1) {
 				// This was the only solo track. Restore mutes on others.
 				g.currentChannels.forEach(ch => {
-					if(ch !== item){
+					if (ch !== item) {
 						ch.el.state.mute = ch.el.state.mute_mem;
 					}
 				});
 			}
 		}
 
-		try { if(engine && engine.removeTrack) engine.removeTrack(item.track); } catch(e) {}
+		try { if (engine && engine.removeTrack) engine.removeTrack(item.track); } catch (e) { }
 		item.track.dispose();
 		ut.killMe(item.el);
 		g.currentChannels.splice(idx, 1);
 
 		let maxD = 0;
-		for(let i=0; i<g.currentChannels.length; i++){
-			if(g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
+		for (let i = 0; i < g.currentChannels.length; i++) {
+			if (g.currentChannels[i].track.duration > maxD) maxD = g.currentChannels[i].track.duration;
 		}
 		g.duration = maxD;
-		if(g.currentChannels.length === 0) {
+		if (g.currentChannels.length === 0) {
 			_resetUiToEmpty();
 		}
 		hideNameTooltip();
-		
+
 		updateState();
 	}
 }
 
-function showNameTooltip(stripEl, infoEl){
-	if(!g.name_tooltip) return;
+function showNameTooltip(stripEl, infoEl) {
+	if (!g.name_tooltip) return;
 	const name = stripEl && stripEl.filename ? stripEl.filename : '';
-	if(!name) return;
+	if (!name) return;
 	g.name_tooltip.innerHTML = `<div class="text">${name}</div>`;
 	g.name_tooltip.classList.add('active');
 
@@ -1445,42 +1454,42 @@ function showNameTooltip(stripEl, infoEl){
 	g.name_tooltip.style.setProperty('--spike-x', spikeX + 'px');
 }
 
-function hideNameTooltip(){
-	if(!g.name_tooltip) return;
+function hideNameTooltip() {
+	if (!g.name_tooltip) return;
 	g.name_tooltip.classList.remove('active');
 }
 
-function updateState(){
-	for(let i=0; i<g.currentChannels.length; i++){
+function updateState() {
+	for (let i = 0; i < g.currentChannels.length; i++) {
 		let channel = g.currentChannels[i];
 		let html = channel.el;
 		let state = html.state;
-		if(state.pan != state.last_pan){
+		if (state.pan != state.last_pan) {
 			state.last_pan = state.pan;
-			channel.track.setPan((2*state.pan)-1);
-			html.pan_line.style.left = (state.pan*100) + '%';
+			channel.track.setPan((2 * state.pan) - 1);
+			html.pan_line.style.left = (state.pan * 100) + '%';
 		}
-		if(state.gain != state.last_gain){
+		if (state.gain != state.last_gain) {
 			state.last_gain = state.gain;
-			html.slider.style.top = (state.gain*100) + '%';
-			html.slider_num.innerText = Math.abs((2*state.gain)-2).toFixed(2);
-			if(state.gain < 0.08){ html.slider_num.style.marginTop = html.slider_num.offsetHeight + 'px'}
+			html.slider.style.top = (state.gain * 100) + '%';
+			html.slider_num.innerText = Math.abs((2 * state.gain) - 2).toFixed(2);
+			if (state.gain < 0.08) { html.slider_num.style.marginTop = html.slider_num.offsetHeight + 'px' }
 			else { html.slider_num.style.marginTop = null }
-			channel.track.setGain(Math.abs((2*state.gain)-2));
+			channel.track.setGain(Math.abs((2 * state.gain) - 2));
 		}
-		if(state.last_mute != state.mute){
+		if (state.last_mute != state.mute) {
 			channel.track.setMute(state.mute);
 			state.last_mute = state.mute;
-			if(state.mute){
+			if (state.mute) {
 				html.mute.classList.add('active');
 			}
 			else {
 				html.mute.classList.remove('active');
 			}
 		}
-		if(state.last_solo != state.solo){
+		if (state.last_solo != state.solo) {
 			state.last_solo = state.solo;
-			if(state.solo){
+			if (state.solo) {
 				html.solo.classList.add('active');
 			}
 			else {
@@ -1490,13 +1499,13 @@ function updateState(){
 	}
 }
 
-function loop(){
+function loop() {
 	requestAnimationFrame(loop);
-	if(g.currentChannels){
+	if (g.currentChannels) {
 		updateTransport();
 
 		// Floating sync debug overlay
-		if(g.sync_overlay_cvs && g.sync_overlay_visible){
+		if (g.sync_overlay_cvs && g.sync_overlay_visible) {
 			const cvs = g.sync_overlay_cvs;
 			const ctx = cvs.getContext('2d');
 			const w = cvs.width;
@@ -1515,9 +1524,9 @@ function loop(){
 			const lh = h / dpr;
 
 			let refSec = Transport.seconds;
-			if(g.currentChannels.length){
+			if (g.currentChannels.length) {
 				const tr0 = g.currentChannels[0].track;
-				if(tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function'){
+				if (tr0 && tr0.ffPlayer && typeof tr0.ffPlayer.getCurrentTime === 'function') {
 					refSec = tr0.ffPlayer.getCurrentTime();
 				}
 			}
@@ -1541,16 +1550,16 @@ function loop(){
 			let qMax = -1;
 			let qSum = 0;
 			let qN = 0;
-			for(let i=0; i<g.currentChannels.length; i++){
+			for (let i = 0; i < g.currentChannels.length; i++) {
 				const tr = g.currentChannels[i] ? g.currentChannels[i].track : null;
 				const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
-				if(!fp) continue;
+				if (!fp) continue;
 				const q = (fp._queuedChunks !== undefined) ? (fp._queuedChunks | 0) : -1;
-				if(q < 0) continue;
+				if (q < 0) continue;
 				qN++;
 				qSum += q;
-				if(q < qMin) qMin = q;
-				if(q > qMax) qMax = q;
+				if (q < qMin) qMin = q;
+				if (q > qMax) qMax = q;
 			}
 
 			ctx.fillStyle = '#9aa';
@@ -1559,9 +1568,9 @@ function loop(){
 				10,
 				34
 			);
-			if(qN > 0){
+			if (qN > 0) {
 				ctx.fillStyle = '#9aa';
-				ctx.fillText(`STREAM Q: min=${qMin} avg=${(qSum/qN).toFixed(1)} max=${qMax} (n=${qN})`, 10, 48);
+				ctx.fillText(`STREAM Q: min=${qMin} avg=${(qSum / qN).toFixed(1)} max=${qMax} (n=${qN})`, 10, 48);
 			}
 			else {
 				ctx.fillStyle = '#666';
@@ -1572,7 +1581,7 @@ function loop(){
 			const rowH = 20;
 			const headerY = 64;
 			const startY = 89;
-			
+
 			// Column X positions
 			const xIdx = 10;
 			const xType = 35;
@@ -1597,24 +1606,24 @@ function loop(){
 			ctx.fillText('Q', xQ, headerY);
 
 			const n = g.currentChannels.length;
-			for(let i=0; i<n; i++){
+			for (let i = 0; i < n; i++) {
 				const y = startY + (i * rowH);
-				if(y > lh) break;
+				if (y > lh) break;
 
 				const item = g.currentChannels[i];
 				const tr = item ? item.track : null;
 				const fp = tr && tr.ffPlayer ? tr.ffPlayer : null;
 				let name = (item && item.el && item.el.filename) ? item.el.filename : '';
-				
+
 				// Alternating row background
-				if(i % 2 === 0) {
+				if (i % 2 === 0) {
 					ctx.fillStyle = 'rgba(255,255,255,0.02)';
 					ctx.fillRect(0, y - 14, lw, rowH);
 				}
 
 				ctx.fillStyle = '#ccc';
-				ctx.fillText((i+1).toString(), xIdx, y);
-				
+				ctx.fillText((i + 1).toString(), xIdx, y);
+
 				const type = fp ? 'FF' : 'Buf';
 				ctx.fillStyle = fp ? '#8f8' : '#88f';
 				ctx.fillText(type, xType, y);
@@ -1628,7 +1637,7 @@ function loop(){
 				let q = -1;
 				let isValid = false;
 
-				if(fp && typeof fp.getCurrentTime === 'function'){
+				if (fp && typeof fp.getCurrentTime === 'function') {
 					const t = fp.getCurrentTime();
 					driftT = (t - Transport.seconds) * 1000;
 					driftR = (t - refSec) * 1000;
@@ -1640,23 +1649,23 @@ function loop(){
 				}
 				else {
 					let t = NaN;
-					if(tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0){
+					if (tr && tr.source && tr.engine && tr._bufStartCtxTime >= 0) {
 						t = (tr.engine.ctx.currentTime - tr._bufStartCtxTime) + (tr._bufStartOffset || 0);
 					}
-					if(isFinite(t)){
+					if (isFinite(t)) {
 						driftT = (t - Transport.seconds) * 1000;
 						driftR = (t - refSec) * 1000;
 						isValid = true;
 					}
 				}
 
-				if(isValid){
+				if (isValid) {
 					// Visual Drift Bar - use driftR (relative to ref track) instead of driftT (absolute)
 					const barX = xDriftBar;
 					const barW = 140;
 					const center = barX + (barW / 2);
 					const scale = 2; // pixels per ms
-					
+
 					// Background line
 					ctx.fillStyle = '#444';
 					ctx.fillRect(barX, y - 4, barW, 2);
@@ -1667,33 +1676,33 @@ function loop(){
 					// Drift bar - show relative drift (driftR) to indicate sync between tracks
 					const dPx = driftR * scale;
 					let barColor = '#0f0';
-					if(Math.abs(driftR) > 20) barColor = '#ff0';
-					if(Math.abs(driftR) > 50) barColor = '#f00';
-					
+					if (Math.abs(driftR) > 20) barColor = '#ff0';
+					if (Math.abs(driftR) > 50) barColor = '#f00';
+
 					ctx.fillStyle = barColor;
 					let bx = center;
 					let bw = dPx;
-					if(dPx < 0) { bx = center + dPx; bw = -dPx; }
+					if (dPx < 0) { bx = center + dPx; bw = -dPx; }
 					// Clamp
-					if(bx < barX) { bw -= (barX - bx); bx = barX; }
-					if(bx + bw > barX + barW) { bw = (barX + barW) - bx; }
-					
-					if(bw > 0) ctx.fillRect(bx, y - 5, bw, 4);
+					if (bx < barX) { bw -= (barX - bx); bx = barX; }
+					if (bx + bw > barX + barW) { bw = (barX + barW) - bx; }
+
+					if (bw > 0) ctx.fillRect(bx, y - 5, bw, 4);
 
 					// Text Values
 					ctx.fillStyle = Math.abs(driftT) > 10 ? '#f88' : '#ccc';
 					ctx.fillText(driftT.toFixed(1), xDT, y);
-					
+
 					ctx.fillStyle = Math.abs(driftR) > 10 ? '#f88' : '#888';
 					ctx.fillText(driftR.toFixed(1), xDR, y);
 
-					if(uMs > 0){
+					if (uMs > 0) {
 						ctx.fillStyle = '#f44';
 						ctx.fillText(uMs.toFixed(1) + 'ms', xUnderrun, y);
 					}
-					if(q >= 0){
-							ctx.fillStyle = q < 2 ? '#f88' : '#8f8';
-							ctx.fillText(`Q:${q}`, xQ, y);
+					if (q >= 0) {
+						ctx.fillStyle = q < 2 ? '#f88' : '#8f8';
+						ctx.fillText(`Q:${q}`, xQ, y);
 					}
 				} else {
 					ctx.fillStyle = '#666';
@@ -1703,16 +1712,16 @@ function loop(){
 			ctx.restore();
 		}
 
-		for(let i=0; i<g.currentChannels.length; i++){
+		for (let i = 0; i < g.currentChannels.length; i++) {
 			let item = g.currentChannels[i];
 			let level = item.track.getMeter();
-			let proz = (level*6) * 100;
-			if(proz > 100) { proz = 100; }
-			if(proz < 1) { proz = 0; }
+			let proz = (level * 6) * 100;
+			if (proz > 100) { proz = 100; }
+			if (proz < 1) { proz = 0; }
 			item.el.meter.style.height = proz + '%';
 		}
 	}
-	else if(g.sync_overlay_cvs && g.sync_overlay_visible){
+	else if (g.sync_overlay_cvs && g.sync_overlay_visible) {
 		const cvs = g.sync_overlay_cvs;
 		const ctx = cvs.getContext('2d');
 		const w = cvs.width;
@@ -1726,14 +1735,14 @@ function loop(){
 	}
 }
 
-function updateTransport(){
-	if(g.transport.duration != g.duration){
-		g.transport_duration.innerText = ut.playTime(g.duration*1000).minsec;
+function updateTransport() {
+	if (g.transport.duration != g.duration) {
+		g.transport_duration.innerText = ut.playTime(g.duration * 1000).minsec;
 		g.transport.duration = g.duration;
 	}
 	let current = Transport.seconds;
-	if(g.duration > 0 && current >= g.duration){
-		if(engine.loop){
+	if (g.duration > 0 && current >= g.duration) {
+		if (engine.loop) {
 			Transport.seconds = 0;
 			current = 0;
 		} else {
@@ -1741,24 +1750,24 @@ function updateTransport(){
 			current = g.duration;
 		}
 	}
-	if(g.transport.current != current){
-		g.transport_current.innerText = ut.playTime(current*1000).minsec;
+	if (g.transport.current != current) {
+		g.transport_current.innerText = ut.playTime(current * 1000).minsec;
 		g.transport.current = current;
 	}
 	let proz = current / g.duration;
-	if(g.transport.proz != proz){
-		g.transport_bar.style.width = proz*100 + '%';
+	if (g.transport.proz != proz) {
+		g.transport_bar.style.width = proz * 100 + '%';
 		g.transport.proz = proz;
 	}
 	let state = Transport.state;
-	if(state != g.transport.last_state){
+	if (state != g.transport.last_state) {
 		g.transport.last_state = state;
-		if(state === 'started'){
+		if (state === 'started') {
 			g.btn_play.classList.add('playing');
 		} else {
 			g.btn_play.classList.remove('playing');
 		}
-		if(window.bridge && window.bridge.sendToStage){
+		if (window.bridge && window.bridge.sendToStage) {
 			window.bridge.sendToStage('mixer-state', { playing: state === 'started' });
 		}
 	}
@@ -1783,7 +1792,7 @@ if (window.bridge && window.bridge.window && window.bridge.window.hook_event) {
 } else {
 	// Fallback to DOM focus events if hook_event unavailable
 	window.addEventListener('focus', () => {
-		try { if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('monitoring:setSource', { source: 'mixer' }); } catch (e) {}
+		try { if (window.bridge && window.bridge.sendToStage) window.bridge.sendToStage('monitoring:setSource', { source: 'mixer' }); } catch (e) { }
 		_mixerMonitoringActive = true;
 		startMixerMonitoringLoop();
 	});

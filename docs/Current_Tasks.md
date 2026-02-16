@@ -112,7 +112,6 @@
 **What Breaks:**
 1. **Conditional updates** (`if (changed) send()` ) - Race conditions, missed updates
 2. **Local state** - Any state in renderers will drift
-3. **Direct window-to-window** - Must route through main
 
 ---
 
@@ -121,6 +120,7 @@
 | Issue | Notes |
 |-------|-------|
 | ~~MIDI metadata in Player~~ | ✅ **Fixed** - `type: 'midi'` was lowercase in player.js but uppercase 'MIDI' in engines.js |
+| Format display shows wrong sample rate | Shows player output sample rate (e.g., 192000 Hz) instead of file's original sample rate |
 | Folder fallback for cover art | Not working - FFmpeg extraction works |
 | First MIDI load delay | 1-2s (library init) |
 | First Tracker load delay | Slight delay |

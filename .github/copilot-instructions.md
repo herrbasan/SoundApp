@@ -578,3 +578,70 @@ Replace Canvas 2D with WebGL for smoother visualization.
 
 ### Code Splitting
 Load MIDI/Tracker code only when needed (requires build changes).
+
+---
+
+## Window Management & Focus (Crucial for Agents)
+
+**The Problem:** 
+Electron's `hide()` and `show()` methods are asynchronous and platform-dependent. Relying solely on IPC messages (`window-hidden`) from the renderer to the main process is flaky because:
+1. The renderer might be frozen or busy.
+2. The OS might minimize the window instead of hiding it (or vice versa).
+3. Focus stealing prevention (ASLR/OS security) might block `win.focus()`.
+
+**The Solution (Current Implementation):**
+We use **Native Event Listeners** in the Main process (`app.js`) as the source of truth.
+
+```javascript
+// In app.js (inside window-created handler)
+childWin.on('hide', () => {
+    // 1. Mark as hidden in state
+    // 2. Notify Engine
+    // 3. FORCE RESTORE FOCUS to Main Window
+});
+```
+
+**Focus Restoration Hacks:**
+On Windows, `win.focus()` often fails if the window was minimized or if another app is active. We use this sequence:
+1. `win.show()` (if hidden)
+2. `win.restore()` (if minimized)
+3. **The Toggle Hack:** `setAlwaysOnTop(true)` -> `focus()` -> `setAlwaysOnTop(false)` to force the window to the foreground.
+
+---
+
+## Proposed Refactoring: WindowManager Class
+
+**Current State:** Window logic is scattered across `app.js` IPC handlers, `window-loader.js`, and `player.js`.
+
+**Proposal:** Centralize into `js/managers/WindowManager.js`:
+
+```javascript
+class WindowManager {
+    constructor() {
+        this.windows = new Map(); // type -> { win, state }
+        this.focusStack = [];     // Track order for smarter restoration
+    }
+
+    create(type, options) { /* ... */ }
+    
+    toggle(type) {
+        const win = this.get(type);
+        if (win.isVisible()) this.hide(type);
+        else this.show(type);
+    }
+
+    hide(type) {
+        // Centralized hide logic with native focus restoration
+        const win = this.get(type);
+        win.blur(); // Blur first
+        win.hide();
+        this.restoreMainFocus();
+    }
+
+    restoreMainFocus() {
+        // Encapsulated "Force Focus" logic
+        if (process.platform === 'win32') { /* minimize/restore check + alwaysOnTop hack */ }
+        else { mainWin.focus(); }
+    }
+}
+```

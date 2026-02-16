@@ -69,13 +69,13 @@ async function init() {
         console.warn('Bridge not found, running in browser preview mode?');
         // Mock bridge for testing if needed
         bridge = {
-            on: (ch, cb) => {},
+            on: (ch, cb) => { },
             sendToStage: (ch, data) => console.log('Mock IPC:', ch, data),
             sendToMain: (ch, data) => console.log('Mock IPC to Main:', ch, data),
-            once: (ch, cb) => {}, 
-            window: { 
-                close: () => {}, 
-                hide: () => {} // In this window, close means hide
+            once: (ch, cb) => { },
+            window: {
+                close: () => { },
+                hide: () => { } // In this window, close means hide
             }
         };
     }
@@ -97,11 +97,24 @@ async function init() {
 
         const code = '' + (e.code || '');
 
-        // P: toggle Parameters window (hide when already open)
-        if (e.keyCode === 80) {
+        // Local overrides for Close/Toggle-Self behavior
+        // Check for our own toggle shortcut manually or via action if we had it mapped
+        // P: toggle Parameters window
+        if (code === 'KeyP' || e.key === 'p' || e.key === 'P') {
+            // Check if typing
+            if (shouldIgnoreKeyTarget(e.target || e.srcElement)) return;
+
+            console.log('[PARAMS] P key pressed, calling closeWindow');
             e.preventDefault();
             if (bridge && bridge.closeWindow) bridge.closeWindow();
             else if (bridge && bridge.window && bridge.window.hide) bridge.window.hide();
+            return;
+        }
+
+        // Escape: Close window
+        if (code === 'Escape') {
+            e.preventDefault();
+            if (bridge && bridge.closeWindow) bridge.closeWindow();
             return;
         }
 
@@ -115,6 +128,11 @@ async function init() {
         // Handle global shortcuts via shared module
         if (window.shortcuts && window.shortcuts.handleShortcut) {
             const action = window.shortcuts.handleShortcut(e, 'parameters');
+            // If the shared module returned 'toggle-pitchtime', we catch it here too just in case
+            if (action === 'toggle-pitchtime') {
+                if (bridge && bridge.closeWindow) bridge.closeWindow();
+                return;
+            }
             if (action) return;
         }
 
@@ -157,13 +175,13 @@ async function init() {
             console.log('[Parameters] Reset complete - switched to tape mode');
             return;  // Don't call updateParams since we already reset
         }
-        
+
         // Reset tracker solo state when a new file loads
         if (data.mode === 'tracker' && data.params && data.params.reset) {
             resetTrackerSoloState();
             resetTrackerParams(false);  // Reset sliders UI (don't send to stage, it already reset)
         }
-        
+
         // Display original BPM for MIDI mode
         if (data.mode === 'midi' && data.params && typeof data.params.originalBPM === 'number') {
             const origElem = document.getElementById('midi_original_bpm');
@@ -173,7 +191,7 @@ async function init() {
                 controls.midi.tempo.setDefault(Math.round(data.params.originalBPM));
             }
         }
-        
+
         if (data.params) {
             updateParams(data.mode, data.params);
         }
@@ -182,7 +200,7 @@ async function init() {
     // Listen for parameter updates (e.g. from key commands in main window)
     bridge.on('update-params', (data) => {
         console.log('[Parameters] update-params received:', data);
-        if(data && data.mode && data.params){
+        if (data && data.mode && data.params) {
             setMode(data.mode);
             updateParams(data.mode, data.params);
         } else {
@@ -195,10 +213,10 @@ async function init() {
         if (getCurrentMode() !== 'tracker' || !data.vu) return;
         updateTrackerVu(data.vu, data.channels);
     });
-    
+
     // Reset UI when window is hidden/closed
     if (window.bridge && window.bridge.isElectron) {
-        const {ipcRenderer} = require('electron');
+        const { ipcRenderer } = require('electron');
         ipcRenderer.on('hide-window', () => {
             console.log('[Parameters] Window hidden - resetting all params');
             // Reset all controls and send to stage immediately
@@ -218,7 +236,7 @@ async function init() {
             if (lockCheckbox) lockCheckbox.checked = false;
         });
     }
-    
+
     document.querySelector('main').classList.add('ready');
 }
 
@@ -234,10 +252,10 @@ if (document.readyState === 'loading') {
 window.addEventListener('bridge-ready', async (e) => {
     const data = e.detail;
     console.log('[Parameters] bridge-ready received, init_data:', data);
-    
+
     // Store init_data globally
     g.init_data = data;
-    
+
     // Wait for DOM to be ready if it isn't already
     if (document.readyState === 'loading') {
         console.log('[Parameters] DOM still loading, waiting for DOMContentLoaded...');
@@ -245,22 +263,22 @@ window.addEventListener('bridge-ready', async (e) => {
             document.addEventListener('DOMContentLoaded', resolve, { once: true });
         });
     }
-    
+
     // Initialize soundfont selector
     await initSoundfontSelector();
-    
+
     // Set mode if provided (from fileType in init_data)
     // fileType: 'MIDI' | 'Tracker' | 'FFmpeg' → mode: 'midi' | 'tracker' | 'audio'
     let initialMode = data.mode;
     if (!initialMode && data.fileType) {
-        initialMode = data.fileType === 'MIDI' ? 'midi' : 
-                      data.fileType === 'Tracker' ? 'tracker' : 'audio';
+        initialMode = data.fileType === 'MIDI' ? 'midi' :
+            data.fileType === 'Tracker' ? 'tracker' : 'audio';
     }
     if (initialMode) {
         console.log('[Parameters] Setting mode from bridge-ready:', initialMode);
         setMode(initialMode);
     }
-    
+
     // Display original BPM for MIDI mode
     if (initialMode === 'midi' && typeof data.originalBPM === 'number') {
         const origElem = document.getElementById('midi_original_bpm');
@@ -269,7 +287,7 @@ window.addEventListener('bridge-ready', async (e) => {
             controls.midi.tempo.setDefault(Math.round(data.originalBPM));
         }
     }
-    
+
     // Update params if provided
     if (data.params) {
         console.log('[Parameters] Updating params from bridge-ready:', data.params);
@@ -306,12 +324,12 @@ function getAudioMode() {
 function setMode(mode) {
     // Mode is driven by main process broadcasts - we just render
     document.querySelectorAll('.mode-container').forEach(el => el.classList.remove('active'));
-    
+
     const target = document.getElementById(`${mode}-controls`);
     if (target) {
         target.classList.add('active');
     }
-    
+
     // Update window title
     const title = modeTitles[mode] || 'Parameters';
     document.title = title;
@@ -335,8 +353,8 @@ function resetMidiParams(sendStage = false) {
     // Use DEFAULTS for single source of truth
     const { transpose, metronome } = DEFAULTS.midi;
     // BPM comes from file's original BPM if available, otherwise DEFAULTS.midi.bpm
-    const originalBPM = (g.init_data && typeof g.init_data.originalBPM === 'number') 
-        ? Math.round(g.init_data.originalBPM) 
+    const originalBPM = (g.init_data && typeof g.init_data.originalBPM === 'number')
+        ? Math.round(g.init_data.originalBPM)
         : (DEFAULTS.midi.bpm || 120);
 
     controls.midi.pitch.update(transpose);  // 0 = no transpose
@@ -380,7 +398,7 @@ function resendAudioParams() {
 
     // Get current mode from DOM - main owns the state
     const currentAudioMode = getAudioMode();
-    
+
     // First send the current mode
     bridge.sendToMain('param-change', { mode: 'audio', param: 'audioMode', value: currentAudioMode });
 
@@ -393,7 +411,7 @@ function resendAudioParams() {
     } else {
         // Pitch/Time mode: send pitch, tempo, formant
         if (!controls.audio || !controls.audio.pitch || !controls.audio.tempo) return;
-        
+
         const formantCheckbox = document.getElementById('audio_formant_mode');
         const pitchVal = controls.audio.pitch.getValue ? controls.audio.pitch.getValue() : 0;
         const tempoVal = controls.audio.tempo.getValue ? controls.audio.tempo.getValue() : 1.0;
@@ -411,7 +429,7 @@ function updateParams(mode, params) {
         if (typeof params.audioMode !== 'undefined') {
             const tapeSection = document.getElementById('tape-section');
             const pitchtimeSection = document.getElementById('pitchtime-section');
-            
+
             // UI updates based on main's broadcast state
             if (params.audioMode === 'tape') {
                 tapeSection.classList.remove('disabled');
@@ -421,7 +439,7 @@ function updateParams(mode, params) {
                 pitchtimeSection.classList.remove('disabled');
             }
         }
-        
+
         // Handle tape speed
         if (typeof params.tapeSpeed !== 'undefined' && controls.tape && controls.tape.speed) {
             if (tapeSpeedTimeout) clearTimeout(tapeSpeedTimeout);
@@ -430,7 +448,7 @@ function updateParams(mode, params) {
             const rounded = Math.round(params.tapeSpeed);
             if (speedVal) speedVal.textContent = (rounded >= 0 ? '+' : '') + rounded;
         }
-        
+
         // Handle pitch/time params
         // Clear any pending debounced callbacks before updating to prevent old values being sent back
         if (typeof params.pitch !== 'undefined') {
@@ -461,7 +479,7 @@ function updateParams(mode, params) {
             if (!g.init_data) g.init_data = {};
             g.init_data.originalBPM = params.originalBPM;
         }
-        
+
         if (typeof params.transpose !== 'undefined') {
             controls.midi.pitch.update(params.transpose, true);
             const pitchVal = document.getElementById('midi_pitch_value');
@@ -491,10 +509,10 @@ function updateParams(mode, params) {
             requestAnimationFrame(() => {
                 const sfSelect = document.getElementById('soundfont-select');
                 if (!sfSelect) return;
-                
+
                 // Set the native select value
                 sfSelect.value = params.soundfont;
-                
+
                 // Force superSelect to sync its display with the native select value
                 if (sfSelect.reRender) {
                     sfSelect.reRender();
@@ -531,7 +549,7 @@ function updateParams(mode, params) {
 function createSlider(containerId, min, max, initial, defaultVal, onChange) {
     const container = document.getElementById(containerId);
     if (!container) return null;
-    
+
     const handle = container.querySelector('.handle');
     const track = container.querySelector('.track');
     let value = initial;
@@ -553,11 +571,11 @@ function createSlider(containerId, min, max, initial, defaultVal, onChange) {
             update(min + e.prozX * (max - min));
         }, -1, track);
     }
-    
+
     container.addEventListener('dblclick', () => {
         update(defaultVal);
     });
-    
+
     return { update, getValue: () => value, setDefault: (v) => { defaultVal = v; } };
 }
 
@@ -599,7 +617,7 @@ function initAudioModeSections() {
             }
         });
     }
-    
+
     if (pitchtimeSection) {
         pitchtimeSection.addEventListener('click', () => {
             if (pitchtimeSection.classList.contains('disabled')) {
@@ -607,7 +625,7 @@ function initAudioModeSections() {
             }
         });
     }
-    
+
     // Expose for updateParams - but it just sends intent, doesn't set local state
     window._sendAudioModeIntent = sendAudioModeIntent;
 }
@@ -616,7 +634,7 @@ function resetTapeParams(sendStage = false) {
     if (!controls.tape || !controls.tape.speed) return;
 
     const speedVal = document.getElementById('tape_speed_value');
-    
+
     // Use DEFAULTS for single source of truth
     const { tapeSpeed } = DEFAULTS.audio;
     controls.tape.speed.update(tapeSpeed);  // 0 = normal speed
@@ -702,7 +720,7 @@ function initMidiControls() {
     document.getElementById('btn_midi_reset').addEventListener('click', () => {
         resetMidiParams(true);
     });
-    
+
     document.getElementById('btn_open_fonts').addEventListener('click', () => {
         bridge.sendToMain('open-soundfonts-folder', {});
     });
@@ -755,7 +773,7 @@ function initTrackerControls() {
 function resetTrackerParams(sendStage = false) {
     // Use DEFAULTS for single source of truth
     const { pitch, tempo, stereoSeparation } = DEFAULTS.tracker;
-    
+
     const pitchVal = document.getElementById('tracker_pitch_value');
     const tempoVal = document.getElementById('tracker_tempo_value');
     const stereoVal = document.getElementById('tracker_stereo_value');
@@ -784,41 +802,41 @@ function updateTrackerVu(vuData, channelCount) {
     // - channel count changed
     // - no VU bars exist (first init or after engine restoration)
     // - container is empty (DOM was cleared)
-    const needsRebuild = channelCount !== trackerChannelCount || 
-                         trackerVuBars.length === 0 || 
-                         container.children.length === 0;
-    
+    const needsRebuild = channelCount !== trackerChannelCount ||
+        trackerVuBars.length === 0 ||
+        container.children.length === 0;
+
     if (needsRebuild) {
         trackerChannelCount = channelCount;
         trackerVuBars = [];
         trackerSoloSet.clear();
         container.innerHTML = '';
-        
+
         for (let i = 0; i < channelCount; i++) {
             const strip = document.createElement('div');
             strip.className = 'tracker-channel-strip';
             strip.dataset.channel = i;
-            
+
             const vuBar = document.createElement('div');
             vuBar.className = 'tracker-vu-bar';
             vuBar.innerHTML = '<div class="vu-fill"></div>';
             vuBar.title = `Channel ${i + 1} - Click: solo, Shift+Click: add to solo`;
-            
+
             // Click: exclusive solo, Shift+click: add/remove from solo group
             vuBar.addEventListener('click', (e) => {
                 handleTrackerSolo(i, e.shiftKey);
             });
-            
+
             const label = document.createElement('div');
             label.className = 'channel-label';
             label.textContent = (i + 1);
-            
+
             strip.appendChild(vuBar);
             strip.appendChild(label);
             container.appendChild(strip);
             trackerVuBars.push(vuBar.querySelector('.vu-fill'));
         }
-        
+
         if (countLabel) countLabel.textContent = channelCount + ' channels';
     }
 
@@ -827,7 +845,7 @@ function updateTrackerVu(vuData, channelCount) {
         const level = vuData[i] || 0;
         const heightPct = Math.min(100, level * 100);
         trackerVuBars[i].style.height = heightPct + '%';
-        
+
         // Add active class for non-zero levels
         const bar = trackerVuBars[i].parentElement;
         if (level > 0.01) {
@@ -857,28 +875,28 @@ function handleTrackerSolo(index, additive) {
             trackerSoloSet.add(index);
         }
     }
-    
+
     applyTrackerSoloState();
 }
 
 function applyTrackerSoloState() {
     const container = document.getElementById('tracker_channels_container');
     if (!container) return;
-    
+
     const strips = container.querySelectorAll('.tracker-channel-strip');
     const hasSolo = trackerSoloSet.size > 0;
-    
+
     for (let i = 0; i < trackerChannelCount; i++) {
         const strip = strips[i];
         if (!strip) continue;
-        
+
         const isSoloed = trackerSoloSet.has(i);
         // If any channel is soloed, mute those not in the solo set
         const isMuted = hasSolo && !isSoloed;
-        
+
         strip.classList.toggle('solo', isSoloed);
         strip.classList.toggle('muted', isMuted);
-        
+
         // Send mute state to worklet
         bridge.sendToMain('param-change', {
             mode: 'tracker',
@@ -891,10 +909,10 @@ function applyTrackerSoloState() {
 function resetTrackerSoloState() {
     // Clear all solo selections and update UI
     trackerSoloSet.clear();
-    
+
     const container = document.getElementById('tracker_channels_container');
     if (!container) return;
-    
+
     const strips = container.querySelectorAll('.tracker-channel-strip');
     for (let i = 0; i < strips.length; i++) {
         strips[i].classList.remove('solo', 'muted');
@@ -905,12 +923,12 @@ function resetTrackerSoloState() {
 async function initSoundfontSelector() {
     const sfSelect = document.getElementById('soundfont-select');
     if (!sfSelect) return;
-    
+
     // Get current soundfont from init_data (will be set by bridge-ready event)
     const getCurrentFont = () => (g.init_data && g.init_data.params && g.init_data.params.soundfont) || 'TimGM6mb.sf2';
-    
+
     console.log('[SoundFont] Requesting available soundfonts, windowId:', bridge.windowId);
-    
+
     // Get list of available soundfonts from stage
     const availableFonts = await new Promise((resolve) => {
         bridge.sendToMain('get-available-soundfonts', { windowId: bridge.windowId });
@@ -919,7 +937,7 @@ async function initSoundfontSelector() {
             resolve(data.fonts || []);
         });
     });
-    
+
     // Populate dropdown with available fonts
     if (availableFonts.length > 0) {
         sfSelect.innerHTML = '';
@@ -930,22 +948,22 @@ async function initSoundfontSelector() {
             sfSelect.appendChild(option);
         });
     }
-    
+
     // Set current value before initializing superSelect
     const currentFont = getCurrentFont();
     sfSelect.value = currentFont;
     console.log('[SoundFont] Set select value to:', currentFont, 'selectedIndex:', sfSelect.selectedIndex);
-    
+
     // Ensure something is selected
     if (sfSelect.selectedIndex === -1 && sfSelect.options.length > 0) {
         console.warn('[SoundFont] Configured soundfont not found, defaulting to first option');
         sfSelect.selectedIndex = 0;
     }
-    
+
     // Initialize nui-select
     console.log('[SoundFont] Calling superSelect()');
     const selectInstance = superSelect(sfSelect);
-    
+
     // Force superSelect to update its visual display
     if (selectInstance && selectInstance.updateDisplay) {
         selectInstance.updateDisplay();
@@ -956,7 +974,7 @@ async function initSoundfontSelector() {
             customDisplay.textContent = sfSelect.options[sfSelect.selectedIndex].textContent;
         }
     }
-    
+
     // Listen for changes
     sfSelect.addEventListener('change', () => {
         const newFont = sfSelect.value;

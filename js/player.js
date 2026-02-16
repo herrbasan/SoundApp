@@ -18,7 +18,7 @@ const shortcuts = require('../js/shortcuts.js');
 // DEBUG: Define disposeIPC immediately at global scope
 // This allows testing IPC disposal even if setupIPC() hasn't run yet
 window.disposeIPC = {
-    all: function() {
+    all: function () {
         console.log('[Debug] Removing ALL IPC listeners...');
         ipcRenderer.removeAllListeners('state:update');
         ipcRenderer.removeAllListeners('position');
@@ -39,7 +39,7 @@ window.disposeIPC = {
         ipcRenderer.removeAllListeners('ana-data');
         console.log('[Debug] All IPC listeners removed.');
     },
-    nonEssential: function() {
+    nonEssential: function () {
         console.log('[Debug] Removing non-essential IPC listeners...');
         ipcRenderer.removeAllListeners('log');
         ipcRenderer.removeAllListeners('waveform-chunk');
@@ -47,7 +47,7 @@ window.disposeIPC = {
         ipcRenderer.removeAllListeners('ana-data');
         console.log('[Debug] Non-essential IPC listeners removed.');
     },
-    status: function() {
+    status: function () {
         console.log('[Debug] disposeIPC is ready');
     }
 };
@@ -206,7 +206,7 @@ function setupIPC() {
         if (data.currentSampleRate !== undefined) g.state.currentSampleRate = data.currentSampleRate;
         if (data.playlist !== undefined) g.state.playlist = data.playlist;
         if (data.playlistIndex !== undefined) g.state.playlistIndex = data.playlistIndex;
-        
+
         // Update UI directly from broadcast state
         updateUI();
     });
@@ -241,19 +241,19 @@ function setupIPC() {
             console.log('[window-closed] Cleared tracking for', data.type);
         }
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
-        // Forward to app.js for engine tracking
+        // Forward to app.js for engine tracking and focus management
         ipcRenderer.send('window-closed', data);
-        setTimeout(() => g.win.focus(), 50);
     });
 
     ipcRenderer.on('window-hidden', async (e, data) => {
+        console.log('[PLAYER] window-hidden received:', data?.type, 'windowId:', data?.windowId);
+        console.log('[PLAYER] Current tracked window:', g.windows[data?.type]);
         if (g.windowsClosing && g.windowsClosing[data.type] !== undefined) g.windowsClosing[data.type] = false;
-        // Forward to app.js for engine tracking
+        // Forward to app.js for engine tracking and focus management
+        console.log('[PLAYER] Forwarding to main...');
         ipcRenderer.send('window-hidden', data);
-        // Focus player window when any child window is hidden
-        g.win.focus();
     });
-    
+
     // Forward window-created from child windows to app.js
     ipcRenderer.on('window-created', (e, data) => {
         if (data && data.type) {
@@ -262,59 +262,59 @@ function setupIPC() {
             ipcRenderer.send('window-created', data);
         }
     });
-    
+
     // Main process tells us to create a new window (it doesn't exist yet)
     ipcRenderer.on('window:create', (e, data) => {
         if (data && data.type) {
             openWindow(data.type);
         }
     });
-    
+
     // Forward param-change messages from child windows (parameters, etc.) to app.js
     ipcRenderer.on('param-change', (e, data) => {
         ipcRenderer.send('param-change', data);
     });
-    
+
     // Forward state-debug requests to app.js
     ipcRenderer.on('state-debug:request', (e, data) => {
         ipcRenderer.send('state-debug:request', { ...data, windowId: g.windows['state-debug'] });
     });
-    
+
     // Forward state-debug responses from app.js/engine.js back to state-debug window
     ipcRenderer.on('state-debug:main', (e, data) => {
         if (g.windows['state-debug']) {
             tools.sendToId(g.windows['state-debug'], 'state-debug:main', data);
         }
     });
-    
+
     ipcRenderer.on('state-debug:engine', (e, data) => {
         if (g.windows['state-debug']) {
             tools.sendToId(g.windows['state-debug'], 'state-debug:engine', data);
         }
     });
-    
+
     ipcRenderer.on('state-debug:audio', (e, data) => {
         if (g.windows['state-debug']) {
             tools.sendToId(g.windows['state-debug'], 'state-debug:audio', data);
         }
     });
-    
+
     ipcRenderer.on('midi-reset-params', (e, data) => {
         ipcRenderer.send('midi-reset-params', data);
     });
-    
+
     ipcRenderer.on('tracker-reset-params', (e, data) => {
         ipcRenderer.send('tracker-reset-params', data);
     });
-    
+
     ipcRenderer.on('open-soundfonts-folder', (e, data) => {
         ipcRenderer.send('open-soundfonts-folder', data);
     });
-    
+
     ipcRenderer.on('get-available-soundfonts', (e, data) => {
         ipcRenderer.send('get-available-soundfonts', data);
     });
-    
+
     // Stage keydown from child windows - forward to app.js for global handling
     ipcRenderer.on('stage-keydown', (e, data) => {
         // Handle locally first for player-specific shortcuts
@@ -322,32 +322,32 @@ function setupIPC() {
             openWindow('parameters');
         }
     });
-    
+
     // Forward monitoring data from engine to monitoring window
     ipcRenderer.on('file-change', (e, data) => {
         if (g.windows.monitoring) {
             tools.sendToId(g.windows.monitoring, 'file-change', data);
         }
     });
-    
+
     ipcRenderer.on('waveform-data', (e, data) => {
         if (g.windows.monitoring) {
             tools.sendToId(g.windows.monitoring, 'waveform-data', data);
         }
     });
-    
+
     ipcRenderer.on('waveform-chunk', (e, data) => {
         if (g.windows.monitoring) {
             tools.sendToId(g.windows.monitoring, 'waveform-chunk', data);
         }
     });
-    
+
     ipcRenderer.on('clear-waveform', (e, data) => {
         if (g.windows.monitoring) {
             tools.sendToId(g.windows.monitoring, 'clear-waveform', data);
         }
     });
-    
+
     ipcRenderer.on('ana-data', (e, data) => {
         if (g.windows.monitoring) {
             tools.sendToId(g.windows.monitoring, 'ana-data', data);
@@ -400,45 +400,51 @@ function setupIPC() {
         };
         onKey(ev);
     });
-    
+
     // Expose debug commands to console
     window.debugEngine = {
-        close: function() {
+        close: function () {
             console.log('[Debug] Closing engine window...');
             ipcRenderer.send('debug:close-engine');
             console.log('[Debug] Engine window closed. Check Task Manager for CPU drop.');
         },
-        open: function() {
+        open: function () {
             console.log('[Debug] Reopening engine window...');
             ipcRenderer.send('debug:open-engine');
             console.log('[Debug] Engine window should reopen shortly.');
         },
-        status: function() {
+        status: function () {
             ipcRenderer.send('debug:idle-status');
         }
     };
-    
+
     // Idle disposal debug commands
     window.debugIdle = {
-        status: function() {
+        status: function () {
             ipcRenderer.send('debug:idle-status');
             console.log('[Debug] Idle status requested. Check response in console.');
         },
-        forceDispose: function() {
+        forceDispose: function () {
             console.log('[Debug] Forcing engine disposal...');
             ipcRenderer.send('debug:idle-force-dispose');
         },
-        resetTimer: function() {
-            console.log('[Debug] Resetting idle timer...');
-            ipcRenderer.send('debug:idle-reset-timer');
+        resetTimer: function () {
+            ipcRenderer.on('debug:idle-reset-timer');
         }
     };
-    
-    // Listen for idle status response
+
+    // Listen for shortcuts from other windows - DEPRECATED: Handled directly by app.js now
+    /*
+    ipcRenderer.on('shortcut', (event, data) => {
+        // ... (code removed) ...
+    });
+    */
+
+    // Listen for window close events (to update UI toggle buttons)e
     ipcRenderer.on('debug:idle-status-response', (e, status) => {
         console.log('[Debug] Idle Status:', status);
     });
-    
+
     console.log('[Player] Debug commands: debugEngine.close(), debugEngine.open(), debugIdle.status(), debugIdle.forceDispose(), disposeIPC.all()');
 }
 
@@ -545,33 +551,33 @@ async function appStart() {
 function updateUI() {
     // Update play/pause state
     checkState();
-    
+
     // Update metadata display if file changed
     if (g.state.file && g.state.metadata) {
         renderInfo(g.state.file, g.state.metadata);
     }
-    
+
     // Update duration display (even without metadata)
     if (g.state.duration && g.playremain) {
         g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
     }
-    
+
     // Update playlist counter
     renderTopInfo();
-    
+
     // Update volume
     updateVolumeUI();
 }
 
 function updatePositionUI() {
     if (!g.state.duration) return;
-    
+
     const proz = g.state.position / g.state.duration;
     g.prog.style.width = (proz * 100) + '%';
-    
+
     const minsec = ut.playTime(g.state.position * 1000).minsec;
     g.playtime.innerText = minsec;
-    
+
     // Update remaining time (duration may arrive before metadata)
     if (g.playremain) {
         g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
@@ -590,7 +596,7 @@ function checkState() {
     } else {
         g.body.removeClass('loop');
     }
-    
+
     if (!g.state.isPlaying) {
         g.body.addClass('pause');
     } else {
@@ -600,7 +606,7 @@ function checkState() {
 
 function renderInfo(fp, metadata) {
     if (!fp) return;
-    
+
     let parse = path.parse(fp);
     let parent = path.basename(parse.dir);
     g.playremain.innerText = ut.playTime((g.state.duration || 0) * 1000).minsec;
@@ -632,16 +638,16 @@ function renderInfo(fp, metadata) {
         } else if (metadata.type === 'midi') {
             // MIDI file
             g.text.appendChild(renderInfoItem('Format:', 'MIDI'));
-            
+
             let infoParts = [];
             if (metadata.originalBPM) infoParts.push(`${metadata.originalBPM} BPM`);
             if (metadata.timeSignature) infoParts.push(`Time: ${metadata.timeSignature}`);
             if (metadata.ppq) infoParts.push(`${metadata.ppq} PPQ`);
             if (metadata.channels) infoParts.push(`${metadata.channels} Ch`);
-            
+
             const infoLine = infoParts.join(' / ');
             if (infoLine) g.text.appendChild(renderInfoItem(' ', infoLine));
-            
+
             g.text.appendChild(ut.htmlObject(`<div class="space"></div>`));
             if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
             if (metadata.copyright) g.text.appendChild(renderInfoItem('Copyright:', metadata.copyright));
@@ -649,19 +655,19 @@ function renderInfo(fp, metadata) {
         } else if (metadata.codec || metadata.format) {
             // Regular audio file
             g.text.appendChild(renderInfoItem('Format:', metadata.codecLongName || metadata.formatLongName || metadata.codec || metadata.format || 'Unknown'));
-            
+
             let bitrateStr = metadata.bitrate ? Math.round(metadata.bitrate / 1000) + ' kbps' : '';
             let channelStr = metadata.channels == 2 ? 'stereo' : (metadata.channels == 1 ? 'mono' : (metadata.channels ? metadata.channels + ' ch' : ''));
             let sampleStr = metadata.sampleRate ? metadata.sampleRate + ' Hz' : '';
             if (metadata.bitsPerSample && sampleStr) sampleStr += ' @ ' + metadata.bitsPerSample + ' Bit';
             let infoLine = [bitrateStr, channelStr, sampleStr].filter(s => s).join(' / ');
             if (infoLine) g.text.appendChild(renderInfoItem(' ', infoLine));
-            
+
             g.text.appendChild(ut.htmlObject(`<div class="space"></div>`));
             if (metadata.artist) g.text.appendChild(renderInfoItem('Artist:', metadata.artist));
             if (metadata.album) g.text.appendChild(renderInfoItem('Album:', metadata.album));
             if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
-            
+
             // Load cover art only for regular audio files
             loadCoverArt(metadata, parse);
         }
@@ -670,12 +676,12 @@ function renderInfo(fp, metadata) {
 
 async function loadCoverArt(metadata, parse) {
     let cover = null;
-    
+
     // Try ID3 cover art
     if (metadata && metadata.coverArt && metadata.coverArt.length > 0) {
         cover = await getCoverArtFromMetadata(metadata);
     }
-    
+
     // Fallback to folder image
     if (!cover) {
         let images = await tools.getFiles(parse.dir, ['.jpg', '.jpeg', '.png', '.gif']);
@@ -724,10 +730,10 @@ function loadImage(url) {
 
 function renderInfoItem(label, text) {
     let el = ut.htmlObject(`
-        <div class="item">
-            <div class="label">${label}</div>
-            <div class="content">${text}</div>
-        </div>`);
+    <div class="item">
+        <div class="label">${label}</div>
+        <div class="content">${text}</div>
+    </div>`);
     return el;
 }
 
@@ -747,7 +753,7 @@ function playPause() {
         ipcRenderer.send('audio:load', { file: g.state.playlist[g.state.playlistIndex], position: 0, paused: false });
         return;
     }
-    
+
     if (g.state.isPlaying) {
         ipcRenderer.send('audio:pause');
     } else {
@@ -781,7 +787,7 @@ function seekTo(s) {
     // Engine will correct if there's any discrepancy when it restores
     g.state.position = s;
     updatePositionUI();
-    
+
     ipcRenderer.send('audio:seek', { position: s });
 }
 
@@ -801,7 +807,7 @@ function seekBack() {
 
 function timelineSlider(e) {
     if (!g.state.duration) return;
-    
+
     if (e.type === 'start') {
         // User started dragging - tell engine to use faster position updates
         ipcRenderer.send('engine:set-position-mode', { mode: 'scrubbing' });
@@ -810,7 +816,7 @@ function timelineSlider(e) {
         ipcRenderer.send('engine:set-position-mode', { mode: 'normal' });
         return;
     }
-    
+
     const s = g.state.duration * e.prozX;
     seekTo(s);
 }
@@ -829,9 +835,9 @@ function setVolume(v, persist = false) {
     if (!g.config.audio) g.config.audio = {};
     g.config.audio.volume = v;
     updateVolumeUI();
-    
+
     ipcRenderer.send('audio:setParams', { volume: v });
-    
+
     if (persist && g.config_obj) {
         g.config_obj.set(g.config);
     }
@@ -1087,7 +1093,7 @@ function setupWindow() {
 
 async function openWindow(type, forceShow = false, contextFile = null) {
     console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'windowId:', g.windows[type]);
-    
+
     async function waitForWindowClosed(t, id, timeoutMs = 2000) {
         return await new Promise((resolve) => {
             let done = false;
@@ -1120,7 +1126,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         ipcRenderer.send('window:toggle', { type });
         return;
     }
-    
+
     // For forceShow or new windows, handle specially
     if (g.windows[type] && forceShow) {
         // Window exists, just show it and update context if needed
@@ -1219,7 +1225,7 @@ async function openWindow(type, forceShow = false, contextFile = null) {
         }
     };
     ipcRenderer.on('window-ready', onReady);
-    
+
     // Fallback: show after timeout even if ready signal not received
     const fallbackTimeout = setTimeout(() => {
         ipcRenderer.removeListener('window-ready', onReady);
@@ -1339,6 +1345,8 @@ async function onKey(e) {
     } else if (shortcutAction === 'toggle-settings') {
         openWindow('settings');
         flashButton(g.ctrl_btn_settings);
+    } else if (shortcutAction === 'toggle-help') {
+        openWindow('help');
     } else if (shortcutAction === 'toggle-theme') {
         tools.sendToMain('command', { command: 'toggle-theme' });
     } else if (shortcutAction === 'toggle-mixer') {
@@ -1351,7 +1359,7 @@ async function onKey(e) {
     } else if (shortcutAction === 'toggle-monitoring') {
         openWindow('monitoring');
     }
-    
+
     // Debug: Ctrl+Shift+D to open state debugger
     if (e.ctrlKey && e.shiftKey && e.keyCode === 68) { // D
         e.preventDefault();
