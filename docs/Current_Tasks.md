@@ -120,12 +120,12 @@
 | Issue | Notes |
 |-------|-------|
 | ~~MIDI metadata in Player~~ | ✅ **Fixed** - `type: 'midi'` was lowercase in player.js but uppercase 'MIDI' in engines.js |
-| Format display shows wrong sample rate | Shows player output sample rate (e.g., 192000 Hz) instead of file's original sample rate |
+| ~~Format display shows wrong sample rate~~ | ✅ **Fixed** - Now shows file's original sample rate |
 | Folder fallback for cover art | Not working - FFmpeg extraction works |
 | First MIDI load delay | 1-2s (library init) |
 | First Tracker load delay | Slight delay |
 | Position update interval | 50ms (was 15ms) |
-| Engine restoration delay | ~100-300ms |
+| ~~Engine restoration delay~~ | ✅ **Optimized** - Event-driven restoration, reduced timeouts, removed setTimeout delays |
 | Mixer window state | Partially decentralized - uses local track state |
 | ~~Tracker pitch by semitones~~ | ✅ **Fixed** - Was double-converting semitones to ratio |
 
@@ -169,12 +169,12 @@ waveformCache.getStats()  // Cache hit/miss stats
 ## Remaining Work (Future Sessions)
 
 ### High Priority
-- **Window Management System** - Currently broken, needs refactoring:
-  - Parameters window hide should return focus to player (not engine window)
-  - Settings window shortcuts not working (should have all window shortcuts)
-  - Help window doesn't open at all
-  - Window shortcuts sometimes need to be hit twice
-  - Missing/incorrect visibility state tracking in app.js
+- ~~**Window Management System**~~ - ✅ **Refactored** - Moved to `js/managers/window-manager.js`
+  - Centralized window state tracking in WindowManager singleton
+  - Native event listeners for reliable hide/close detection
+  - Robust focus restoration to player window (with Windows alwaysOnTop hack)
+  - Child windows now properly return focus to player on hide/close
+- ~~**Settings/Help Shortcuts**~~ - ✅ **Fixed** - Shortcuts now work in Settings and Help windows
 - **Mixer window state** - Track/mixer state should be partially centralized or documented as exception
 - **Mixer - FFmpeg streaming** - Files are loaded completely to memory instead of streaming through FFmpeg
 - ~~**Monitoring Window**~~ - ✅ Fixed - Now survives engine dispose cycle
@@ -191,4 +191,4 @@ waveformCache.getStats()  // Cache hit/miss stats
 
 ---
 
-**Status:** Core architecture stable. Main process is single source of truth. Player window now properly receives state from broadcasts (fixed Feb 2026). Parameters/monitoring windows are dumb renderers. **Window management system needs fixing.**
+**Status:** Core architecture stable. Main process is single source of truth. Player window now properly receives state from broadcasts (fixed Feb 2026). Parameters/monitoring windows are dumb renderers. **Window management system refactored.**

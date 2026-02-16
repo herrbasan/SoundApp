@@ -879,7 +879,7 @@ async function init() {
 		if (lazyLoadTracker) {
 			console.log('[Tracker] Lazy loading enabled - player will init on first tracker file');
 			// Don't create player here - it will be created on first tracker file
-			setTimeout(() => engineReady(), 0);
+			engineReady();
 		} else if (!player) {
 			const modConfig = {
 			repeatCount: 0,
@@ -917,13 +917,11 @@ async function init() {
 				player.gain.connect(g.monitoringSplitter);
 			}
 			g.blocky = false;
-			// Delay engineReady to ensure IPC handlers are registered
-			setTimeout(() => engineReady(), 0);
+			engineReady();
 			});
 	} else {
 		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
-		// Delay engineReady to ensure IPC handlers are registered first
-		setTimeout(() => engineReady(), 0);
+		engineReady();
 	}
 
 	// IPC Command handlers from app.js

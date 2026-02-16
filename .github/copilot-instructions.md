@@ -464,7 +464,31 @@ g.messagePorts;  // In engine
 
 // Check log file location
 logger.getLogPath();
+
+// Check restoration benchmark
+// Logs: "BENCHMARK: dispose→restore→play cycle complete" with totalMs
+// Trigger by: pause (wait for disposal) → play
 ```
+
+### Benchmarking Restoration
+
+The engine logs detailed timing for the dispose→restore→play cycle:
+
+```
+[main] BENCHMARK: dispose→restore→play cycle complete | {"totalMs":245,"file":"song.mp3"}
+```
+
+To trigger a benchmark:
+1. Play a file
+2. Pause and wait for engine disposal (5s hidden, 10s visible)
+3. Press play again — the log will show the full cycle time
+
+**Components measured:**
+- `windowCreateMs` - Creating the engine window
+- `engineReadyMs` - Engine initialization (FFmpeg, MIDI, Tracker)
+- `fileLoadMs` - Loading the audio file
+- `paramsApplyMs` - Applying audio parameters
+- `totalMs` - Full cycle until audio starts playing
 
 ---
 
@@ -609,39 +633,59 @@ On Windows, `win.focus()` often fails if the window was minimized or if another 
 
 ---
 
-## Proposed Refactoring: WindowManager Class
+## WindowManager
 
-**Current State:** Window logic is scattered across `app.js` IPC handlers, `window-loader.js`, and `player.js`.
+**Status:** ✅ **Implemented** — Window management centralized in `js/managers/window-manager.js`
 
-**Proposal:** Centralize into `js/managers/WindowManager.js`:
+The WindowManager is a singleton module that centralizes child window lifecycle and focus management.
+
+### Architecture
 
 ```javascript
-class WindowManager {
-    constructor() {
-        this.windows = new Map(); // type -> { win, state }
-        this.focusStack = [];     // Track order for smarter restoration
-    }
+// WindowManager singleton pattern (not a class - per codebase conventions)
+const WindowManager = require('./managers/window-manager.js');
 
-    create(type, options) { /* ... */ }
-    
-    toggle(type) {
-        const win = this.get(type);
-        if (win.isVisible()) this.hide(type);
-        else this.show(type);
-    }
+// Initialize in app.js
+WindowManager.init(logger, wins.main);
 
-    hide(type) {
-        // Centralized hide logic with native focus restoration
-        const win = this.get(type);
-        win.blur(); // Blur first
-        win.hide();
-        this.restoreMainFocus();
-    }
+// Get state reference (synced with WindowManager internal state)
+const childWindows = WindowManager.getState();
+```
 
-    restoreMainFocus() {
-        // Encapsulated "Force Focus" logic
-        if (process.platform === 'win32') { /* minimize/restore check + alwaysOnTop hack */ }
-        else { mainWin.focus(); }
-    }
+### State Structure
+
+```javascript
+windows: {
+    parameters: { open: false, visible: false, windowId: null },
+    monitoring: { open: false, visible: false, windowId: null },
+    mixer:      { open: false, visible: false, windowId: null },
+    settings:   { open: false, visible: false, windowId: null },
+    help:       { open: false, visible: false, windowId: null }
 }
 ```
+
+### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `init(logger, mainWindow)` | Initialize with dependencies |
+| `getState()` | Get reference to windows state object |
+| `handleWindowCreated(data, onNativeHide)` | Track new window, attach native listeners |
+| `handleWindowHidden(data)` | Update state when window hidden |
+| `handleWindowClosed(data)` | Update state when window destroyed |
+| `toggleWindow(data, sendToStage)` | Toggle window visibility |
+| `restoreMainFocus(reason)` | Robust focus restoration with Windows hack |
+
+### Focus Restoration
+
+When a child window is hidden/closed, focus automatically returns to the main player window:
+
+1. **Blur first** - Helps OS focus switch
+2. **Show if hidden** - Ensure main window is visible
+3. **Restore if minimized** - Un-minimize if needed
+4. **Windows hack** - `setAlwaysOnTop(true)` → `focus()` → `setAlwaysOnTop(false)`
+5. **moveTop()** - Force window to front
+
+### Native Event Listeners
+
+WindowManager attaches native Electron event listeners (`hide`, `close`) to each child window for reliable state tracking. This is more reliable than IPC messages from the renderer which may fail if the window is frozen or busy.

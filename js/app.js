@@ -182,6 +182,37 @@ const messageChannels = new Map();
 // Fixed: Now properly calls port.start() to prevent message queuing
 const ENABLE_MESSAGE_PORT = true;
 
+// Benchmark tracking for dispose→restore→play cycle
+// Tracks timing from restoration start until actual audio playback
+let restorationBenchmark = {
+    startTime: 0,
+    file: null,
+    active: false
+};
+
+// Last broadcast state for change detection (reduces unnecessary IPC)
+let lastBroadcastState = null;
+let lastParamsState = null; // For sendParamsToParametersWindow
+let lastPosition = -1; // For position updates
+
+/**
+ * Shallow compare two objects to detect changes
+ * @param {object} a - Previous state
+ * @param {object} b - Current state  
+ * @returns {boolean} true if different
+ */
+function hasStateChanged(a, b) {
+    if (a === null || b === null) return true;
+    if (a === b) return false;
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return true;
+    for (const key of keysA) {
+        if (a[key] !== b[key]) return true;
+    }
+    return false;
+}
+
 /**
  * Create a MessageChannel between engine and a child window.
  * Called when window is created or engine is restored.
@@ -859,7 +890,7 @@ async function createEngineWindow(options = {}) {
             height: 300,
             resizable: false,
             maximizable: false,
-            devTools: true, // Enabled for debugging
+            devTools: false, // Disabled for fair benchmarking (no console overhead)
             transparent: false,
             backgroundColor: '#1a1a1a',
             file: 'html/engines.html',
@@ -1262,6 +1293,37 @@ function disposeEngineWindow() {
     engineWindow = null;
 }
 
+/**
+ * Promise-based wait for engine:ready event
+ * Replaces polling loop with event-driven approach for faster restoration
+ */
+function waitForEngineReady(timeoutMs = 2000) {
+    return new Promise((resolve) => {
+        if (audioState.engineAlive) {
+            resolve(true);
+            return;
+        }
+
+        const cleanup = () => {
+            ipcMain.removeListener('engine:ready', onReady);
+            clearTimeout(timer);
+        };
+
+        const onReady = () => {
+            cleanup();
+            resolve(true);
+        };
+
+        const timer = setTimeout(() => {
+            cleanup();
+            logger.warn('main', 'waitForEngineReady: timeout');
+            resolve(false);
+        }, timeoutMs);
+
+        ipcMain.once('engine:ready', onReady);
+    });
+}
+
 async function restoreEngineIfNeeded() {
     // Restore engine when window becomes visible and we have state to restore
     logger.info('main', 'restoreEngineIfNeeded called', {
@@ -1285,23 +1347,31 @@ async function restoreEngineIfNeeded() {
 
     logger.info('main', 'restoreEngineIfNeeded: starting restoration');
     const startTime = Date.now();
+    const timings = { start: startTime };
+    
+    // Start benchmark tracking for full dispose→restore→play cycle
+    restorationBenchmark = {
+        startTime: startTime,
+        file: audioState.file,
+        active: true
+    };
 
     try {
         // skipAutoLoad: we control the cmd:load with restore flag
         await createEngineWindow({ skipAutoLoad: true });
+        timings.windowCreated = Date.now();
 
-        // Wait for engine to be ready (engine:ready event sets engineAlive)
-        let waitMs = 0;
-        const maxWaitMs = 1000;
-        while (!audioState.engineAlive && waitMs < maxWaitMs) {
-            await new Promise(r => setTimeout(r, 10));
-            waitMs += 10;
-        }
-
-        if (!audioState.engineAlive) {
-            console.log('[] ');
+        // Wait for engine to be ready (event-driven, not polling)
+        const engineReady = await waitForEngineReady(2000);
+        timings.engineReady = Date.now();
+        if (!engineReady) {
+            logger.error('main', 'restoreEngineIfNeeded: engine failed to become ready');
             return false;
         }
+        logger.debug('main', 'restoreEngineIfNeeded: timings', {
+            windowCreateMs: timings.windowCreated - timings.start,
+            engineReadyMs: timings.engineReady - timings.windowCreated
+        });
 
         // ── Step 0: Reset audioState to defaults ──
         // FFmpeg: reset only if locked=false
@@ -1363,18 +1433,21 @@ async function restoreEngineIfNeeded() {
         }
 
         // ── Step 3: Load file with restore flag ──
+        // Optimized: 1000ms timeout is sufficient for most files
         const fileLoadedPromise = new Promise((resolve) => {
             const onLoaded = (e, data) => {
                 if (data.file === audioState.file) {
                     ipcMain.removeListener('audio:loaded', onLoaded);
+                    clearTimeout(timeout);
                     resolve(data);
                 }
             };
             ipcMain.once('audio:loaded', onLoaded);
-            setTimeout(() => {
+            const timeout = setTimeout(() => {
                 ipcMain.removeListener('audio:loaded', onLoaded);
+                logger.warn('main', 'fileLoadedPromise: timeout waiting for audio:loaded');
                 resolve(null);
-            }, 2000);
+            }, 1000);
         });
 
         sendToEngine('cmd:load', {
@@ -1383,8 +1456,8 @@ async function restoreEngineIfNeeded() {
             paused: !audioState.isPlaying
         });
 
-        console.log('[] ');
         const loadedData = await fileLoadedPromise;
+        timings.fileLoaded = Date.now();
 
         // CRITICAL: Update audioState.fileType from the loaded data BEFORE calling sendParamsToParametersWindow
         // This ensures the correct tab is shown in the parameters window after engine restoration
@@ -1432,7 +1505,13 @@ async function restoreEngineIfNeeded() {
         }
 
         const elapsed = Date.now() - startTime;
-        console.log(`Engine restored in ${elapsed}ms`);
+        logger.info('main', 'Engine restored successfully', {
+            totalMs: elapsed,
+            windowCreateMs: timings.windowCreated - timings.start,
+            engineReadyMs: timings.engineReady - timings.windowCreated,
+            fileLoadMs: timings.fileLoaded - timings.engineReady,
+            paramsApplyMs: elapsed - (timings.fileLoaded - timings.start)
+        });
         audioState.isRestoration = false; // Clear restoration flag on success
 
         // Update idle state machine
@@ -1475,7 +1554,6 @@ function sendToPlayer(channel, data) {
 function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it exists
     // Window may be hidden (open=false) but still exist - send params anyway
-    console.log(`[sendParamsToParametersWindow] fileType=${audioState.fileType}, reset=${reset}`);
 
     if (!childWindows.parameters.windowId) {
         // Early return: no windowId
@@ -1483,7 +1561,6 @@ function sendParamsToParametersWindow(reset = false) {
     }
 
     const fileType = audioState.fileType;
-    console.log(`[DEBUG] Sending params for fileType: ${fileType}`);
     let paramsData = null;
 
     if (fileType === 'MIDI') {
@@ -1529,6 +1606,14 @@ function sendParamsToParametersWindow(reset = false) {
         };
     }
 
+    // Skip if params haven't changed (unless reset is requested)
+    if (!reset && !hasStateChanged(lastParamsState, paramsData)) {
+        return;
+    }
+
+    logger.debug('main', 'sendParamsToParametersWindow', { fileType, reset });
+    lastParamsState = JSON.parse(JSON.stringify(paramsData)); // Deep copy for params
+
     if (paramsData) {
         // Send directly to parameters window using tools helper
         try {
@@ -1540,13 +1625,6 @@ function sendParamsToParametersWindow(reset = false) {
 }
 
 function broadcastState(excludeEngine = false) {
-    // Log state changes for debugging
-    logger.debug('main', 'broadcastState', {
-        isPlaying: audioState.isPlaying,
-        position: Math.round(audioState.position * 100) / 100,
-        file: audioState.file ? path.basename(audioState.file) : null,
-        engineAlive: audioState.engineAlive
-    });
     const stateUpdate = {
         file: audioState.file,
         isPlaying: audioState.isPlaying,
@@ -1569,6 +1647,22 @@ function broadcastState(excludeEngine = false) {
         playlistIndex: audioState.playlistIndex,
         monitoringSource: audioState.monitoringSource
     };
+
+    // Skip if state hasn't changed (reduces IPC overhead)
+    if (!hasStateChanged(lastBroadcastState, stateUpdate)) {
+        return;
+    }
+
+    // Log only when actually broadcasting
+    logger.debug('main', 'broadcastState', {
+        isPlaying: audioState.isPlaying,
+        position: Math.round(audioState.position * 100) / 100,
+        file: audioState.file ? path.basename(audioState.file) : null,
+        engineAlive: audioState.engineAlive
+    });
+
+    // Store for next comparison
+    lastBroadcastState = { ...stateUpdate };
 
     // Send to player window
     sendToPlayer('state:update', stateUpdate);
@@ -1883,13 +1977,29 @@ function setupAudioIPC() {
     // Events from engine → update state and broadcast to player
     ipcMain.on('audio:position', (e, position) => {
         audioState.position = position;
-        // Targeted send to player only (frequent updates)
-        sendToPlayer('position', position);
+        // Only send if position changed (reduces IPC overhead for frequent updates)
+        // Round to 2 decimal places to avoid micro-changes
+        const roundedPos = Math.round(position * 100) / 100;
+        if (roundedPos !== lastPosition) {
+            lastPosition = roundedPos;
+            // Targeted send to player only (frequent updates)
+            sendToPlayer('position', roundedPos);
+        }
     });
 
     ipcMain.on('audio:state', (e, data) => {
         if (data.isPlaying !== undefined) {
             audioState.isPlaying = data.isPlaying;
+            
+            // Benchmark: Log when audio actually starts playing after restoration
+            if (data.isPlaying && restorationBenchmark.active) {
+                const totalMs = Date.now() - restorationBenchmark.startTime;
+                logger.info('main', 'BENCHMARK: dispose→restore→play cycle complete', {
+                    totalMs: totalMs,
+                    file: restorationBenchmark.file ? path.basename(restorationBenchmark.file) : null
+                });
+                restorationBenchmark.active = false;
+            }
         }
         if (data.isLoop !== undefined) {
             audioState.loop = data.isLoop;
