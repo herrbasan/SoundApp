@@ -217,6 +217,11 @@ function setupIPC() {
         updatePositionUI();
     });
 
+    // Receive idle time updates (for debug display)
+    ipcRenderer.on('idle:time', (e, data) => {
+        updateIdleDebugDisplay(data);
+    });
+
     // Handle file drops from main process
     ipcRenderer.on('main', async (e, data) => {
         if (data.length == 1) {
@@ -602,6 +607,31 @@ function checkState() {
     } else {
         g.body.removeClass('pause');
     }
+}
+
+// Debug: Update idle time display in title bar
+function updateIdleDebugDisplay(data) {
+    // Try to find dedicated element first
+    let el = document.querySelector('.idle-debug');
+    
+    // Fallback: append to num element
+    if (!el) {
+        const numEl = document.querySelector('.top .content .num');
+        if (!numEl) return;
+        
+        // Create or find idle span inside num
+        el = numEl.querySelector('.idle-text');
+        if (!el) {
+            el = document.createElement('span');
+            el.className = 'idle-text';
+            el.style.cssText = 'margin-left: 0.5rem; opacity: 0.6; font-size: 0.75em;';
+            numEl.appendChild(el);
+        }
+    }
+    
+    // Always show countdown - reset by play state or user activity
+    // Format: just the number (seconds until disposal)
+    el.innerText = `${data.remaining || 0}`;
 }
 
 function renderInfo(fp, metadata) {

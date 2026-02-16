@@ -190,6 +190,10 @@ let restorationBenchmark = {
     active: false
 };
 
+// Flag to skip activity recording when focus is restored programmatically
+// (e.g., after hiding a child window - this shouldn't reset idle timer)
+let skipNextFocusActivity = false;
+
 // Last broadcast state for change detection (reduces unnecessary IPC)
 let lastBroadcastState = null;
 let lastParamsState = null; // For sendParamsToParametersWindow
@@ -579,7 +583,7 @@ async function appStart() {
             e.preventDefault();
             try { wins.main.hide(); } catch (err) { }
             // Phase 4: Schedule engine disposal when hidden to tray
-            scheduleEngineDisposal();
+            // (polling loop handles this automatically)
         });
 
         wins.main.on('closed', () => {
@@ -593,21 +597,33 @@ async function appStart() {
 
         // Phase 4: Restore engine when window becomes visible
         wins.main.on('show', () => {
-            cancelEngineDisposal();
+            recordUserActivity();
             restoreEngineIfNeeded();
         });
 
         wins.main.on('restore', () => {
-            cancelEngineDisposal();
+            recordUserActivity();
             restoreEngineIfNeeded();
         });
 
         // Track user activity to prevent idle disposal
+        // Skip if focus was restored programmatically (e.g., after hiding child window)
         wins.main.on('focus', () => {
+            if (skipNextFocusActivity) {
+                skipNextFocusActivity = false;
+                return;
+            }
             recordUserActivity();
         });
 
+        // Start the idle disposal check loop
+        startIdleDisposalLoop();
+
         wins.main.webContents.on('did-focus', () => {
+            // Also skip webContents focus if it was triggered by programmatic focus restoration
+            if (skipNextFocusActivity) {
+                return;
+            }
             recordUserActivity();
         });
 
@@ -762,7 +778,7 @@ function createTray() {
                         wins.main.show();
                         wins.main.focus();
                         // Phase 4: Cancel disposal and restore engine if needed
-                        cancelEngineDisposal();
+                        recordUserActivity();
                         await restoreEngineIfNeeded();
                     }
                 } catch (e) { }
@@ -779,7 +795,7 @@ function createTray() {
                 wins.main.show();
                 wins.main.focus();
                 // Phase 4: Cancel disposal and restore engine if needed
-                cancelEngineDisposal();
+                recordUserActivity();
                 await restoreEngineIfNeeded();
             }
         } catch (e) { }
@@ -952,223 +968,112 @@ async function createEngineWindow(options = {}) {
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IDLE DISPOSAL CONFIGURATION
+// IDLE DISPOSAL - Simple Polling Approach
+// Polls every second to check if engine should be disposed
+// Much simpler and more robust than event-driven state machine
 // ═══════════════════════════════════════════════════════════════════════════
 
 const IDLE_DISPOSE_TIMEOUT_MS = 5000;        // 5s when hidden to tray
 const IDLE_DISPOSE_VISIBLE_TIMEOUT_MS = 10000; // 10s when visible but paused
+const IDLE_CHECK_INTERVAL_MS = 1000;         // Check every second
 
-// ═══════════════════════════════════════════════════════════════════════════
-// UNIFIED IDLE STATE MACHINE
-// Replaces overlapping timers with explicit state transitions
-// ═══════════════════════════════════════════════════════════════════════════
-
-const IdleState = {
-    ACTIVE: 'active',           // Engine running (playing or recently active)
-    PAUSED_VISIBLE: 'paused_visible',  // Paused, window visible - can dispose after timeout
-    PAUSED_HIDDEN: 'paused_hidden',    // Paused, window hidden - quick disposal
-    DISPOSING: 'disposing',     // Disposal in progress
-    DISPOSED: 'disposed'        // Engine disposed, 0% CPU
-};
-
-const IdleTransitions = {
-    [IdleState.ACTIVE]: {
-        onEnter: () => {
-            cancelEngineDisposalTimer();
-            if (audioState.engineAlive) {
-                console.log('[Idle] Engine active');
-            }
-        },
-        canDispose: () => false,
-        nextDelay: null
-    },
-    [IdleState.PAUSED_VISIBLE]: {
-        onEnter: () => {
-            console.log('[Idle] Paused visible, scheduling disposal...');
-            scheduleDisposalTimer(IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
-        },
-        canDispose: () => !audioState.isPlaying && isWindowVisible(),
-        nextDelay: IDLE_DISPOSE_VISIBLE_TIMEOUT_MS
-    },
-    [IdleState.PAUSED_HIDDEN]: {
-        onEnter: () => {
-            console.log('[Idle] Paused hidden, scheduling quick disposal...');
-            scheduleDisposalTimer(IDLE_DISPOSE_TIMEOUT_MS);
-        },
-        canDispose: () => !audioState.isPlaying && !isWindowVisible(),
-        nextDelay: IDLE_DISPOSE_TIMEOUT_MS
-    },
-    [IdleState.DISPOSING]: {
-        onEnter: () => {
-            console.log('[Idle] Disposing engine...');
-            performDisposal();
-        },
-        canDispose: () => false,
-        nextDelay: null
-    },
-    [IdleState.DISPOSED]: {
-        onEnter: () => {
-            console.log('[Idle] Engine disposed (0% CPU mode)');
-            console.log(`[Disposal] State is now DISPOSED, isDisposing=${audioState.isDisposing}`);
-        },
-        canDispose: () => false,
-        nextDelay: null
-    }
-};
-
-let idleStateMachine = {
-    current: IdleState.ACTIVE,
-    timer: null,
-    lastActivity: Date.now()
+let idleDisposalState = {
+    lastActivityTime: Date.now(),
+    isDisposing: false,
+    checkInterval: null
 };
 
 function isWindowVisible() {
     return wins.main && wins.main.isVisible() && !wins.main.isMinimized();
 }
 
-function computeIdleState() {
-    if (audioState.isPlaying) return IdleState.ACTIVE;
-    if (!isWindowVisible()) return IdleState.PAUSED_HIDDEN;
-    return IdleState.PAUSED_VISIBLE;
+function getIdleTimeoutMs() {
+    return isWindowVisible() ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
 }
 
-function transitionIdleState(newState) {
-    if (newState === idleStateMachine.current) return;
-
-    const oldState = idleStateMachine.current;
-    idleStateMachine.current = newState;
-
-    logger.info('main', `Idle state transition: ${oldState} -> ${newState}`);
-    console.log(`[IdleState] ${oldState} -> ${newState}`);
-
-    const handler = IdleTransitions[newState];
-    if (handler && handler.onEnter) {
-        handler.onEnter();
-    }
-
-    // Broadcast state change for debugging/monitoring
-    broadcastState({ idleState: newState });
+function shouldDisposeEngine() {
+    if (audioState.isPlaying) return false;
+    if (!engineWindow) return false;
+    if (idleDisposalState.isDisposing) return false;
+    
+    const idleTime = Date.now() - idleDisposalState.lastActivityTime;
+    const timeout = getIdleTimeoutMs();
+    
+    return idleTime >= timeout;
 }
 
-function scheduleDisposalTimer(delayMs) {
-    console.log(`[Disposal] scheduleDisposalTimer(${delayMs}ms)`);
-    clearTimeout(idleStateMachine.timer);
-    idleStateMachine.timer = setTimeout(() => {
-        console.log(`[Disposal] Timer fired after ${delayMs}ms`);
-        idleStateMachine.timer = null;
-        onDisposalTimeout();
-    }, delayMs);
+function checkIdleDisposal() {
+    if (!shouldDisposeEngine()) return;
+    
+    console.log('[Idle] Timeout reached, disposing engine...');
+    performDisposal();
 }
 
-function cancelEngineDisposalTimer() {
-    if (idleStateMachine.timer) {
-        clearTimeout(idleStateMachine.timer);
-        idleStateMachine.timer = null;
-    }
+function startIdleDisposalLoop() {
+    if (idleDisposalState.checkInterval) return;
+    
+    console.log('[Idle] Starting disposal check loop');
+    idleDisposalState.checkInterval = setInterval(() => {
+        checkIdleDisposal();
+        broadcastIdleTime();
+    }, IDLE_CHECK_INTERVAL_MS);
 }
 
-function onDisposalTimeout() {
-    console.log(`[Disposal] onDisposalTimeout called`);
-    // Re-verify conditions before disposal
-    const desiredState = computeIdleState();
-    console.log(`[Disposal] desiredState: ${desiredState}`);
-
-    if (desiredState === IdleState.PAUSED_VISIBLE || desiredState === IdleState.PAUSED_HIDDEN) {
-        const handler = IdleTransitions[desiredState];
-        const canDispose = handler && handler.canDispose ? handler.canDispose() : false;
-        console.log(`[Disposal] canDispose: ${canDispose}`);
-        if (canDispose) {
-            transitionIdleState(IdleState.DISPOSING);
-        } else {
-            // Conditions changed, transition to correct state
-            console.log(`[Disposal] Conditions changed, transitioning to ${desiredState}`);
-            transitionIdleState(desiredState);
-        }
+function broadcastIdleTime() {
+    // Send idle time to player for debug display
+    // When playing, show full timeout (effectively reset)
+    const timeout = getIdleTimeoutMs();
+    let remaining;
+    
+    if (audioState.isPlaying) {
+        remaining = Math.round(timeout / 1000);
     } else {
-        // No longer should dispose (e.g., started playing)
-        console.log(`[Disposal] No longer should dispose, transitioning to ${desiredState}`);
-        transitionIdleState(desiredState);
+        const idleTime = Date.now() - idleDisposalState.lastActivityTime;
+        remaining = Math.max(0, Math.round((timeout - idleTime) / 1000));
     }
+    
+    sendToPlayer('idle:time', {
+        remaining: remaining  // seconds until disposal
+    });
 }
 
-async function performDisposal() {
-    if (!engineWindow || audioState.isDisposing) {
-        console.log(`[Disposal] performDisposal early exit: engineWindow=${!!engineWindow}, isDisposing=${audioState.isDisposing}`);
-        transitionIdleState(IdleState.ACTIVE);
-        return;
-    }
-
-    console.log(`[Disposal] performDisposal starting`);
-    audioState.isDisposing = true;
-
-    try {
-        disposeEngineWindow();
-        transitionIdleState(IdleState.DISPOSED);
-        // Reset isDisposing after successful disposal so next disposal can happen
-        audioState.isDisposing = false;
-        console.log(`[Disposal] performDisposal completed, isDisposing reset to false`);
-    } catch (err) {
-        console.error('[Idle] Disposal failed:', err);
-        audioState.isDisposing = false;
-        transitionIdleState(IdleState.ACTIVE);
+function stopIdleDisposalLoop() {
+    if (idleDisposalState.checkInterval) {
+        console.log('[Idle] Stopping disposal check loop');
+        clearInterval(idleDisposalState.checkInterval);
+        idleDisposalState.checkInterval = null;
     }
 }
 
 function recordUserActivity() {
-    idleStateMachine.lastActivity = Date.now();
-    idleState.lastActivityTime = Date.now(); // Legacy compatibility
+    idleDisposalState.lastActivityTime = Date.now();
+    console.log('[Idle] Activity recorded, timeout reset');
+}
 
-    // If currently in a disposable state, go back to active
-    if (idleStateMachine.current === IdleState.PAUSED_VISIBLE ||
-        idleStateMachine.current === IdleState.PAUSED_HIDDEN) {
-        transitionIdleState(IdleState.ACTIVE);
+async function performDisposal() {
+    if (!engineWindow || idleDisposalState.isDisposing) {
+        console.log(`[Disposal] performDisposal early exit: engineWindow=${!!engineWindow}, isDisposing=${idleDisposalState.isDisposing}`);
+        return;
+    }
+
+    console.log(`[Disposal] performDisposal starting`);
+    idleDisposalState.isDisposing = true;
+
+    try {
+        disposeEngineWindow();
+        // Reset isDisposing after successful disposal so next disposal can happen
+        idleDisposalState.isDisposing = false;
+        console.log(`[Disposal] performDisposal completed`);
+    } catch (err) {
+        console.error('[Idle] Disposal failed:', err);
+        idleDisposalState.isDisposing = false;
     }
 }
 
-function updateIdleState() {
-    const desired = computeIdleState();
-    console.log(`[Disposal] updateIdleState: current=${idleStateMachine.current}, desired=${desired}`);
-
-    // Only auto-transition to disposable states from ACTIVE
-    if (idleStateMachine.current === IdleState.ACTIVE && desired !== IdleState.ACTIVE) {
-        console.log(`[Disposal] Transitioning from ACTIVE to ${desired}`);
-        transitionIdleState(desired);
-    }
-    // If DISPOSED and need to go to a disposable state, restore engine first
-    else if (idleStateMachine.current === IdleState.DISPOSED && desired !== IdleState.ACTIVE) {
-        console.log(`[Disposal] Restoring engine from DISPOSED to handle ${desired}`);
-        restoreEngineIfNeeded().then(() => {
-            if (audioState.engineAlive) {
-                // After restoration, go to ACTIVE first, then to desired state
-                transitionIdleState(IdleState.ACTIVE);
-                // Then immediately transition to the desired disposable state
-                if (desired !== IdleState.ACTIVE) {
-                    transitionIdleState(desired);
-                }
-            }
-        });
-    }
-}
-
-// Legacy compatibility wrappers
-function scheduleEngineDisposal() {
-    updateIdleState();
-}
-
-function scheduleVisibleIdleDisposal() {
-    updateIdleState();
-}
-
+// Legacy compatibility wrapper
 function cancelEngineDisposal() {
     recordUserActivity();
-    updateIdleState();
 }
-
-// Legacy idle state tracking (for backward compatibility)
-let idleState = {
-    lastActivityTime: Date.now(),
-    visibleDisposeTimeout: null
-};
 
 // State-debug action tracking
 // Debug logging - outputs to console for development debugging
@@ -1176,90 +1081,7 @@ function logStateDebugAction(action, detail = '') {
     console.log(`[StateDebug] ${action}: ${detail}`);
 }
 
-function shouldDisposeEngine() {
-    // Use state machine for decision
-    const desired = computeIdleState();
-    return desired === IdleState.PAUSED_VISIBLE || desired === IdleState.PAUSED_HIDDEN;
-}
 
-function recordUserActivity() {
-    console.log(`[Disposal] recordUserActivity called`);
-    // Called on any user interaction that should reset idle timer
-    idleState.lastActivityTime = Date.now();
-
-    // If we have a visible-idle timeout pending, cancel and reschedule
-    if (idleState.visibleDisposeTimeout) {
-        clearTimeout(idleState.visibleDisposeTimeout);
-        idleState.visibleDisposeTimeout = null;
-        scheduleVisibleIdleDisposal();
-    }
-}
-
-function scheduleEngineDisposal() {
-    // Clear any existing timeout
-    if (audioState.engineDisposalTimeout) {
-        clearTimeout(audioState.engineDisposalTimeout);
-        audioState.engineDisposalTimeout = null;
-    }
-
-    // Only schedule if engine exists and should be disposed
-    const shouldDispose = shouldDisposeEngine();
-    console.log(`[Disposal] scheduleEngineDisposal called, engineWindow: ${!!engineWindow}, shouldDispose: ${shouldDispose}`);
-    if (!engineWindow || !shouldDispose) {
-        console.log(`[Disposal] Not scheduling - engineWindow: ${!!engineWindow}, shouldDisposeEngine: ${shouldDispose}`);
-        return;
-    }
-
-    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-    const timeoutMs = isWindowVisible ? IDLE_DISPOSE_VISIBLE_TIMEOUT_MS : IDLE_DISPOSE_TIMEOUT_MS;
-
-    console.log(`[Disposal] Scheduling engine disposal in ${timeoutMs}ms... (visible: ${isWindowVisible})`);
-
-    audioState.engineDisposalTimeout = setTimeout(() => {
-        audioState.engineDisposalTimeout = null;
-        const stillShouldDispose = shouldDisposeEngine();
-        console.log(`[Disposal] Timeout fired, shouldDisposeEngine: ${stillShouldDispose}`);
-        if (stillShouldDispose) {
-            console.log(`[Disposal] Calling performDisposal()`);
-            performDisposal();
-        } else {
-            console.log(`[Disposal] Not disposing - conditions changed`);
-        }
-    }, timeoutMs);
-}
-
-function scheduleVisibleIdleDisposal() {
-    // Schedule disposal for visible-but-idle state
-    if (!engineWindow || audioState.isPlaying) return;
-
-    const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-    if (!isWindowVisible) return; // Only for visible window
-
-    // Cancel any existing visible timeout
-    if (idleState.visibleDisposeTimeout) {
-        clearTimeout(idleState.visibleDisposeTimeout);
-    }
-
-    idleState.visibleDisposeTimeout = setTimeout(() => {
-        idleState.visibleDisposeTimeout = null;
-        if (shouldDisposeEngine()) {
-            console.log('[Disposal] visible timeout fired, calling performDisposal');
-            performDisposal();
-        }
-    }, IDLE_DISPOSE_VISIBLE_TIMEOUT_MS);
-}
-
-function cancelEngineDisposal() {
-    if (audioState.engineDisposalTimeout) {
-        clearTimeout(audioState.engineDisposalTimeout);
-        audioState.engineDisposalTimeout = null;
-        console.log('[] ');
-    }
-    if (idleState.visibleDisposeTimeout) {
-        clearTimeout(idleState.visibleDisposeTimeout);
-        idleState.visibleDisposeTimeout = null;
-    }
-}
 
 function disposeEngineWindow() {
     console.log(`[Disposal] disposeEngineWindow called, engineWindow=${!!engineWindow}`);
@@ -1267,9 +1089,6 @@ function disposeEngineWindow() {
         console.log(`[Disposal] disposeEngineWindow early return: engineWindow is null`);
         return;
     }
-
-    // Cancel any pending disposal timeout
-    cancelEngineDisposal();
 
     console.log('[Disposal] disposeEngineWindow: closing engine');
     logStateDebugAction('engine-disposed', 'Engine disposed (0% CPU mode)');
@@ -1513,9 +1332,6 @@ async function restoreEngineIfNeeded() {
         });
         audioState.isRestoration = false; // Clear restoration flag on success
 
-        // Update idle state machine
-        transitionIdleState(IdleState.ACTIVE);
-
         return true;
 
     } catch (err) {
@@ -1695,9 +1511,7 @@ function setupAudioIPC() {
         logStateDebugAction('play', audioState.engineAlive ? 'Play (engine alive)' : 'Play (engine was disposed, restoring...)');
 
         audioState.isPlaying = true;
-        // Phase 4: Cancel any pending disposal
-        cancelEngineDisposal();
-
+        
         // If engine was disposed, restore it first
         if (!audioState.engineAlive) {
             console.log('[] ');
@@ -1715,15 +1529,16 @@ function setupAudioIPC() {
     });
 
     ipcMain.on('audio:pause', () => {
+        recordUserActivity(); // Reset idle timer on user interaction
         logger.info('main', 'audio:pause received', { locked: audioState.locked, wasPlaying: audioState.isPlaying });
         logStateDebugAction('pause', 'Playback paused');
         audioState.isPlaying = false;
         sendToEngine('cmd:pause');
         broadcastState();
         // Phase 4: Schedule disposal after pausing
-        scheduleEngineDisposal();
+        // Disposal handled by polling loop
         // Also schedule visible idle disposal (in case window stays visible)
-        scheduleVisibleIdleDisposal();
+        // Disposal handled by polling loop
     });
 
     ipcMain.on('audio:seek', async (e, data) => {
@@ -1760,7 +1575,7 @@ function setupAudioIPC() {
         });
 
         // Phase 4: Cancel any pending disposal when loading new content
-        cancelEngineDisposal();
+        recordUserActivity();
 
         audioState.file = data.file;
         audioState.position = data.position || 0;
@@ -2111,6 +1926,9 @@ function setupAudioIPC() {
                             setTimeout(() => {
                                 if (wins.main.isDestroyed()) return;
 
+                                // Flag to skip activity recording - this is programmatic focus
+                                skipNextFocusActivity = true;
+
                                 // 1. Ensure visible
                                 if (!wins.main.isVisible()) {
                                     wins.main.show();
@@ -2197,6 +2015,9 @@ function setupAudioIPC() {
                 isVisible: wins.main.isVisible()
             });
 
+            // Flag to skip activity recording - this is programmatic focus, not user interaction
+            skipNextFocusActivity = true;
+
             if (process.platform === 'win32') {
                 if (wins.main.isMinimized()) wins.main.restore();
                 wins.main.focus();
@@ -2231,6 +2052,9 @@ function setupAudioIPC() {
             // Always return focus to player window when any child window is closed
             if (wins.main && !wins.main.isDestroyed()) {
                 logger.debug('window', 'Restoring focus to player window after close');
+
+                // Flag to skip activity recording - this is programmatic focus
+                skipNextFocusActivity = true;
 
                 if (!wins.main.isVisible()) wins.main.show();
                 if (wins.main.isMinimized()) wins.main.restore();
@@ -2276,6 +2100,8 @@ function setupAudioIPC() {
                     if (wins.main && !wins.main.isDestroyed()) {
                         setTimeout(() => {
                             try {
+                                // Flag to skip activity recording - this is programmatic focus
+                                skipNextFocusActivity = true;
                                 if (wins.main.isMinimized()) wins.main.restore();
                                 wins.main.focus();
                                 logger.debug('window', 'Player focused via timeout');
@@ -2309,6 +2135,7 @@ function setupAudioIPC() {
     // Param changes from parameters window → track in state and forward to engine
     ipcMain.on('param-change', (e, data) => {
         console.log(`[Main] param-change: ${data.mode}.${data.param} = ${data.value}`);
+        recordUserActivity(); // Reset idle timer on user interaction
         // Track format-specific params in main state so we can restore after disposal
         let stateChanged = false;
         if (data.mode === 'midi') {
@@ -2444,9 +2271,8 @@ function setupAudioIPC() {
                 mixer: { open: childWindows.mixer.open }
             },
             idleState: {
-                lastActivityTime: new Date(idleState.lastActivityTime).toLocaleTimeString(),
-                engineDisposalTimeout: !!audioState.engineDisposalTimeout,
-                visibleDisposeTimeout: !!idleState.visibleDisposeTimeout
+                lastActivityTime: new Date(idleDisposalState.lastActivityTime).toLocaleTimeString(),
+                pollingActive: !!idleDisposalState.checkInterval
             }
         };
 
@@ -2500,16 +2326,15 @@ function setupAudioIPC() {
     // DEBUG: Idle disposal testing
     ipcMain.on('debug:idle-status', (e) => {
         const isWindowVisible = wins.main && wins.main.isVisible() && !wins.main.isMinimized();
-        const idleTime = Date.now() - idleStateMachine.lastActivity;
+        const idleTime = Date.now() - idleDisposalState.lastActivityTime;
         const status = {
             engineAlive: audioState.engineAlive,
             isPlaying: audioState.isPlaying,
             isWindowVisible,
-            idleState: idleStateMachine.current,
             idleTimeMs: idleTime,
             idleTimeSec: Math.round(idleTime / 1000),
             shouldDispose: shouldDisposeEngine(),
-            pendingTimer: !!idleStateMachine.timer,
+            pollingActive: !!idleDisposalState.checkInterval,
             waveformCacheSize: waveformCache.size,
             waveformCacheStats: waveformCache.getStats()
         };
