@@ -919,37 +919,67 @@ function resetTrackerSoloState() {
  * Apply a soundfont filename to the dropdown. If the dropdown isn't populated
  * yet, stores the value in g.pendingSoundfont — initSoundfontSelector() will
  * apply it once the options arrive.
+ *
+ * Uses the nui-select's update method to refresh the UI after changing selection.
+ * This is the proper way to modify the select after initialization.
  */
 function applySoundfontToDropdown(fontFilename) {
     const sfSelect = document.getElementById('soundfont-select');
-    if (!sfSelect || sfSelect.options.length === 0) {
-        // Dropdown not ready — store for later
+    if (!sfSelect) {
+        console.warn('[SoundFont] Select element not found');
+        return;
+    }
+
+    // Check if nui-select has been initialized (has update method)
+    const isInitialized = typeof sfSelect.update === 'function';
+
+    if (!isInitialized) {
+        // Nui-select not initialized yet - store for later
+        console.log('[SoundFont] Nui-select not initialized, storing pending:', fontFilename);
+        g.pendingSoundfont = fontFilename;
+        return;
+    }
+
+    // Nui-select is initialized - find and select the option
+    const options = sfSelect.options;
+    if (!options || options.length === 0) {
+        // No options yet - store for later
+        console.log('[SoundFont] No options yet, storing pending:', fontFilename);
         g.pendingSoundfont = fontFilename;
         return;
     }
 
     g.pendingSoundfont = null;
     let found = false;
-    for (let i = 0; i < sfSelect.options.length; i++) {
-        if (sfSelect.options[i].value === fontFilename) {
-            sfSelect.options[i].selected = true;
+    for (let i = 0; i < options.length; i++) {
+        if (options[i].value === fontFilename) {
+            options[i].selected = true;
             found = true;
         } else {
-            sfSelect.options[i].selected = false;
+            options[i].selected = false;
         }
     }
 
     if (found) {
-        if (sfSelect.update) sfSelect.update();
+        // Call nui-select's update method to refresh the visual state
+        // This updates button text and pulldown selection states
+        sfSelect.update();
     } else {
-        console.warn('[Parameters] Soundfont not found in options:', fontFilename,
-            'Available:', Array.from(sfSelect.options).map(o => o.value));
+        console.warn('[SoundFont] Soundfont not found in options:', fontFilename,
+            'Available:', Array.from(options).map(o => o.value));
     }
 }
 
 async function initSoundfontSelector() {
     const sfSelect = document.getElementById('soundfont-select');
     if (!sfSelect) return;
+
+    // Check if nui-select is already initialized - prevent re-initialization
+    // This ensures we don't create duplicate visual elements
+    if (sfSelect.ss_id) {
+        console.log('[SoundFont] Nui-select already initialized, skipping re-init');
+        return;
+    }
 
     // Dumb renderer pattern: Don't read from init_data/local state.
     // Main process will send the selected soundfont via updateParams().
@@ -977,7 +1007,7 @@ async function initSoundfontSelector() {
         });
     }
 
-    // Initialize nui-select (visual component)
+    // Initialize nui-select (visual component) - only once!
     superSelect(sfSelect);
 
     // Apply any soundfont value that arrived before the dropdown was ready
