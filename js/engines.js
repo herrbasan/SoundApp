@@ -1,12 +1,8 @@
 ﻿'use strict';
 
-/**
- * ENGINES.JS - Headless Audio Engine
- * 
- * Derived from stage.js by stripping all UI code.
- * Handles audio playback, pipeline switching, and monitoring.
- * Communicates with app.js (main) via IPC.
- */
+// ENGINES.JS - Headless Audio Engine
+// Handles audio playback, pipeline switching, and monitoring.
+// Communicates with app.js (main) via IPC.
 
 const { ipcRenderer } = require("electron");
 const fs = require('fs').promises;
@@ -21,26 +17,8 @@ const logger = require('./logger-renderer');
 // Direct Window Communication - Bypass main process for high-frequency data
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Send data directly to a specific window by ID.
- * Uses ipcRenderer.sendTo for direct renderer-to-renderer communication.
- * 
- * @param {number|null} windowId - The target window ID (from g.windows)
- * @param {string} channel - The IPC channel name
- * @param {*} data - The data to send
- */
-/**
- * Send data to a window. Uses MessagePort for direct communication if available,
- * otherwise falls back to main-process IPC (tools.sendToId).
- * 
- * For high-frequency data (VU meters), MessagePort is essential to avoid
- * main-process bottleneck.
- * 
- * @param {number} windowId - Target window ID
- * @param {string} channel - IPC channel name
- * @param {*} data - Data to send
- * @param {string} windowType - 'parameters' or 'monitoring' (for MessagePort lookup)
- */
+// Send data to window. Uses MessagePort for high-frequency data (VU meters),
+// falls back to main-process IPC.
 function sendToWindow(windowId, channel, data, windowType) {
 	if (!windowId || g.isDisposed) {
 		return;
@@ -65,14 +43,7 @@ function sendToWindow(windowId, channel, data, windowType) {
 	}
 }
 
-/**
- * Broadcast data to all windows of a given type that are registered.
- * Currently supports 'parameters' and 'monitoring' windows.
- * 
- * @param {string} windowType - 'parameters' or 'monitoring'
- * @param {string} channel - The IPC channel name  
- * @param {*} data - The data to send
- */
+// Broadcast to all windows of a given type (parameters, monitoring)
 function broadcastToWindow(windowType, channel, data) {
 	const windowId = g.windows[windowType];
 	if (windowId) {
@@ -115,10 +86,7 @@ let _trackerInstance = null;
 let _trackerInitPromise = null;
 let _trackerInitialized = false;
 
-/**
- * Lazy accessor for Tracker (Chiptune) player.
- * Returns existing instance or initializes on first access.
- */
+// Lazy accessor for Tracker player - initializes on first access
 async function getTrackerPlayer() {
     // Check if lazy-init is enabled (default: false for compatibility)
     const lazyInitEnabled = (typeof g !== 'undefined' && g?.main_env && (g.main_env.lazyLoadTracker || g.main_env.lazyLoadEngines)) || 
@@ -126,7 +94,7 @@ async function getTrackerPlayer() {
     
     // If not lazy-init, initialize immediately on first call
     if (!lazyInitEnabled) {
-        console.log('[Tracker] Lazy-init disabled, creating instance immediately');
+        logger.debug('tracker', 'Lazy-init disabled, creating instance');
         if (!_trackerInstance && window.chiptune) {
             _trackerInstance = createTrackerPlayer();
             player = _trackerInstance;  // Legacy compatibility
@@ -134,7 +102,7 @@ async function getTrackerPlayer() {
         return _trackerInstance;
     }
     
-    console.log('[Tracker] Lazy-init enabled, initializing on first access...');
+    logger.debug('tracker', 'Lazy-init enabled, initializing on first access');
     
     // Return existing instance if still valid (not disposed)
     if (_trackerInstance) {
@@ -179,13 +147,10 @@ async function getTrackerPlayer() {
     }
 }
 
-/**
- * Create tracker player instance
- */
 function createTrackerPlayer() {
     if (!window.chiptune || !g.audioContext) return null;
     
-    console.log('[Tracker] Creating player instance...');
+    logger.debug('tracker', 'Creating player instance');
     
     const modConfig = {
         repeatCount: 0,
@@ -230,9 +195,6 @@ function createTrackerPlayer() {
     return tracker;
 }
 
-/**
- * Lazy tracker initialization - called only when first tracker file is played.
- */
 async function initTrackerPlayerLazy() {
     
     // Wait for chiptune library to be available
@@ -315,59 +277,46 @@ const POSITION_PUSH_INTERVALS = {
 // Single source of truth for audio pipeline and monitoring state decisions.
 // All routing logic lives here; execution happens via applyRoutingState().
 
-/**
- * Calculate which audio pipeline should be active based on current state.
- * Uses g.currentAudioParams which is set by cmd:setParams from Main.
- * Returns: 'normal' | 'rubberband'
- */
+// Calculate which audio pipeline should be active: 'normal' or 'rubberband'
 function calculateDesiredPipeline() {
 	const params = g.currentAudioParams;
 	
 	// No FFmpeg file playing = normal pipeline (no rubberband for MIDI/tracker)
 	if (!g.currentAudio || !g.currentAudio.isFFmpeg) {
-		console.log('[calculateDesiredPipeline] No FFmpeg file, returning normal');
+		logger.debug('pipeline', 'No FFmpeg file, returning normal');
 		return 'normal';
 	}
 	
 	// No params received yet = normal pipeline
 	if (!params) {
-		console.log('[calculateDesiredPipeline] No params received yet, returning normal');
+		logger.debug('pipeline', 'No params yet, returning normal');
 		return 'normal';
 	}
 	
 	// Locked pitchtime mode persists even when parameters window closed
 	if (params.locked && params.mode === 'pitchtime') {
-		console.log('[calculateDesiredPipeline] Locked pitchtime, returning rubberband');
+		logger.debug('pipeline', 'Locked pitchtime, returning rubberband');
 		return 'rubberband';
 	}
 	
 	// Parameters window open in pitchtime mode
 	if (g.parametersOpen && params.mode === 'pitchtime') {
-		console.log('[calculateDesiredPipeline] Params open + pitchtime, returning rubberband');
+		logger.debug('pipeline', 'Params open + pitchtime, returning rubberband');
 		return 'rubberband';
 	}
 	
 	// Default: normal pipeline
-	console.log('[calculateDesiredPipeline] Default normal, mode:', params.mode, 'locked:', params.locked, 'paramsOpen:', g.parametersOpen);
+	logger.debug('pipeline', 'Default normal', { mode: params.mode, locked: params.locked, paramsOpen: g.parametersOpen });
 	return 'normal';
 }
 
-/**
- * Calculate whether monitoring should be active based on current state.
- * Returns: boolean
- */
+// Calculate whether monitoring should be active
 function calculateDesiredMonitoring() {
 	// Window must exist, be visible, and be ready
 	return !!(g.windows.monitoring && g.windowsVisible.monitoring && g.monitoringReady);
 }
 
-/**
- * Apply the calculated routing state.
- * Handles transitions between pipeline states and monitoring activation.
- * Call this whenever state changes affect routing (window show/hide, mode change, track change).
- * 
- * @param {boolean|null} shouldPlay - Explicitly set playback state after transition (null = auto-detect from current player)
- */
+// Apply routing state. Call when state changes (window show/hide, mode change, track change)
 async function applyRoutingState(shouldPlay = null) {
 	const desiredPipeline = calculateDesiredPipeline();
 	const desiredMonitoring = calculateDesiredMonitoring();
@@ -434,10 +383,7 @@ async function applyRoutingState(shouldPlay = null) {
 	}
 }
 
-/**
- * Update monitoring tap connections based on current pipeline.
- * Called when pipeline switches while monitoring is active.
- */
+// Update monitoring tap connections when pipeline switches
 async function updateMonitoringConnections() {
 	// Disconnect all sources first (idempotent) - safe even if splitters don't exist
 	try {
@@ -474,10 +420,7 @@ async function updateMonitoringConnections() {
 	}
 }
 
-/**
- * Destroy monitoring resources to free CPU/memory.
- * Called when monitoring window is hidden.
- */
+// Destroy monitoring resources (called when monitoring window is hidden)
 function destroyMonitoring() {
 	if (g.monitoringLoop) {
 		clearInterval(g.monitoringLoop);
@@ -513,10 +456,7 @@ function destroyMonitoring() {
 	g.monitoringBuffers = null;
 }
 
-/**
- * Ensure rubberband pipeline is initialized (lazy initialization).
- * Creates context and player on demand. Idempotent - safe to call multiple times.
- */
+// Ensure rubberband pipeline is initialized (lazy init, idempotent)
 async function ensureRubberbandPipeline() {
 	// Already initialized?
 	// Also check if the worklet inside the player is still valid (not disposed by clearAudio)
@@ -528,7 +468,7 @@ async function ensureRubberbandPipeline() {
 	if (g.rubberbandPlayer && !workletValid) {
 		// Worklet was disposed (e.g., by clearAudio), but player object exists
 		// The worklet will be recreated by rubberbandPlayer.open() - don't dispose the entire player
-		console.log('[ensureRubberbandPipeline] Worklet disposed but player exists, will be recreated by open()');
+		logger.debug('rubberband', 'Worklet disposed but player exists');
 		// Just mark as needs re-init, don't dispose the whole player
 	}
 	
@@ -572,10 +512,7 @@ async function ensureRubberbandPipeline() {
 	}
 }
 
-/**
- * Destroy rubberband pipeline to free memory (~70MB WASM heap).
- * Called when pitchtime mode is no longer needed.
- */
+// Destroy rubberband pipeline to free ~70MB WASM heap
 async function destroyRubberbandPipeline() {
 	if (!g.rubberbandPlayer && !g.rubberbandContext) return;
 	
@@ -650,10 +587,7 @@ async function detectMaxSampleRate() {
 	return 48000;
 }
 
-/**
- * Start position push interval - sends currentTime to app.js
- * Adaptive: faster when scrubbing, slower when idle
- */
+// Start position push interval (adaptive: faster when scrubbing)
 function startPositionPush() {
     if (positionPushInterval) return;
     const interval = POSITION_PUSH_INTERVALS[positionPushMode] || POSITION_PUSH_INTERVALS.normal;
@@ -665,10 +599,7 @@ function startPositionPush() {
     }, interval);
 }
 
-/**
- * Set position push mode and restart interval if active
- * @param {string} mode - 'scrubbing' | 'normal' | 'idle' | 'minimal'
- */
+// Set position push mode and restart interval if active
 function setPositionPushMode(mode) {
     if (positionPushMode === mode) return;
     positionPushMode = mode;
@@ -679,9 +610,6 @@ function setPositionPushMode(mode) {
     }
 }
 
-/**
- * Stop position push interval
- */
 function stopPositionPush() {
     if (positionPushInterval) {
         clearInterval(positionPushInterval);
@@ -811,7 +739,7 @@ async function init() {
 	}
 
 	g.maxSampleRate = await detectMaxSampleRate();
-	console.log('[Engine] Max supported sample rate:', g.maxSampleRate);
+	logger.debug('engine', 'Max supported sample rate', { maxSampleRate: g.maxSampleRate });
 	
 	// Send sample rate info to main process for forwarding to UI
 	const initialTargetRate = (g.config && g.config.audio && g.config.audio.hqMode) ? g.maxSampleRate : 48000;
@@ -876,7 +804,7 @@ async function init() {
 		                        false;
 		
 		if (lazyLoadTracker) {
-			console.log('[Tracker] Lazy loading enabled - player will init on first tracker file');
+			logger.debug('tracker', 'Lazy loading enabled');
 			// Don't create player here - it will be created on first tracker file
 			engineReady();
 		} else if (!player) {
@@ -1401,12 +1329,12 @@ async function init() {
 			}
 			else if (data.param === 'pitch') {
 				g.currentAudioParams.pitch = data.value;
-				console.log(`[Engine] Pitch change: ${data.value}, activePipeline=${g.activePipeline}, hasPlayer=${!!g.rubberbandPlayer}`);
+				logger.debug('engine', 'Pitch change', { value: data.value, activePipeline: g.activePipeline, hasPlayer: !!g.rubberbandPlayer });
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					const ratio = Math.pow(2, data.value / 12.0);
 					if (typeof g.rubberbandPlayer.setPitch === 'function') {
 						g.rubberbandPlayer.setPitch(ratio);
-						console.log('[Engine] Pitch applied to rubberband');
+						logger.debug('engine', 'Pitch applied to rubberband');
 					}
 				} else {
 					console.warn('[Engine] Pitch NOT applied - pipeline or player not ready');
@@ -1713,7 +1641,7 @@ async function engineReady() {
 	});
 	
 	// Log initial focus state
-	console.log('[ENGINE] Window initialized, focusable:', !!window.focus);
+	logger.debug('engine', 'Window initialized', { focusable: !!window.focus });
 }
 
 function _clamp01(v) {
@@ -2074,7 +2002,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				// --- ENSURE RUBBERBAND IS INITIALIZED IF NEEDED ---
 				// If we're supposed to use rubberband but it's not ready, initialize it now
 				if (g.activePipeline === 'rubberband' && !g.rubberbandPlayer) {
-					console.log('[playAudio] Rubberband not initialized, creating pipeline...');
+					logger.debug('playAudio', 'Rubberband not initialized, creating pipeline');
 					const rbReady = await ensureRubberbandPipeline();
 					if (!rbReady) {
 						console.error('[playAudio] Failed to initialize rubberband pipeline. Falling back to normal.');
@@ -2084,14 +2012,14 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				
 				// Ensure rubberband worklet is valid (recreate if disposed)
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && !g.rubberbandPlayer.rubberbandNode) {
-					console.log('[playAudio] Rubberband worklet disposed, will be recreated by open()');
+					logger.debug('playAudio', 'Rubberband worklet disposed, will be recreated');
 				}
 				
 				const ffPlayer = (g.activePipeline === 'rubberband' && g.rubberbandPlayer) ? g.rubberbandPlayer : g.ffmpegPlayer;
-				console.log(`[playAudio] Selected player: ${ffPlayer === g.rubberbandPlayer ? 'rubberband' : 'ffmpeg'}, activePipeline=${g.activePipeline}`);
+				logger.debug('playAudio', 'Selected player', { player: ffPlayer === g.rubberbandPlayer ? 'rubberband' : 'ffmpeg', activePipeline: g.activePipeline });
 
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && !g.rubberbandPlayer.isConnected) {
-					console.log('[playAudio] Reconnecting rubberband player to destination');
+					logger.debug('playAudio', 'Reconnecting rubberband player to destination');
 					g.rubberbandPlayer.connect(); // destination
 					if (g.monitoringSplitter_RB) {
 						g.rubberbandPlayer.connect(g.monitoringSplitter_RB);
@@ -2428,7 +2356,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 }
 
 function clearAudio(skipRubberbandDispose = false) {
-	console.log('[clearAudio] called, rubberbandPlayer:', !!g.rubberbandPlayer, 'activePipeline:', g.activePipeline, 'skipRubberbandDispose:', skipRubberbandDispose);
+	logger.debug('audio', 'clearAudio called', { hasRubberband: !!g.rubberbandPlayer, activePipeline: g.activePipeline, skipRubberbandDispose });
 
 	if (g.ffmpegPlayer) {
 		if (typeof g.ffmpegPlayer.clearBuffer === 'function') g.ffmpegPlayer.clearBuffer();
@@ -2436,7 +2364,7 @@ function clearAudio(skipRubberbandDispose = false) {
 
 	}
 	if (g.rubberbandPlayer) {
-		console.log('[clearAudio] Cleaning up rubberband...');
+		logger.debug('audio', 'Cleaning up rubberband');
 		
 		// Skip full cleanup if we're preserving rubberband (e.g., HQ toggle with rubberband active)
 		// In this case, we only want to clear buffers, not disconnect/destroy the pipeline
@@ -2585,12 +2513,7 @@ function toggleLoop() {
 	checkState();
 }
 
-/**
- * Resolve a soundfont filename to an absolute path.
- * Checks user directory first, then bundled soundfonts.
- * @param {string} soundfontFile - The filename (e.g., 'default.sf2')
- * @returns {Promise<string|null>} - The resolved path or null if not found
- */
+// Resolve soundfont filename to path (user dir first, then bundled)
 async function resolveSoundfontPath(soundfontFile) {
 	if (!soundfontFile) return null;
 	
@@ -2780,7 +2703,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	if (!wasRubberbandActive) {
 		await destroyRubberbandPipeline();
 	} else {
-		console.log('[toggleHQMode] Rubberband active - preserving pipeline (always 48kHz)');
+		logger.debug('hq', 'Rubberband active - preserving pipeline');
 	}
 
 	if (g.currentAudio) {
@@ -2841,7 +2764,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 	const lazyInitTracker = g.main_env?.lazyLoadEngines || g.main_env?.lazyLoadTracker || false;
 	
 	if (lazyInitTracker) {
-		console.log('[toggleHQMode] Tracker lazy-init enabled, skipping eager initialization');
+		logger.debug('hq', 'Tracker lazy-init enabled, skipping eager initialization');
 		// Reset tracker state - will lazy-init on next tracker file
 		_trackerInstance = null;
 		_trackerInitPromise = null;
@@ -2888,7 +2811,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 			}
 		});
 		player.onEnded(audioEnded);
-		player.onError((err) => { console.log(err); audioEnded(); g.blocky = false; });
+		player.onError((err) => { logger.error('player', 'Error', err); audioEnded(); g.blocky = false; });
 	}
 
 	// Re-initialize monitoring if window is still open (new context)
@@ -2926,7 +2849,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		sendToWindow(g.windows.settings, 'sample-rate-updated', { currentSampleRate: g.audioContext?.sampleRate });
 	}
 
-	console.log('[toggleHQMode] completed successfully');
+	logger.debug('hq', 'toggleHQMode completed successfully');
 	checkState();
 }
 
@@ -3356,10 +3279,12 @@ window.disposeEngines = {
 
 
 
-		console.log('  Current type:', g.currentAudio ? 
-			(g.currentAudio.isMidi ? 'MIDI' : 
-			 g.currentAudio.isMod ? 'Tracker' : 
-			 g.currentAudio.isFFmpeg ? 'FFmpeg' : 'Unknown') : 'none');
+		logger.debug('audio', 'Current type', {
+			type: g.currentAudio ?
+				(g.currentAudio.isMidi ? 'MIDI' :
+				 g.currentAudio.isMod ? 'Tracker' :
+				 g.currentAudio.isFFmpeg ? 'FFmpeg' : 'Unknown') : 'none'
+		});
 	}
 };
 
