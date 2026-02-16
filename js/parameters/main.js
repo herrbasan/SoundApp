@@ -33,7 +33,9 @@ const DEFAULTS = {
 let bridge;
 let g = {
     init_data: null,
-    pendingSoundfont: null  // Soundfont value received before dropdown was populated
+    pendingSoundfont: null,  // Soundfont value received before dropdown was populated
+    soundfontSelectInitialized: false,  // nui-select initialized (DOM elements created)
+    soundfontSelectInitializing: false  // Async init in progress (prevent duplicate calls)
 };
 
 // Mode state is owned by main process - we render what main broadcasts
@@ -269,8 +271,9 @@ window.addEventListener('bridge-ready', async (e) => {
         });
     }
 
-    // Initialize soundfont selector
-    await initSoundfontSelector();
+    // Initialize soundfont selector (pass soundfont if available in params)
+    const initialSoundfont = data.params?.soundfont;
+    await initSoundfontSelector(initialSoundfont);
 
     // Set mode if provided (from fileType in init_data)
     // fileType: 'MIDI' | 'Tracker' | 'FFmpeg' → mode: 'midi' | 'tracker' | 'audio'
@@ -970,55 +973,137 @@ function applySoundfontToDropdown(fontFilename) {
     }
 }
 
-async function initSoundfontSelector() {
+/**
+ * Initialize or update the soundfont selector.
+ * Called on window open, file changes, and when engine becomes available.
+ * Handles both first-time initialization (with nui-select) and option updates.
+ * 
+ * Guards against:
+ * - Multiple simultaneous initializations (g.soundfontSelectInitializing)
+ * - Re-initialization when already done (g.soundfontSelectInitialized)
+ * 
+ * @param {string} soundfontToSelect - Optional soundfont to select after populating options
+ */
+async function initSoundfontSelector(soundfontToSelect = null) {
     const sfSelect = document.getElementById('soundfont-select');
     if (!sfSelect) return;
 
-    // Check if nui-select is already initialized - prevent re-initialization
-    // This ensures we don't create duplicate visual elements
-    if (sfSelect.ss_id) {
-        console.log('[SoundFont] Nui-select already initialized, skipping re-init');
+    // Store soundfont to select (either passed directly or from pending)
+    if (soundfontToSelect) {
+        g.pendingSoundfont = soundfontToSelect;
+    }
+
+    // Prevent multiple simultaneous initializations
+    if (g.soundfontSelectInitializing) {
+        console.log('[SoundFont] Init already in progress, will apply soundfont after');
         return;
     }
 
-    // Dumb renderer pattern: Don't read from init_data/local state.
-    // Main process will send the selected soundfont via updateParams().
-    // We only populate the available options here.
+    // If already initialized, just update options (don't re-create nui-select)
+    if (g.soundfontSelectInitialized) {
+        console.log('[SoundFont] Already initialized, updating options only');
+        await updateSoundfontOptions(sfSelect);
+        return;
+    }
 
-    console.log('[SoundFont] Requesting available soundfonts, windowId:', bridge.windowId);
+    // Mark init in progress
+    g.soundfontSelectInitializing = true;
 
-    // Get list of available soundfonts from main
-    const availableFonts = await new Promise((resolve) => {
+    try {
+        console.log('[SoundFont] First-time initialization, windowId:', bridge.windowId);
+
+        // Get list of available soundfonts from main (with timeout)
+        const availableFonts = await fetchAvailableSoundfonts();
+
+        // Populate dropdown with available fonts (cached in main process, always available)
+        populateSoundfontOptions(sfSelect, availableFonts);
+
+        // Initialize nui-select (creates visual elements - only once!)
+        superSelect(sfSelect);
+        g.soundfontSelectInitialized = true;
+
+        // Listen for user changes (only once)
+        sfSelect.addEventListener('change', () => {
+            const newFont = sfSelect.value;
+            console.log('[SoundFont] Changed to:', newFont);
+            bridge.sendToMain('param-change', { mode: 'midi', param: 'soundfont', value: newFont });
+        });
+
+        // Apply any pending soundfont selection
+        if (g.pendingSoundfont) {
+            console.log('[SoundFont] Applying pending soundfont after init:', g.pendingSoundfont);
+            applySoundfontToDropdown(g.pendingSoundfont);
+        }
+    } finally {
+        g.soundfontSelectInitializing = false;
+    }
+}
+
+/**
+ * Update soundfont options without re-initializing nui-select.
+ * Called when soundfonts need to be refreshed (e.g., on MIDI mode switch).
+ * 
+ * NOTE: We set the DOM option selected directly, then reRender().
+ * Do NOT call applySoundfontToDropdown() here - it calls update() which
+ * crashes because nui-select's internal state is broken after wiping options.
+ */
+async function updateSoundfontOptions(sfSelect) {
+    const availableFonts = await fetchAvailableSoundfonts();
+
+    if (availableFonts.length === 0) {
+        console.log('[SoundFont] No fonts available for update');
+        return;
+    }
+
+    // Store what to select after repopulating
+    const fontToSelect = g.pendingSoundfont || sfSelect.value;
+
+    // Repopulate options (wipes innerHTML - breaks nui-select internal state)
+    populateSoundfontOptions(sfSelect, availableFonts);
+
+    // Set selected option directly in DOM (don't call update() - state is broken)
+    if (fontToSelect) {
+        const options = sfSelect.options;
+        for (let i = 0; i < options.length; i++) {
+            options[i].selected = options[i].value === fontToSelect;
+        }
+        g.pendingSoundfont = null;
+    }
+
+    // Re-render to rebuild nui-select from DOM (picks up new options + selection)
+    if (typeof sfSelect.reRender === 'function') {
+        sfSelect.reRender();
+    }
+}
+
+/**
+ * Fetch available soundfonts from main with timeout.
+ */
+function fetchAvailableSoundfonts() {
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+            console.log('[SoundFont] Timeout waiting for soundfonts, resolving empty');
+            resolve([]);
+        }, 500);
+
         bridge.sendToMain('get-available-soundfonts', { windowId: bridge.windowId });
         bridge.once('available-soundfonts', (data) => {
+            clearTimeout(timeout);
             console.log('[SoundFont] Received available soundfonts:', data);
             resolve(data.fonts || []);
         });
     });
+}
 
-    // Populate dropdown with available fonts
-    if (availableFonts.length > 0) {
-        sfSelect.innerHTML = '';
-        availableFonts.forEach(font => {
-            const option = document.createElement('option');
-            option.value = font.filename;
-            option.textContent = font.label;
-            sfSelect.appendChild(option);
-        });
-    }
-
-    // Initialize nui-select (visual component) - only once!
-    superSelect(sfSelect);
-
-    // Apply any soundfont value that arrived before the dropdown was ready
-    if (g.pendingSoundfont) {
-        applySoundfontToDropdown(g.pendingSoundfont);
-    }
-
-    // Listen for user changes - send intent to main
-    sfSelect.addEventListener('change', () => {
-        const newFont = sfSelect.value;
-        console.log('[SoundFont] Changed to:', newFont);
-        bridge.sendToMain('param-change', { mode: 'midi', param: 'soundfont', value: newFont });
+/**
+ * Populate the select element with soundfont options.
+ */
+function populateSoundfontOptions(sfSelect, fonts) {
+    sfSelect.innerHTML = '';
+    fonts.forEach(font => {
+        const option = document.createElement('option');
+        option.value = font.filename;
+        option.textContent = font.label;
+        sfSelect.appendChild(option);
     });
 }

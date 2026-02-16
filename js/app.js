@@ -74,6 +74,86 @@ const DEFAULTS = {
 // engines.js uses: config.midiSoundfont || 'default.sf2'
 const DEFAULT_SOUNDFONT = 'default.sf2';
 
+// ═══════════════════════════════════════════════════════════
+// SOUNDFONT MANAGEMENT (Cached in Main Process)
+// ═══════════════════════════════════════════════════════════
+
+// Cache for available soundfonts - scanned once at startup
+let cachedSoundfonts = null;
+
+/**
+ * Scan for available soundfonts in bundled and user directories.
+ * Called once at app startup and cached. The engine is disposable,
+ * so soundfont discovery must live in the main process.
+ * 
+ * @returns {Promise<Array<{filename, label, location}>>} Available soundfonts
+ */
+async function scanAvailableSoundfonts() {
+    if (cachedSoundfonts) {
+        return cachedSoundfonts;
+    }
+
+    let fp = app_path;
+    if (isPackaged) { fp = path.dirname(fp); }
+    const bundledDir = path.resolve(fp + '/bin/soundfonts/');
+    const userDir = path.join(user_data, 'soundfonts');
+
+    const availableFonts = [];
+
+    // Scan bundled soundfonts
+    try {
+        const files = await fs.readdir(bundledDir);
+        const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
+        for (const filename of soundfontFiles) {
+            let label = filename.replace(/\.(sf2|sf3)$/i, '');
+            label = label.replace(/_/g, ' ');
+            availableFonts.push({ filename, label, location: 'bundled' });
+        }
+    } catch (err) {
+        logger.warn('soundfont', 'Failed to read bundled soundfonts directory', { error: err.message });
+    }
+
+    // Scan user soundfonts (AppData)
+    try {
+        await fs.mkdir(userDir, { recursive: true });
+        const files = await fs.readdir(userDir);
+        const soundfontFiles = files.filter(f => f.endsWith('.sf2') || f.endsWith('.sf3'));
+        for (const filename of soundfontFiles) {
+            // Skip if already in bundled list
+            if (availableFonts.some(f => f.filename === filename)) continue;
+            let label = filename.replace(/\.(sf2|sf3)$/i, '');
+            label = label.replace(/_/g, ' ');
+            availableFonts.push({ filename, label, location: 'user' });
+        }
+    } catch (err) {
+        logger.warn('soundfont', 'Failed to read user soundfonts directory', { error: err.message });
+    }
+
+    // Sort: TimGM first, then alphabetically
+    availableFonts.sort((a, b) => {
+        if (a.filename.startsWith('TimGM')) return -1;
+        if (b.filename.startsWith('TimGM')) return 1;
+        return a.label.localeCompare(b.label);
+    });
+
+    // Fallback if no fonts found
+    if (availableFonts.length === 0) {
+        availableFonts.push({ filename: 'default.sf2', label: 'Default', location: 'bundled' });
+    }
+
+    cachedSoundfonts = availableFonts;
+    logger.info('soundfont', 'Soundfont cache populated', { count: availableFonts.length });
+    return availableFonts;
+}
+
+/**
+ * Get cached soundfonts or trigger scan if not cached.
+ * Used by IPC handler to respond without involving the engine.
+ */
+async function getAvailableSoundfonts() {
+    return cachedSoundfonts || await scanAvailableSoundfonts();
+}
+
 /**
  * Reset audio parameters to defaults.
  * Called when a new file is loaded (unless locked for audio files).
@@ -543,6 +623,12 @@ async function appStart() {
     if (initialCfg && initialCfg.midiSoundfont) {
         audioState.midiParams.soundfont = initialCfg.midiSoundfont;
     }
+
+    // Pre-scan soundfonts so they're available immediately when params window opens
+    // (engine is disposable, so this must happen in main process)
+    scanAvailableSoundfonts().catch(err => {
+        logger.error('soundfont', 'Initial soundfont scan failed', { error: err.message });
+    });
 
     // Determine initial minHeight based on showControls setting
     const cfg = user_cfg ? user_cfg.get() : {};
@@ -2226,8 +2312,16 @@ function setupAudioIPC() {
         sendToEngine('open-soundfonts-folder', data);
     });
 
-    ipcMain.on('get-available-soundfonts', (e, data) => {
-        sendToEngine('get-available-soundfonts', data);
+    ipcMain.on('get-available-soundfonts', async (e, data) => {
+        // Return cached soundfont list directly from main process.
+        // The engine is disposable; soundfont discovery lives in main.
+        try {
+            const fonts = await getAvailableSoundfonts();
+            e.sender.send('available-soundfonts', { fonts });
+        } catch (err) {
+            logger.error('soundfont', 'Failed to get available soundfonts', { error: err.message });
+            e.sender.send('available-soundfonts', { fonts: [] });
+        }
     });
 
     // Monitoring source changes - centralize in main state
