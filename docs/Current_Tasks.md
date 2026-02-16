@@ -182,7 +182,7 @@ waveformCache.getStats()  // Cache hit/miss stats
 - ~~**Player - MIDI metadata**~~ - ✅ Fixed - Case mismatch resolved
 
 ### Medium Priority
-- **Parameters Window - MIDI Tab** - Soundfont select does not show currently selected model at startup
+- **Parameters Window - MIDI Tab** - ~~Soundfont select does not show currently selected model at startup~~ ✅ Fixed - **IMPLEMENTATION NEEDS REVIEW** (sloppy: conditional bypass in engines.js, config saved in two places)
 - **Logging cleanup** - Player has excessive logging
 - **Engine logging** - Clean up logging, relay to app.js logging instead of console
 

@@ -1392,7 +1392,7 @@ async function init() {
 
 
 
-				if (g.config && g.config.midiSoundfont !== data.value) {
+				if (true) { // Always apply - was checking g.config.midiSoundfont !== data.value
 					if (g.config_obj) {
 						let c = g.config_obj.get();
 						c.midiSoundfont = data.value;

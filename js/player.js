@@ -699,27 +699,18 @@ function renderInfo(fp, metadata) {
             if (metadata.title) g.text.appendChild(renderInfoItem('Title:', metadata.title));
 
             // Load cover art only for regular audio files
-            loadCoverArt(metadata, parse);
+            loadCoverArt(metadata);
         }
     }
 }
 
-async function loadCoverArt(metadata, parse) {
-    let cover = null;
-
-    // Try ID3 cover art
-    if (metadata && metadata.coverArt && metadata.coverArt.length > 0) {
-        cover = await getCoverArtFromMetadata(metadata);
+async function loadCoverArt(metadata) {
+    // Only use cover art from metadata (FFmpeg extracted)
+    if (!metadata || !metadata.coverArt || metadata.coverArt.length === 0) {
+        return;
     }
 
-    // Fallback to folder image
-    if (!cover) {
-        let images = await tools.getFiles(parse.dir, ['.jpg', '.jpeg', '.png', '.gif']);
-        if (images.length > 0) {
-            cover = await loadImage(images[images.length - 1]);
-        }
-    }
-
+    const cover = await getCoverArtFromMetadata(metadata);
     if (cover) {
         g.cover.appendChild(cover);
         cover.style.opacity = '0';
@@ -754,10 +745,6 @@ function arrayBufferToBase64(buffer) {
 }
 
 // Use tools.loadImage from helper instead - handles local/network paths via getFileURL
-function loadImage(url) {
-    return tools.loadImage(url);
-}
-
 function renderInfoItem(label, text) {
     let el = ut.htmlObject(`
     <div class="item">

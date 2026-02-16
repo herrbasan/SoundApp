@@ -59,9 +59,9 @@ const DEFAULTS = {
     },
     midi: {
         transpose: 0,
-        bpm: null,          // null = use original BPM from file
+        bpm: null,                      // null = use original BPM from file
         metronome: false,
-        soundfont: null     // null = use default soundfont
+        soundfont: null                 // null = use default soundfont
     },
     tracker: {
         pitch: 1.0,
@@ -69,6 +69,10 @@ const DEFAULTS = {
         stereoSeparation: 100
     }
 };
+
+// Default soundfont filename - must match engines.js logic
+// engines.js uses: config.midiSoundfont || 'default.sf2'
+const DEFAULT_SOUNDFONT = 'default.sf2';
 
 /**
  * Reset audio parameters to defaults.
@@ -84,9 +88,12 @@ function resetParamsToDefaults(fileType, options = {}) {
     console.log(`[resetParamsToDefaults] ${fileType} ${optionsSummary}`);
 
     if (fileType === 'MIDI') {
+        // Preserve soundfont across file changes (user preference, not per-file)
+        const currentSoundfont = audioState.midiParams.soundfont;
         audioState.midiParams = {
             ...DEFAULTS.midi,
-            bpm: options.originalBPM || DEFAULTS.midi.bpm
+            bpm: options.originalBPM || DEFAULTS.midi.bpm,
+            soundfont: currentSoundfont  // Preserve user's soundfont selection
         };
         return { ...audioState.midiParams };
     }
@@ -528,10 +535,14 @@ async function appStart() {
 
     user_cfg = await helper.config.initMain(configName, configDefaults, { log: configLog });
 
-    // Initialize audioState.volume from user config (not hardcoded default)
+    // Initialize audioState from user config (not hardcoded defaults)
     const initialCfg = user_cfg ? user_cfg.get() : {};
     if (initialCfg && initialCfg.audio && initialCfg.audio.volume !== undefined) {
         audioState.volume = initialCfg.audio.volume;
+    }
+    // Initialize midiParams.soundfont from config (persisted user preference)
+    if (initialCfg && initialCfg.midiSoundfont) {
+        audioState.midiParams.soundfont = initialCfg.midiSoundfont;
     }
 
     // Determine initial minHeight based on showControls setting
@@ -1381,13 +1392,15 @@ function sendParamsToParametersWindow(reset = false) {
     if (fileType === 'MIDI') {
         // Include originalBPM from metadata if available (for UI display)
         const originalBPM = audioState.metadata?.originalBPM;
+        // Resolve null soundfont to default filename for UI display
+        const soundfont = audioState.midiParams.soundfont || DEFAULT_SOUNDFONT;
         paramsData = {
             mode: 'midi',
             params: {
                 transpose: audioState.midiParams.transpose,
                 bpm: audioState.midiParams.bpm,
                 metronome: audioState.midiParams.metronome,
-                soundfont: audioState.midiParams.soundfont,
+                soundfont: soundfont,
                 originalBPM: originalBPM,
                 reset
             }
@@ -2142,7 +2155,15 @@ function setupAudioIPC() {
             if (data.param === 'transpose') audioState.midiParams.transpose = data.value;
             if (data.param === 'bpm') audioState.midiParams.bpm = data.value;
             if (data.param === 'metronome') audioState.midiParams.metronome = data.value;
-            if (data.param === 'soundfont') audioState.midiParams.soundfont = data.value;
+            if (data.param === 'soundfont') {
+                audioState.midiParams.soundfont = data.value;
+                // Save to config for persistence across restarts
+                if (user_cfg) {
+                    const c = user_cfg.get();
+                    c.midiSoundfont = data.value;
+                    user_cfg.set(c);
+                }
+            }
         } else if (data.mode === 'tracker') {
             if (data.param === 'pitch') audioState.trackerParams.pitch = data.value;
             if (data.param === 'tempo') audioState.trackerParams.tempo = data.value;

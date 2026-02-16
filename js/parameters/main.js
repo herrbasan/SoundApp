@@ -152,6 +152,7 @@ async function init() {
 
     // Listen for file type / mode changes from stage
     bridge.on('set-mode', (data) => {
+        console.log('[Parameters] set-mode received:', data.mode, 'reset:', data.params?.reset, 'soundfont:', data.params?.soundfont);
         setMode(data.mode); // 'audio', 'midi', 'tracker'
 
         if (data.mode === 'audio' && data.params && data.params.reset) {
@@ -193,7 +194,10 @@ async function init() {
         }
 
         if (data.params) {
+            console.log('[Parameters] Calling updateParams with:', data.mode, data.params);
             updateParams(data.mode, data.params);
+        } else {
+            console.log('[Parameters] No params in set-mode event');
         }
     });
 
@@ -474,6 +478,7 @@ function updateParams(mode, params) {
             if (lockCheckbox) lockCheckbox.checked = !!params.locked;
         }
     } else if (mode === 'midi') {
+        console.log('[Parameters] updateParams MIDI:', params);
         // Store originalBPM if provided (for reset button)
         if (typeof params.originalBPM === 'number') {
             if (!g.init_data) g.init_data = {};
@@ -504,20 +509,44 @@ function updateParams(mode, params) {
                 controls.midi.tempo.setDefault(Math.round(g.init_data.originalBPM));
             }
         }
-        if (params.soundfont) {
-            // Use requestAnimationFrame to ensure DOM is ready after mode switch
-            requestAnimationFrame(() => {
-                const sfSelect = document.getElementById('soundfont-select');
-                if (!sfSelect) return;
+        // Handle soundfont selection
+        if (typeof params.soundfont !== 'undefined') {
+            const sfSelect = document.getElementById('soundfont-select');
+            if (!sfSelect) {
+                console.warn('[Parameters] Soundfont select not found in DOM');
+                return;
+            }
 
-                // Set the native select value
-                sfSelect.value = params.soundfont;
+            // Check if options are populated
+            if (sfSelect.options.length === 0) {
+                console.warn('[Parameters] Soundfont select has no options yet, deferring update');
+                // Defer the update until options are available
+                setTimeout(() => updateParams(mode, params), 100);
+                return;
+            }
 
-                // Force superSelect to sync its display with the native select value
-                if (sfSelect.reRender) {
-                    sfSelect.reRender();
+            // Find the option matching the soundfont value
+            const fontToSelect = params.soundfont;
+            let found = false;
+            for (let i = 0; i < sfSelect.options.length; i++) {
+                if (sfSelect.options[i].value === fontToSelect) {
+                    sfSelect.options[i].selected = true;
+                    found = true;
+                } else {
+                    sfSelect.options[i].selected = false;
                 }
-            });
+            }
+
+            if (found) {
+                console.log('[Parameters] Setting soundfont to:', fontToSelect);
+                // Update nui-select display (calls renderButton() which reads getSelected())
+                if (sfSelect.update) {
+                    sfSelect.update();
+                }
+            } else {
+                console.warn('[Parameters] Soundfont not found in options:', fontToSelect, 'Available:', 
+                    Array.from(sfSelect.options).map(o => o.value));
+            }
         }
     } else if (mode === 'tracker') {
         // Handle tracker params
@@ -924,12 +953,13 @@ async function initSoundfontSelector() {
     const sfSelect = document.getElementById('soundfont-select');
     if (!sfSelect) return;
 
-    // Get current soundfont from init_data (will be set by bridge-ready event)
-    const getCurrentFont = () => (g.init_data && g.init_data.params && g.init_data.params.soundfont) || 'TimGM6mb.sf2';
+    // Dumb renderer pattern: Don't read from init_data/local state.
+    // Main process will send the selected soundfont via updateParams().
+    // We only populate the available options here.
 
     console.log('[SoundFont] Requesting available soundfonts, windowId:', bridge.windowId);
 
-    // Get list of available soundfonts from stage
+    // Get list of available soundfonts from main
     const availableFonts = await new Promise((resolve) => {
         bridge.sendToMain('get-available-soundfonts', { windowId: bridge.windowId });
         bridge.once('available-soundfonts', (data) => {
@@ -949,33 +979,15 @@ async function initSoundfontSelector() {
         });
     }
 
-    // Set current value before initializing superSelect
-    const currentFont = getCurrentFont();
-    sfSelect.value = currentFont;
-    console.log('[SoundFont] Set select value to:', currentFont, 'selectedIndex:', sfSelect.selectedIndex);
-
-    // Ensure something is selected
-    if (sfSelect.selectedIndex === -1 && sfSelect.options.length > 0) {
-        console.warn('[SoundFont] Configured soundfont not found, defaulting to first option');
-        sfSelect.selectedIndex = 0;
-    }
-
-    // Initialize nui-select
+    // Initialize nui-select (visual component)
     console.log('[SoundFont] Calling superSelect()');
-    const selectInstance = superSelect(sfSelect);
+    superSelect(sfSelect);
 
-    // Force superSelect to update its visual display
-    if (selectInstance && selectInstance.updateDisplay) {
-        selectInstance.updateDisplay();
-    } else {
-        // Fallback: manually update the display element
-        const customDisplay = sfSelect.parentElement.querySelector('.nui-select-display');
-        if (customDisplay && sfSelect.selectedIndex >= 0) {
-            customDisplay.textContent = sfSelect.options[sfSelect.selectedIndex].textContent;
-        }
-    }
+    // Note: We intentionally do NOT set sfSelect.value here.
+    // The selected value comes from main via updateParams() - dumb renderer pattern.
+    // updateParams() handles setting the value and syncing superSelect display.
 
-    // Listen for changes
+    // Listen for user changes - send intent to main
     sfSelect.addEventListener('change', () => {
         const newFont = sfSelect.value;
         console.log('[SoundFont] Changed to:', newFont);
