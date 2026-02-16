@@ -1306,7 +1306,8 @@ async function restoreEngineIfNeeded() {
             formant: audioState.formant,
             transpose: audioState.midiParams.transpose,
             bpm: audioState.midiParams.bpm,
-            metronome: audioState.midiParams.metronome
+            metronome: audioState.midiParams.metronome,
+            soundfont: audioState.midiParams.soundfont || DEFAULT_SOUNDFONT
         });
 
         // Tracker params applied via cmd:applyParams
@@ -1381,11 +1382,6 @@ function sendParamsToParametersWindow(reset = false) {
     // Send current params directly to parameters window if it exists
     // Window may be hidden (open=false) but still exist - send params anyway
 
-    if (!childWindows.parameters.windowId) {
-        // Early return: no windowId
-        return;
-    }
-
     const fileType = audioState.fileType;
     let paramsData = null;
 
@@ -1441,6 +1437,11 @@ function sendParamsToParametersWindow(reset = false) {
 
     logger.debug('main', 'sendParamsToParametersWindow', { fileType, reset });
     lastParamsState = JSON.parse(JSON.stringify(paramsData)); // Deep copy for params
+
+    // Only send if window exists
+    if (!childWindows.parameters.windowId) {
+        return;
+    }
 
     if (paramsData) {
         // Send directly to parameters window using tools helper
@@ -1854,6 +1855,17 @@ function setupAudioIPC() {
         // We don't sync from engine to avoid race conditions during auto-advance
         broadcastState();
 
+        // Apply MIDI params to engine (including soundfont) - ensures params are always applied
+        // This is needed for normal playback (not just engine restoration)
+        if (audioState.fileType === 'MIDI') {
+            sendToEngine('cmd:applyParams', {
+                transpose: audioState.midiParams.transpose,
+                bpm: audioState.midiParams.bpm,
+                metronome: audioState.midiParams.metronome,
+                soundfont: audioState.midiParams.soundfont || DEFAULT_SOUNDFONT
+            });
+        }
+
         // ALWAYS update parameters window on every file load
         // The parameters window is a dumb renderer - main is the source of truth
         // Determine if we should reset state to defaults:
@@ -2060,6 +2072,13 @@ function setupAudioIPC() {
                 childWindows[data.type].windowId = null;
                 childWindows[data.type].visible = false;
             }
+
+            // Clear lastParamsState when parameters window is closed
+            // This ensures fresh params are sent when window is reopened
+            if (data.type === 'parameters') {
+                lastParamsState = null;
+            }
+
             sendToEngine('window-closed', data);
 
             // Always return focus to player window when any child window is closed
@@ -2192,7 +2211,9 @@ function setupAudioIPC() {
 
     // Other parameter-related messages
     ipcMain.on('midi-reset-params', (e, data) => {
-        audioState.midiParams = { transpose: 0, bpm: null, metronome: false, soundfont: null };
+        // Preserve soundfont across resets — it's a user preference, not a per-file param
+        const currentSoundfont = audioState.midiParams.soundfont;
+        audioState.midiParams = { transpose: 0, bpm: null, metronome: false, soundfont: currentSoundfont };
         sendToEngine('midi-reset-params', data);
     });
 

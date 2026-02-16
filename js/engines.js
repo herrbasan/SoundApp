@@ -297,7 +297,7 @@ async function initTrackerPlayerLazy() {
 
 // Current audio file info (for pipeline routing decisions, not full state)
 g.currentAudioParams = null;   // FFmpeg params from Main (mode, tapeSpeed, pitch, tempo, formant, locked)
-g.currentMidiParams = null;    // MIDI params from Main (transpose, bpm, metronome)
+g.currentMidiParams = null;    // MIDI params from Main (transpose, bpm, metronome, soundfont)
 g.currentTrackerParams = null; // Tracker params from Main (pitch, tempo, stereoSeparation)
 
 // Position push interval - adaptive based on user activity
@@ -1036,9 +1036,7 @@ async function init() {
 	});
 	
 	// Apply params to active players AFTER file load (Phase 4A: state preservation)
-	ipcRenderer.on('cmd:applyParams', (e, data) => {
-
-		
+	ipcRenderer.on('cmd:applyParams', async (e, data) => {
 		if (g.currentAudio?.isFFmpeg) {
 			const player = g.currentAudio.player;
 			if (data.mode === 'tape' && data.tapeSpeed !== 0) {
@@ -1061,6 +1059,16 @@ async function init() {
 				midi.setPlaybackSpeed(ratio);
 			}
 			if (data.metronome !== undefined) midi.setMetronome(data.metronome);
+			// Soundfont changes are applied here during engine restoration and normal playback
+			if (data.soundfont !== undefined && midi.setSoundFont) {
+				if (!g.currentMidiParams) g.currentMidiParams = {};
+				g.currentMidiParams.soundfont = data.soundfont;
+				const soundfontPath = await resolveSoundfontPath(data.soundfont);
+				if (soundfontPath) {
+					const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
+					midi.setSoundFont(soundfontUrl);
+				}
+			}
 		} else if (g.currentAudio?.isMod && player) {
 			// data.pitch is already a pitch factor (ratio) from Main
 			// Main sends: pitchFactor = 2^(semitones/12)
@@ -1286,41 +1294,8 @@ async function init() {
 		}
 	});
 
-	ipcRenderer.on('midi-soundfont-changed', async (e, soundfontFile) => {
-		const wasPlaying = g.currentAudio && !g.currentAudio.paused;
-		const currentFile = g.currentAudio ? g.currentAudio.fp : null;
-		const currentTime = g.currentAudio ? g.currentAudio.getCurrentTime() : 0;
-		const currentLoop = g.isLoop;
-		const isMIDI = currentFile && g.supportedMIDI && g.supportedMIDI.includes(path.extname(currentFile).toLowerCase());
-
-		if (midi) {
-			midi.dispose();
-			midi = null;
-		}
-
-		// Only re-init MIDI if it was previously initialized (lazy-init respect)
-		// If MIDI was never used, don't init it now
-		if (isMIDI || midi) {
-			await initMidiPlayer();
-		}
-
-		if (isMIDI && currentFile) {
-			try {
-				// Pass preserveRubberband=true if rubberband was active (HQ toggle preserves rubberband pipeline)
-			await playAudio(currentFile, currentTime, !wasPlaying, false, false, wasRubberbandActive);
-
-				await new Promise(resolve => setTimeout(resolve, 100));
-
-				if (g.currentAudio && wasPlaying) {
-					g.currentAudio.play();
-				}
-
-				checkState();
-			} catch (err) {
-				console.error('Failed to reload MIDI file after soundfont change:', err);
-			}
-		}
-	});
+	// NOTE: midi-soundfont-changed handler removed — soundfont changes are now handled via
+	// param-change (user interaction) and cmd:applyParams (engine restoration). See midi.setSoundFont().
 
 	ipcRenderer.on('midi-metronome-toggle', (e, enabled) => {
 		if (!g.currentMidiParams) g.currentMidiParams = {};
@@ -1388,37 +1363,16 @@ async function init() {
 				if (midi && midi.setMetronome) midi.setMetronome(!!data.value);
 			}
 			else if (data.param === 'soundfont') {
-
-
-
-
-				if (true) { // Always apply - was checking g.config.midiSoundfont !== data.value
-					if (g.config_obj) {
-						let c = g.config_obj.get();
-						c.midiSoundfont = data.value;
-						g.config_obj.set(c);
-						g.config = c;
-					}
-					if (midi && midi.setSoundFont) {
-						let fp = g.app_path;
-						if (g.isPackaged) { fp = path.dirname(fp); }
-						const userDataPath = await helper.app.getPath('userData');
-						const userDir = path.join(userDataPath, 'soundfonts');
-						const userPath = path.join(userDir, data.value);
-						const bundledPath = path.resolve(fp + '/bin/soundfonts/' + data.value);
-						let soundfontPath = bundledPath;
-						try {
-							await fs.access(userPath);
-							soundfontPath = userPath;
-						} catch (e) {
-							// Use bundled path
-						}
+				// Engine is stateless - just apply the soundfont, don't persist config
+				// Config persistence happens in Main process (app.js)
+				if (!g.currentMidiParams) g.currentMidiParams = {};
+				g.currentMidiParams.soundfont = data.value;
+				if (midi && midi.setSoundFont) {
+					const soundfontPath = await resolveSoundfontPath(data.value);
+					if (soundfontPath) {
 						const soundfontUrl = 'file:///' + soundfontPath.replace(/\\/g, '/');
-
 						midi.setSoundFont(soundfontUrl);
 					}
-				} else {
-
 				}
 			}
 		}
@@ -2632,43 +2586,57 @@ function toggleLoop() {
 	checkState();
 }
 
-
+/**
+ * Resolve a soundfont filename to an absolute path.
+ * Checks user directory first, then bundled soundfonts.
+ * @param {string} soundfontFile - The filename (e.g., 'default.sf2')
+ * @returns {Promise<string|null>} - The resolved path or null if not found
+ */
+async function resolveSoundfontPath(soundfontFile) {
+	if (!soundfontFile) return null;
+	
+	let fp = g.app_path;
+	if (g.isPackaged) { fp = path.dirname(fp); }
+	
+	const userDataPath = await helper.app.getPath('userData');
+	const userDir = path.join(userDataPath, 'soundfonts');
+	const userPath = path.join(userDir, soundfontFile);
+	const bundledPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
+	
+	// Check user directory first, then bundled
+	try {
+		await fs.access(userPath);
+		return userPath;
+	} catch (e) {
+		try {
+			await fs.access(bundledPath);
+			return bundledPath;
+		} catch (e2) {
+			logger.warn('soundfont', 'SoundFont not found', { soundfontFile, userPath, bundledPath });
+			return null;
+		}
+	}
+}
 
 async function initMidiPlayer() {
 	if (!window.midi || !g.audioContext) return;
 	
 	// Allow disabling MIDI player to save CPU (0.3-0.5% constant usage even when idle)
 	if (g.config?.audio?.disableMidiPlayer) {
-
 		return;
 	}
-	let fp = g.app_path;
-	if (g.isPackaged) { fp = path.dirname(fp); }
-	const soundfontFile = (g.config && g.config.midiSoundfont) ? g.config.midiSoundfont : 'default.sf2';
-	
-	// Check user directory first, then bundled
-	const userDataPath = await helper.app.getPath('userData');
-	const userDir = path.join(userDataPath, 'soundfonts');
-	const userPath = path.join(userDir, soundfontFile);
-	const bundledPath = path.resolve(fp + '/bin/soundfonts/' + soundfontFile);
 
-	let soundfontPath = null;
-	try {
-		await fs.access(userPath);
-		soundfontPath = userPath;
+	const soundfontFile = (g.config?.midiSoundfont) || 'default.sf2';
+	let soundfontPath = await resolveSoundfontPath(soundfontFile);
 
-	} catch (e) {
-		try {
-			await fs.access(bundledPath);
-			soundfontPath = bundledPath;
-
-		} catch (e2) {
-			console.warn('[MIDI] SoundFont not found:', soundfontFile, '- falling back to default.sf2');
-			const defaultPath = path.resolve(fp + '/bin/soundfonts/default.sf2');
-			const soundfontUrl = tools.getFileURL(defaultPath);
-			await initMidiWithSoundfont(soundfontUrl, defaultPath);
-			return;
-		}
+	// Fallback to bundled default if custom font not found
+	if (!soundfontPath && soundfontFile !== 'default.sf2') {
+		logger.warn('midi', 'Configured soundfont not found, falling back to default.sf2', { soundfontFile });
+		soundfontPath = await resolveSoundfontPath('default.sf2');
+	}
+	if (!soundfontPath) {
+		logger.warn('midi', 'No soundfont available — MIDI init aborted');
+		return;
 	}
 
 	const soundfontUrl = tools.getFileURL(soundfontPath);

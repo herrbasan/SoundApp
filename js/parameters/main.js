@@ -32,7 +32,8 @@ const DEFAULTS = {
 
 let bridge;
 let g = {
-    init_data: null
+    init_data: null,
+    pendingSoundfont: null  // Soundfont value received before dropdown was populated
 };
 
 // Mode state is owned by main process - we render what main broadcasts
@@ -511,42 +512,7 @@ function updateParams(mode, params) {
         }
         // Handle soundfont selection
         if (typeof params.soundfont !== 'undefined') {
-            const sfSelect = document.getElementById('soundfont-select');
-            if (!sfSelect) {
-                console.warn('[Parameters] Soundfont select not found in DOM');
-                return;
-            }
-
-            // Check if options are populated
-            if (sfSelect.options.length === 0) {
-                console.warn('[Parameters] Soundfont select has no options yet, deferring update');
-                // Defer the update until options are available
-                setTimeout(() => updateParams(mode, params), 100);
-                return;
-            }
-
-            // Find the option matching the soundfont value
-            const fontToSelect = params.soundfont;
-            let found = false;
-            for (let i = 0; i < sfSelect.options.length; i++) {
-                if (sfSelect.options[i].value === fontToSelect) {
-                    sfSelect.options[i].selected = true;
-                    found = true;
-                } else {
-                    sfSelect.options[i].selected = false;
-                }
-            }
-
-            if (found) {
-                console.log('[Parameters] Setting soundfont to:', fontToSelect);
-                // Update nui-select display (calls renderButton() which reads getSelected())
-                if (sfSelect.update) {
-                    sfSelect.update();
-                }
-            } else {
-                console.warn('[Parameters] Soundfont not found in options:', fontToSelect, 'Available:', 
-                    Array.from(sfSelect.options).map(o => o.value));
-            }
+            applySoundfontToDropdown(params.soundfont);
         }
     } else if (mode === 'tracker') {
         // Handle tracker params
@@ -949,6 +915,38 @@ function resetTrackerSoloState() {
     // Note: don't send mute commands here - the worklet already reset on file load
 }
 
+/**
+ * Apply a soundfont filename to the dropdown. If the dropdown isn't populated
+ * yet, stores the value in g.pendingSoundfont — initSoundfontSelector() will
+ * apply it once the options arrive.
+ */
+function applySoundfontToDropdown(fontFilename) {
+    const sfSelect = document.getElementById('soundfont-select');
+    if (!sfSelect || sfSelect.options.length === 0) {
+        // Dropdown not ready — store for later
+        g.pendingSoundfont = fontFilename;
+        return;
+    }
+
+    g.pendingSoundfont = null;
+    let found = false;
+    for (let i = 0; i < sfSelect.options.length; i++) {
+        if (sfSelect.options[i].value === fontFilename) {
+            sfSelect.options[i].selected = true;
+            found = true;
+        } else {
+            sfSelect.options[i].selected = false;
+        }
+    }
+
+    if (found) {
+        if (sfSelect.update) sfSelect.update();
+    } else {
+        console.warn('[Parameters] Soundfont not found in options:', fontFilename,
+            'Available:', Array.from(sfSelect.options).map(o => o.value));
+    }
+}
+
 async function initSoundfontSelector() {
     const sfSelect = document.getElementById('soundfont-select');
     if (!sfSelect) return;
@@ -980,12 +978,12 @@ async function initSoundfontSelector() {
     }
 
     // Initialize nui-select (visual component)
-    console.log('[SoundFont] Calling superSelect()');
     superSelect(sfSelect);
 
-    // Note: We intentionally do NOT set sfSelect.value here.
-    // The selected value comes from main via updateParams() - dumb renderer pattern.
-    // updateParams() handles setting the value and syncing superSelect display.
+    // Apply any soundfont value that arrived before the dropdown was ready
+    if (g.pendingSoundfont) {
+        applySoundfontToDropdown(g.pendingSoundfont);
+    }
 
     // Listen for user changes - send intent to main
     sfSelect.addEventListener('change', () => {

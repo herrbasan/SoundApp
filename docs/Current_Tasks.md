@@ -182,7 +182,14 @@ waveformCache.getStats()  // Cache hit/miss stats
 - ~~**Player - MIDI metadata**~~ - ✅ Fixed - Case mismatch resolved
 
 ### Medium Priority
-- **Parameters Window - MIDI Tab** - ~~Soundfont select does not show currently selected model at startup~~ ✅ Fixed - **IMPLEMENTATION NEEDS REVIEW** (sloppy: conditional bypass in engines.js, config saved in two places)
+- **Parameters Window - MIDI Tab** - ~~Soundfont select does not show currently selected model at startup~~ ✅ Fixed — ✅ **CLEANED UP**
+  - Engine is stateless — only Main persists config via `user_cfg`
+  - `resolveSoundfontPath()` is single source for soundfont path resolution (`initMidiPlayer` uses it too)
+  - Soundfont in `cmd:applyParams` for consistent application during normal playback and restoration
+  - Soundfont cached in `g.currentMidiParams` like other MIDI params
+  - Dead `midi-soundfont-changed` handler removed (was broken, never called)
+  - `midi-reset-params` preserves soundfont (user preference, not per-file)
+  - Parameters window soundfont retry has limit (max 2s) to prevent infinite loops
 - **Logging cleanup** - Player has excessive logging
 - **Engine logging** - Clean up logging, relay to app.js logging instead of console
 
