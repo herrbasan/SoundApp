@@ -270,6 +270,11 @@ function setupIPC() {
         ipcRenderer.send('param-change', data);
     });
 
+    // Forward monitoring source changes from child windows (mixer, etc.) to app.js
+    ipcRenderer.on('monitoring:setSource', (e, data) => {
+        ipcRenderer.send('monitoring:setSource', data);
+    });
+
     // Forward state-debug requests to app.js
     ipcRenderer.on('state-debug:request', (e, data) => {
         ipcRenderer.send('state-debug:request', { ...data, windowId: g.windows['state-debug'] });
@@ -1092,6 +1097,11 @@ function setupWindow() {
 }
 
 async function openWindow(type, forceShow = false, contextFile = null) {
+    // Block state-debug window in packaged builds (defense in depth)
+    if (type === 'state-debug' && g.isPackaged) {
+        console.log('[openWindow] state-debug window blocked in packaged build');
+        return;
+    }
     console.log('[openWindow] type:', type, 'forceShow:', forceShow, 'windowId:', g.windows[type]);
 
     async function waitForWindowClosed(t, id, timeoutMs = 2000) {
@@ -1371,8 +1381,8 @@ async function onKey(e) {
         openWindow('monitoring');
     }
 
-    // Debug: Ctrl+Shift+D to open state debugger
-    if (e.ctrlKey && e.shiftKey && e.keyCode === 68) { // D
+    // Debug: Ctrl+Shift+D to open state debugger (dev builds only)
+    if (e.ctrlKey && e.shiftKey && e.keyCode === 68 && !g.isPackaged) { // D
         e.preventDefault();
         openWindow('state-debug');
     }

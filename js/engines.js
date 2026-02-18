@@ -85,7 +85,6 @@ async function getTrackerPlayer() {
     
     // If not lazy-init, initialize immediately on first call
     if (!lazyInitEnabled) {
-        logger.debug('tracker', 'Lazy-init disabled, creating instance');
         if (!_trackerInstance && window.chiptune) {
             _trackerInstance = createTrackerPlayer();
             player = _trackerInstance;  // Legacy compatibility
@@ -918,7 +917,6 @@ async function init() {
 	});
 	
 	ipcRenderer.on('cmd:setParams', async (e, data) => {
-		logger.debug('cmd:setParams received', { mode: data.mode, tapeSpeed: data.tapeSpeed, pitch: data.pitch, tempo: data.tempo });
 		
 		// Store params received from Main (ground truth)
 		if (!g.currentAudioParams) g.currentAudioParams = {};
@@ -1320,12 +1318,10 @@ async function init() {
 			}
 			else if (data.param === 'pitch') {
 				g.currentAudioParams.pitch = data.value;
-				logger.debug('engine', 'Pitch change', { value: data.value, activePipeline: g.activePipeline, hasPlayer: !!g.rubberbandPlayer });
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
 					const ratio = Math.pow(2, data.value / 12.0);
 					if (typeof g.rubberbandPlayer.setPitch === 'function') {
 						g.rubberbandPlayer.setPitch(ratio);
-						logger.debug('engine', 'Pitch applied to rubberband');
 					}
 				} else {
 					console.warn('[Engine] Pitch NOT applied - pipeline or player not ready');

@@ -25,6 +25,19 @@ let tray = null;
 let user_cfg = null;
 let isQuitting = false;
 
+/**
+ * Check if keep-running-in-tray is enabled in user config
+ * @returns {boolean}
+ */
+function isKeepInTrayEnabled() {
+    try {
+        const cnf = user_cfg ? (user_cfg.get() || {}) : {};
+        return !!(cnf && cnf.ui && cnf.ui.keepRunningInTray);
+    } catch (err) {
+        return false;
+    }
+}
+
 // ═══════════════════════════════════════════════════════════
 // AUDIO WORKER ARCHITECTURE: State Machine (Phase 2)
 // ═══════════════════════════════════════════════════════════
@@ -667,17 +680,36 @@ async function appStart() {
     WindowManager.init(logger, wins.main);
 
     // Opt-in: keep running in tray (hide main window on close)
+    // Listen for 'hide' event since all windows hide instead of close
     try {
-        wins.main.on('close', (e) => {
-            if (isQuitting) return;
+        wins.main.on('hide', () => {
+            // Check tray setting
             let keep = false;
             try {
                 let cnf = user_cfg ? (user_cfg.get() || {}) : {};
                 keep = !!(cnf && cnf.ui && cnf.ui.keepRunningInTray);
             } catch (err) { }
+
             if (!keep) return;
-            e.preventDefault();
-            try { wins.main.hide(); } catch (err) { }
+
+            // Close/hide all child windows when going to tray
+            // Mixer -> close, others -> hide
+            const { BrowserWindow } = require('electron');
+            Object.keys(childWindows).forEach(type => {
+                const winState = childWindows[type];
+                if (!winState.windowId) return;
+                try {
+                    const win = BrowserWindow.fromId(winState.windowId);
+                    if (!win || win.isDestroyed()) return;
+
+                    if (type === 'mixer') {
+                        win.close();
+                    } else {
+                        win.hide();
+                    }
+                } catch (err) { }
+            });
+
             // Phase 4: Schedule engine disposal when hidden to tray
             // (polling loop handles this automatically)
         });
@@ -1144,12 +1176,10 @@ function stopIdleDisposalLoop() {
 
 function recordUserActivity() {
     idleDisposalState.lastActivityTime = Date.now();
-    console.log('[Idle] Activity recorded, timeout reset');
 }
 
 async function performDisposal() {
     if (!engineWindow || idleDisposalState.isDisposing) {
-        console.log(`[Disposal] performDisposal early exit: engineWindow=${!!engineWindow}, isDisposing=${idleDisposalState.isDisposing}`);
         return;
     }
 
@@ -2026,7 +2056,18 @@ function setupAudioIPC() {
                         // NOTIFY ENGINE
                         sendToEngine('window-hidden', { type, windowId });
 
-                        // RESTORE FOCUS
+                        // RESTORE FOCUS - but skip if going to tray
+                        // Check if keep in tray is enabled and main window is hidden
+                        let goingToTray = false;
+                        try {
+                            let cnf = user_cfg ? (user_cfg.get() || {}) : {};
+                            goingToTray = !!(cnf && cnf.ui && cnf.ui.keepRunningInTray && !wins.main.isVisible());
+                        } catch (err) { }
+
+                        if (goingToTray) {
+                            return;
+                        }
+
                         if (wins.main && !wins.main.isDestroyed()) {
                             const isMinimized = wins.main.isMinimized();
                             const isVisible = wins.main.isVisible();
@@ -2119,12 +2160,23 @@ function setupAudioIPC() {
         }
         sendToEngine('window-hidden', data);
 
-        // Always return focus to player window when any child window is hidden
+        // Return focus to player window when any child window is hidden
+        // BUT: Don't show main window if keep-in-tray is enabled and main was intentionally hidden
         if (wins.main && !wins.main.isDestroyed()) {
+            const keepInTray = isKeepInTrayEnabled();
+            const isMainVisible = wins.main.isVisible();
+
             logger.debug('window', 'Restoring focus to player window after hide', {
                 wasMinimized: wins.main.isMinimized(),
-                isVisible: wins.main.isVisible()
+                isVisible: isMainVisible,
+                keepInTray
             });
+
+            // If keep-in-tray is enabled and main is hidden, don't show it
+            if (keepInTray && !isMainVisible) {
+                logger.debug('window', 'Skipping focus restore - keep-in-tray enabled and main hidden');
+                return;
+            }
 
             // Flag to skip activity recording - this is programmatic focus, not user interaction
             skipNextFocusActivity = true;
@@ -2167,14 +2219,27 @@ function setupAudioIPC() {
 
             sendToEngine('window-closed', data);
 
-            // Always return focus to player window when any child window is closed
+            // Return focus to player window when any child window is closed
+            // BUT: Don't show main window if keep-in-tray is enabled and main was intentionally hidden
             if (wins.main && !wins.main.isDestroyed()) {
-                logger.debug('window', 'Restoring focus to player window after close');
+                const keepInTray = isKeepInTrayEnabled();
+                const isMainVisible = wins.main.isVisible();
+
+                logger.debug('window', 'Restoring focus to player window after close', {
+                    keepInTray,
+                    isVisible: isMainVisible
+                });
+
+                // If keep-in-tray is enabled and main is hidden, don't show it
+                if (keepInTray && !isMainVisible) {
+                    logger.debug('window', 'Skipping focus restore - keep-in-tray enabled and main hidden');
+                    return;
+                }
 
                 // Flag to skip activity recording - this is programmatic focus
                 skipNextFocusActivity = true;
 
-                if (!wins.main.isVisible()) wins.main.show();
+                if (!isMainVisible) wins.main.show();
                 if (wins.main.isMinimized()) wins.main.restore();
 
                 if (process.platform === 'win32') {
@@ -2192,6 +2257,12 @@ function setupAudioIPC() {
     ipcMain.on('window:toggle', (e, data) => {
         const type = data?.type;
         if (!type || !childWindows[type]) return;
+
+        // Block state-debug window in packaged builds
+        if (type === 'state-debug' && isPackaged) {
+            logger.warn('window', 'state-debug window blocked in packaged build');
+            return;
+        }
 
         const winState = childWindows[type];
         logger.info('window', 'window:toggle received', { type, visible: winState.visible, windowId: winState.windowId });
@@ -2215,7 +2286,16 @@ function setupAudioIPC() {
                     sendToEngine('window-hidden', { type, windowId: winState.windowId });
 
                     // Focus player window immediately with a slight delay
+                    // BUT: Don't show main window if keep-in-tray is enabled and main was intentionally hidden
                     if (wins.main && !wins.main.isDestroyed()) {
+                        const keepInTray = isKeepInTrayEnabled();
+                        const isMainVisible = wins.main.isVisible();
+
+                        if (keepInTray && !isMainVisible) {
+                            logger.debug('window', 'Skipping focus restore on toggle - keep-in-tray enabled and main hidden');
+                            return;
+                        }
+
                         setTimeout(() => {
                             try {
                                 // Flag to skip activity recording - this is programmatic focus

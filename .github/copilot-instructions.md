@@ -560,6 +560,8 @@ bin/win_bin/                  # Windows binaries
 
 1. **Position Update Smoothness**: 50ms interval is slightly less smooth than 15ms (barely noticeable, but ~60% less IPC traffic).
 
+2. **Mixer FFmpeg Path (Packaged)**: The way FFmpeg paths are provided in the mixer pipeline does not work when packaged. The `init_data.ffmpeg_napi_path` and `init_data.ffmpeg_player_path` constructed in `player.js` use relative paths that break in the packaged app structure.
+
 ---
 
 ## Testing Checklist
@@ -607,7 +609,55 @@ Load MIDI/Tracker code only when needed (requires build changes).
 
 ## Window Management & Focus (Crucial for Agents)
 
-**The Problem:** 
+### How Windows Work (Hide vs Close)
+
+**Important:** All windows in SoundApp use `hide()`/`show()` instead of `close()`/`open()`:
+- Closing a window via X button triggers the `close` event, but most windows intercept this and call `hide()` instead
+- The only exception is the **Mixer window** - it actually closes (destroys) when hidden
+- When a window is "closed" and then reopened, it's actually showing the hidden window again
+
+**Window Types:**
+| Window | Closes or Hides? | Notes |
+|--------|-----------------|-------|
+| Player (main) | Hides | Triggers app quit only if "keep in tray" is OFF |
+| Parameters | Hides | Can be reopened with P key |
+| Monitoring | Hides | Can be reopened with N key |
+| Settings | Hides | Can be reopened with S key |
+| Help | Hides | Can be reopened with H key |
+| Mixer | Closes | Actually destroys the window |
+
+### Keep In Tray Behavior
+
+When "keep in tray" is enabled (`ui.keepRunningInTray` in config):
+1. Player window hides instead of closing (app stays running in background)
+2. All other visible windows should hide (or close for mixer)
+3. Focus restoration is skipped when hiding child windows (prevents player window from reappearing)
+
+**Implementation:**
+```javascript
+// Listen for 'hide' event on main window (not 'close')
+wins.main.on('hide', () => {
+    // Check if keepRunningInTray is enabled
+    if (!keepRunningInTray) return;
+
+    // Close mixer, hide all other child windows
+    Object.keys(childWindows).forEach(type => {
+        const win = BrowserWindow.fromId(childWindows[type].windowId);
+        if (type === 'mixer') win.close();
+        else win.hide();
+    });
+});
+
+// Skip focus restoration when going to tray
+childWin.on('hide', () => {
+    if (keepRunningInTray && !wins.main.isVisible()) {
+        return; // Skip focus restore - going to tray
+    }
+    // Normal focus restoration...
+});
+```
+
+**The Problem:**
 Electron's `hide()` and `show()` methods are asynchronous and platform-dependent. Relying solely on IPC messages (`window-hidden`) from the renderer to the main process is flaky because:
 1. The renderer might be frozen or busy.
 2. The OS might minimize the window instead of hiding it (or vice versa).

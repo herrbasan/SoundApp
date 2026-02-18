@@ -917,6 +917,8 @@ async function init(initData) {
 			}
 			else {
 				Transport.start();
+				// Start monitoring loop when playback starts (ensures data is sent even if focus never changed)
+				startMixerMonitoringLoop();
 			}
 		}
 	});
