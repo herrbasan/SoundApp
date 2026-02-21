@@ -1134,7 +1134,18 @@ function shouldDisposeEngine() {
 }
 
 function checkIdleDisposal() {
-    if (!shouldDisposeEngine()) return;
+    if (!shouldDisposeEngine()) {
+        // OPTIMIZATION: Stop idle loop when fully idle (engine disposed AND window hidden)
+        // This eliminates 1 timer tick per second when app is in tray
+        // Loop restarts on window show or user activity via recordUserActivity()
+        const engineDisposed = !engineWindow || engineWindow.isDestroyed();
+        const windowHidden = !wins.main?.isVisible();
+        if (engineDisposed && windowHidden && !audioState.isPlaying) {
+            logger.debug('idle', 'Stopping idle loop - fully idle');
+            stopIdleDisposalLoop();
+        }
+        return;
+    }
     
     console.log('[Idle] Timeout reached, disposing engine...');
     performDisposal();
@@ -1151,6 +1162,12 @@ function startIdleDisposalLoop() {
 }
 
 function broadcastIdleTime() {
+    // OPTIMIZATION: Skip broadcasting idle time when player window is hidden
+    // This reduces IPC chatter when app is minimized to tray
+    if (!wins.main?.isVisible() || wins.main?.isMinimized()) {
+        return;
+    }
+    
     // Send idle time to player for debug display
     // When playing, show full timeout (effectively reset)
     const timeout = getIdleTimeoutMs();
@@ -1178,6 +1195,13 @@ function stopIdleDisposalLoop() {
 
 function recordUserActivity() {
     idleDisposalState.lastActivityTime = Date.now();
+    
+    // OPTIMIZATION: Restart idle loop if it was stopped
+    // This ensures loop is running when user interacts after full idle state
+    if (!idleDisposalState.checkInterval) {
+        logger.debug('idle', 'Restarting idle loop from activity');
+        startIdleDisposalLoop();
+    }
 }
 
 async function performDisposal() {

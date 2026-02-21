@@ -55,8 +55,9 @@ async function init() {
     // Request initial state
     requestState();
 
-    // Auto-refresh every 1 second for real-time debugging
-    setInterval(requestState, 1000);
+    // OPTIMIZATION: Removed auto-refresh to reduce background IPC chatter
+    // User can click "Refresh" button or use "Copy to Clipboard" for fresh data
+    // This prevents 1 IPC round-trip per second when state-debug window is open
 
     // Mark as ready for CSS transition
     document.querySelector('main').classList.add('ready');
