@@ -729,11 +729,29 @@ async function appStart() {
         wins.main.on('show', () => {
             recordUserActivity();
             restoreEngineIfNeeded();
+            // Resume normal position update frequency
+            sendToEngine('engine:set-position-mode', { mode: 'normal' });
         });
 
         wins.main.on('restore', () => {
             recordUserActivity();
             restoreEngineIfNeeded();
+            // Resume normal position update frequency
+            sendToEngine('engine:set-position-mode', { mode: 'normal' });
+        });
+
+        // Reduce position update frequency when hidden to tray
+        wins.main.on('hide', () => {
+            let keep = false;
+            try {
+                let cnf = user_cfg ? user_cfg.get() : {};
+                keep = !!(cnf?.ui?.keepRunningInTray);
+            } catch (err) { }
+            
+            if (keep) {
+                // Going to tray - minimize position updates
+                sendToEngine('engine:set-position-mode', { mode: 'minimal' });
+            }
         });
 
         // Track user activity to prevent idle disposal
@@ -1635,6 +1653,13 @@ function broadcastState(excludeEngine = false) {
 
     // Store for next comparison
     lastBroadcastState = { ...stateUpdate };
+
+    // OPTIMIZATION: Skip broadcasting when player window is hidden
+    // State will be synced when window becomes visible via state:requestSync
+    if (!wins.main?.isVisible()) {
+        logger.debug('main', 'broadcastState: skipped - window hidden');
+        return;
+    }
 
     // Send to player window
     sendToPlayer('state:update', stateUpdate);
