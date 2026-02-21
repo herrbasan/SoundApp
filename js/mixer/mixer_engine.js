@@ -59,6 +59,16 @@ class MixerTrack {
 
 		// Electron + FFmpeg path available: use FFmpegStreamPlayerSAB for high-performance streaming
 		const canFF = !!(window.bridge && window.bridge.isElectron && initData.ffmpeg_napi_path && initData.ffmpeg_player_path);
+		
+		// Debug: Log why FFmpeg might be unavailable
+		if (window.bridge && window.bridge.isElectron && !canFF) {
+			console.warn('[Mixer] FFmpeg not available. Paths:', {
+				napi: initData.ffmpeg_napi_path,
+				player: initData.ffmpeg_player_path,
+				worklet: initData.ffmpeg_worklet_path
+			});
+		}
+		
 		if(canFF && typeof src === 'string' && !src.startsWith('blob:')){
 			try {
 				const { FFmpegDecoder } = require(initData.ffmpeg_napi_path);
