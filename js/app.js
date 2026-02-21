@@ -2450,6 +2450,131 @@ function setupAudioIPC() {
         broadcastState();
     });
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STATE CLIENT IPC HANDLERS
+    // Unified state management for renderer processes
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // StateClient: Full state sync request from renderer
+    ipcMain.on('state:requestSync', (e) => {
+        const fullState = {
+            'audio.mode': audioState.mode,
+            'audio.tapeSpeed': audioState.tapeSpeed,
+            'audio.pitch': audioState.pitch,
+            'audio.tempo': audioState.tempo,
+            'audio.formant': audioState.formant,
+            'audio.locked': audioState.locked,
+            'audio.volume': audioState.volume,
+            'playback.file': audioState.file,
+            'playback.isPlaying': audioState.isPlaying,
+            'playback.position': audioState.position,
+            'playback.duration': audioState.duration,
+            'playback.loop': audioState.loop,
+            'midi.transpose': audioState.midiParams.transpose,
+            'midi.bpm': audioState.midiParams.bpm,
+            'midi.metronome': audioState.midiParams.metronome,
+            'midi.soundfont': audioState.midiParams.soundfont,
+            'tracker.pitch': audioState.trackerParams.pitch,
+            'tracker.tempo': audioState.trackerParams.tempo,
+            'tracker.stereoSeparation': audioState.trackerParams.stereoSeparation,
+            'playlist.items': audioState.playlist,
+            'playlist.index': audioState.playlistIndex,
+            'file.metadata': audioState.metadata,
+            'file.type': audioState.fileType,
+            'ui.monitoringSource': audioState.monitoringSource,
+            'system.engineAlive': audioState.engineAlive,
+            'system.activePipeline': audioState.activePipeline
+        };
+        e.sender.send('state:update', fullState);
+    });
+
+    // StateClient: Set intent from renderer
+    ipcMain.on('state:setIntent', (e, { key, value }) => {
+        try {
+            // Map StateClient keys to audioState
+            const keyMap = {
+                'audio.mode': 'mode',
+                'audio.tapeSpeed': 'tapeSpeed',
+                'audio.pitch': 'pitch',
+                'audio.tempo': 'tempo',
+                'audio.formant': 'formant',
+                'audio.locked': 'locked',
+                'audio.volume': 'volume',
+                'playback.loop': 'loop',
+                'ui.monitoringSource': 'monitoringSource'
+            };
+
+            if (keyMap[key]) {
+                // Update audioState
+                audioState[keyMap[key]] = value;
+                
+                // Forward to engine if applicable
+                if (key.startsWith('audio.')) {
+                    sendToEngine('audio:setParams', {
+                        [keyMap[key]]: value
+                    });
+                }
+                
+                // Broadcast to all renderers
+                broadcastState();
+                
+                // Confirm to sender
+                e.sender.send('state:confirm', { key, value });
+            } else {
+                e.sender.send('state:confirm', { key, value, error: 'Read-only or unknown key' });
+            }
+        } catch (err) {
+            e.sender.send('state:confirm', { key, value, error: err.message });
+        }
+    });
+
+    // StateClient: Action dispatch from renderer
+    ipcMain.on('action:dispatch', (e, { action, payload, requestId }) => {
+        try {
+            let result = null;
+            
+            switch (action) {
+                case 'play':
+                    handlePlay();
+                    result = { playing: true };
+                    break;
+                case 'pause':
+                    handlePause();
+                    result = { playing: false };
+                    break;
+                case 'toggle':
+                    if (audioState.isPlaying) {
+                        handlePause();
+                        result = { playing: false };
+                    } else {
+                        handlePlay();
+                        result = { playing: true };
+                    }
+                    break;
+                case 'seek':
+                    if (payload.position !== undefined) {
+                        handleSeek(payload.position);
+                        result = { position: payload.position };
+                    }
+                    break;
+                case 'next':
+                    handleNext();
+                    result = { action: 'next' };
+                    break;
+                case 'prev':
+                    handlePrev();
+                    result = { action: 'prev' };
+                    break;
+                default:
+                    throw new Error(`Unknown action: ${action}`);
+            }
+            
+            e.sender.send('action:complete', { requestId, result });
+        } catch (err) {
+            e.sender.send('action:complete', { requestId, error: err.message });
+        }
+    });
+
     // State debugger: Send main state and query engine state
     ipcMain.on('state-debug:request', async (e, data) => {
         // windowId comes from the sender directly (state-debug window sends via sendToMain)

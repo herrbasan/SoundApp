@@ -101,6 +101,44 @@ g.supportedFilter = [...g.supportedChrome, ...g.supportedFFmpeg, ...g.supportedM
 // Set process title for identification in task manager
 process.title = 'SoundApp UI';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE CLIENT ACTION HELPERS
+// Unified state actions - uses State Client if available, falls back to IPC
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function togglePlayback() {
+    if (typeof State !== 'undefined' && State.dispatch) {
+        await State.dispatch('toggle');
+    } else {
+        // Legacy IPC fallback
+        ipcRenderer.send(g.state.isPlaying ? 'audio:pause' : 'audio:play');
+    }
+}
+
+async function playNextTrack() {
+    if (typeof State !== 'undefined' && State.dispatch) {
+        await State.dispatch('next');
+    } else {
+        ipcRenderer.send('audio:next');
+    }
+}
+
+async function playPrevTrack() {
+    if (typeof State !== 'undefined' && State.dispatch) {
+        await State.dispatch('prev');
+    } else {
+        ipcRenderer.send('audio:prev');
+    }
+}
+
+async function seekToPosition(position) {
+    if (typeof State !== 'undefined' && State.dispatch) {
+        await State.dispatch('seek', { position });
+    } else {
+        ipcRenderer.send('audio:seek', position);
+    }
+}
+
 init();
 async function init() {
     fb('Init Player UI');
@@ -221,6 +259,52 @@ function setupIPC() {
         // Update UI directly from broadcast state
         updateUI();
     });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STATE CLIENT INTEGRATION (New - alongside legacy code)
+    // Gradual migration from manual IPC to unified State Client API
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (typeof State !== 'undefined') {
+        // Subscribe to state changes using State Client
+        // These work alongside existing ipcRenderer listeners for gradual migration
+        
+        State.subscribe('playback.isPlaying', (isPlaying) => {
+            // Sync with legacy g.state
+            g.state.isPlaying = isPlaying;
+            updatePlayButton();
+        });
+
+        State.subscribe('playback.position', (position) => {
+            g.state.position = position;
+            updatePositionUI();
+        });
+
+        State.subscribe('playback.file', (file) => {
+            g.state.file = file;
+            updateFileDisplay();
+        });
+
+        State.subscribe('playback.duration', (duration) => {
+            g.state.duration = duration;
+            updateDurationUI();
+        });
+
+        State.subscribe('audio.*', (value, oldValue, key) => {
+            // Wildcard subscription for all audio params
+            const param = key.split('.')[1];
+            if (g.state[param] !== undefined) {
+                g.state[param] = value;
+            }
+            updateUI();
+        });
+
+        State.subscribe('system.engineAlive', (alive) => {
+            g.state.engineAlive = alive;
+            // Could show/hide "engine sleeping" indicator here
+        });
+
+        console.log('[Player] State Client subscriptions registered');
+    }
 
     // Receive position updates (frequent, ≤15ms)
     ipcRenderer.on('position', (e, position) => {

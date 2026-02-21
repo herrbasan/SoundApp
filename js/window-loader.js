@@ -123,6 +123,22 @@ if (isElectron) {
 	// Expose bridge globally
 	window.bridge = bridge;
 
+	// State Client - Unified state management for renderer processes
+	try {
+		const StateClient = require('../js/state-client.js');
+		window.State = StateClient;
+		logger.info('window-loader', 'StateClient loaded successfully');
+	} catch (e) {
+		logger.error('window-loader', 'Failed to load StateClient', { error: e.message });
+		// Create stub to prevent errors
+		window.State = {
+			get: () => undefined,
+			set: async () => { throw new Error('StateClient not available'); },
+			subscribe: () => () => {},
+			dispatch: async () => { throw new Error('StateClient not available'); }
+		};
+	}
+
 	// Global Shortcuts Helper - Load AFTER bridge is defined
 	try {
 		// Try path relative to HTML location (usually inside html/ folder -> so ../js/shortcuts.js)
