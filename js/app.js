@@ -714,6 +714,12 @@ async function appStart() {
 
             // Phase 4: Schedule engine disposal when hidden to tray
             // (polling loop handles this automatically)
+            
+            // OPTIMIZATION: Aggressive background throttling when going to tray
+            // This reduces CPU from Chromium's baseline ~0.3% to near-zero
+            logger.debug('throttle', 'Enabling aggressive throttling (tray)');
+            wins.main.webContents.setBackgroundThrottling(true);
+            wins.main.webContents.setFrameRate(1);
         });
 
         wins.main.on('closed', () => {
@@ -731,6 +737,10 @@ async function appStart() {
             restoreEngineIfNeeded();
             // Resume normal position update frequency
             sendToEngine('engine:set-position-mode', { mode: 'normal' });
+            // Disable background throttling for responsive UI
+            logger.debug('throttle', 'Disabling throttling (visible)');
+            wins.main.webContents.setBackgroundThrottling(false);
+            wins.main.webContents.setFrameRate(60);
         });
 
         wins.main.on('restore', () => {
@@ -738,6 +748,10 @@ async function appStart() {
             restoreEngineIfNeeded();
             // Resume normal position update frequency
             sendToEngine('engine:set-position-mode', { mode: 'normal' });
+            // Disable background throttling for responsive UI
+            logger.debug('throttle', 'Disabling throttling (visible)');
+            wins.main.webContents.setBackgroundThrottling(false);
+            wins.main.webContents.setFrameRate(60);
         });
 
         // Reduce position update frequency when hidden to tray
@@ -1232,6 +1246,18 @@ async function performDisposal() {
 
     try {
         disposeEngineWindow();
+        
+        // OPTIMIZATION: Aggressive throttling when engine disposed (0% audio need)
+        // This reduces Chromium background CPU from ~0.3% to near-zero
+        const { BrowserWindow } = require('electron');
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                logger.debug('throttle', 'Engine disposed - throttling window', { windowId: win.id });
+                win.webContents.setBackgroundThrottling(true);
+                win.webContents.setFrameRate(1);
+            }
+        });
+        
         // Reset isDisposing after successful disposal so next disposal can happen
         idleDisposalState.isDisposing = false;
         console.log(`[Disposal] performDisposal completed`);
@@ -1503,6 +1529,17 @@ async function restoreEngineIfNeeded() {
             paramsApplyMs: elapsed - (timings.fileLoaded - timings.start)
         });
         audioState.isRestoration = false; // Clear restoration flag on success
+        
+        // OPTIMIZATION: Disable throttling when engine restored (active playback)
+        // Unthrottle all windows for responsive UI during audio playback
+        const { BrowserWindow } = require('electron');
+        BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+                logger.debug('throttle', 'Engine restored - unthrottling window', { windowId: win.id });
+                win.webContents.setBackgroundThrottling(false);
+                win.webContents.setFrameRate(60);
+            }
+        });
 
         return true;
 
