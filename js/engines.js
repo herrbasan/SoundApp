@@ -1001,6 +1001,61 @@ async function init() {
 		if (data.max !== undefined) g.max = data.max;
 
 	});
+
+	// Engine state request for state-debug window
+	ipcRenderer.on('cmd:getState', (e, data) => {
+		const engineState = {
+			// Engine instances loaded
+			engines: {
+				ffmpeg: {
+					loaded: !!g.ffmpegPlayer,
+					active: !!(g.currentAudio && g.currentAudio.isFFmpeg),
+					pipeline: g.activePipeline || 'none'
+				},
+				midi: {
+					loaded: !!midi,
+					active: !!(g.currentAudio && g.currentAudio.isMidi),
+					moduleLoaded: typeof midi !== 'undefined',
+					initialized: midi?._isInitialized || false
+				},
+				tracker: {
+					loaded: !!_trackerInstance,
+					active: !!(g.currentAudio && g.currentAudio.isMod),
+					moduleLoaded: !!(typeof window !== 'undefined' && window.chiptune)
+				}
+			},
+			// Current playback
+			playback: {
+				file: g.currentAudio ? path.basename(g.currentAudio.fp || '') : null,
+				type: g.currentAudio ?
+					(g.currentAudio.isMidi ? 'MIDI' :
+					 g.currentAudio.isMod ? 'Tracker' :
+					 g.currentAudio.isFFmpeg ? 'FFmpeg' : 'Unknown') : 'none',
+				playing: g.currentAudio ? !g.currentAudio.paused : false,
+				position: g.currentAudio?.currentTime || 0,
+				duration: g.currentAudio?.duration || 0
+			},
+			// Pipeline state
+			pipeline: {
+				active: g.activePipeline || 'none',
+				rubberbandLoaded: !!g.rubberbandPlayer,
+				rubberbandInitialized: g.rubberbandPlayer?.isReady || false
+			},
+			// Window connections
+			windows: {
+				parameters: g.windows?.parameters || null,
+				monitoring: g.windows?.monitoring || null,
+				parametersVisible: g.parametersOpen || false,
+				monitoringVisible: g.monitoringReady || false
+			}
+		};
+		
+		// Send back to main
+		ipcRenderer.send('engine:state', {
+			requestId: data?.requestId,
+			state: engineState
+		});
+	});
 	// Window visibility handlers (for monitoring and parameters)
 	ipcRenderer.on('window-visible', async (e, data) => {
 		if (!data || !data.type) return;
@@ -1152,53 +1207,6 @@ async function init() {
 		}
 	});
 	
-	// State debugger IPC - broadcast engine state for development debugging
-	ipcRenderer.on('state-debug:request', (e, data) => {
-		const windowId = data?.windowId;
-		if (!windowId) return;
-		
-		const engineStateSnapshot = {
-			// Audio params state
-			audioParams: {
-				mode: g.currentAudioParams?.mode,
-				tapeSpeed: g.currentAudioParams?.tapeSpeed,
-				pitch: g.currentAudioParams?.pitch,
-				tempo: g.currentAudioParams?.tempo,
-				formant: g.currentAudioParams?.formant,
-				locked: g.currentAudioParams?.locked
-			},
-			// Pipeline state
-			activePipeline: g.activePipeline,
-			// Window states
-			windows: {
-				parametersOpen: g.parametersOpen,
-				monitoringReady: g.monitoringReady
-			},
-			// MIDI/Tracker settings
-			midiSettings: g.currentMidiParams,
-			trackerParams: g.currentTrackerParams
-		};
-		
-		const audioStateSnapshot = g.currentAudio ? {
-			isFFmpeg: g.currentAudio.isFFmpeg,
-			isMidi: g.currentAudio.isMidi,
-			isMod: g.currentAudio.isMod,
-			fp: g.currentAudio.fp ? path.basename(g.currentAudio.fp) : null,
-			paused: g.currentAudio.paused,
-			currentTime: Math.round(g.currentAudio.currentTime * 100) / 100,
-			duration: Math.round(g.currentAudio.duration * 100) / 100
-		} : null;
-		
-		// Send directly to state-debug window
-		tools.sendToId(windowId, 'state-debug:engine', {
-			state: engineStateSnapshot
-		});
-		
-		if (audioStateSnapshot) {
-			tools.sendToId(windowId, 'state-debug:audio', audioStateSnapshot);
-		}
-	});
-
 	ipcRenderer.on('open-soundfonts-folder', async () => {
 		const userDataPath = await helper.app.getPath('userData');
 		const userSoundfontsPath = path.join(userDataPath, 'soundfonts');

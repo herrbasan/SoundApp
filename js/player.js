@@ -70,7 +70,17 @@ g.state = {
     currentSampleRate: null,
     loop: false,
     playlist: [],
-    playlistIndex: 0
+    playlistIndex: 0,
+    // Audio params from app.js (ground truth)
+    mode: 'tape',
+    tapeSpeed: 0,
+    pitch: 0,
+    tempo: 1.0,
+    formant: false,
+    locked: false,
+    activePipeline: 'normal',
+    monitoringSource: null,
+    engineAlive: false
 };
 
 // File format support (for drag-drop filtering)
@@ -196,6 +206,17 @@ function setupIPC() {
         if (data.currentSampleRate !== undefined) g.state.currentSampleRate = data.currentSampleRate;
         if (data.playlist !== undefined) g.state.playlist = data.playlist;
         if (data.playlistIndex !== undefined) g.state.playlistIndex = data.playlistIndex;
+        // Audio params from app.js (ground truth)
+        if (data.mode !== undefined) g.state.mode = data.mode;
+        if (data.tapeSpeed !== undefined) g.state.tapeSpeed = data.tapeSpeed;
+        if (data.pitch !== undefined) g.state.pitch = data.pitch;
+        if (data.tempo !== undefined) g.state.tempo = data.tempo;
+        if (data.formant !== undefined) g.state.formant = data.formant;
+        if (data.locked !== undefined) g.state.locked = data.locked;
+        if (data.activePipeline !== undefined) g.state.activePipeline = data.activePipeline;
+        if (data.monitoringSource !== undefined) g.state.monitoringSource = data.monitoringSource;
+        // Engine state from app.js (ground truth)
+        if (data.engineAlive !== undefined) g.state.engineAlive = data.engineAlive;
 
         // Update UI directly from broadcast state
         updateUI();
@@ -273,30 +294,6 @@ function setupIPC() {
     // Forward monitoring source changes from child windows (mixer, etc.) to app.js
     ipcRenderer.on('monitoring:setSource', (e, data) => {
         ipcRenderer.send('monitoring:setSource', data);
-    });
-
-    // Forward state-debug requests to app.js
-    ipcRenderer.on('state-debug:request', (e, data) => {
-        ipcRenderer.send('state-debug:request', { ...data, windowId: g.windows['state-debug'] });
-    });
-
-    // Forward state-debug responses from app.js/engine.js back to state-debug window
-    ipcRenderer.on('state-debug:main', (e, data) => {
-        if (g.windows['state-debug']) {
-            tools.sendToId(g.windows['state-debug'], 'state-debug:main', data);
-        }
-    });
-
-    ipcRenderer.on('state-debug:engine', (e, data) => {
-        if (g.windows['state-debug']) {
-            tools.sendToId(g.windows['state-debug'], 'state-debug:engine', data);
-        }
-    });
-
-    ipcRenderer.on('state-debug:audio', (e, data) => {
-        if (g.windows['state-debug']) {
-            tools.sendToId(g.windows['state-debug'], 'state-debug:audio', data);
-        }
     });
 
     ipcRenderer.on('midi-reset-params', (e, data) => {
@@ -601,12 +598,12 @@ function checkState() {
 function updateIdleDebugDisplay(data) {
     // Try to find dedicated element first
     let el = document.querySelector('.idle-debug');
-    
+
     // Fallback: append to num element
     if (!el) {
         const numEl = document.querySelector('.top .content .num');
         if (!numEl) return;
-        
+
         // Create or find idle span inside num
         el = numEl.querySelector('.idle-text');
         if (!el) {
@@ -616,7 +613,7 @@ function updateIdleDebugDisplay(data) {
             numEl.appendChild(el);
         }
     }
-    
+
     // Always show countdown - reset by play state or user activity
     // Format: just the number (seconds until disposal)
     el.innerText = `${data.remaining || 0}`;

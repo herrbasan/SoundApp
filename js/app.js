@@ -692,8 +692,9 @@ async function appStart() {
 
             if (!keep) return;
 
-            // Close/hide all child windows when going to tray
-            // Mixer -> close, others -> hide
+            // Close ALL child windows when going to tray
+            // Only player window stays hidden, everything else closes
+            WindowManager.isGoingToTray = true;
             const { BrowserWindow } = require('electron');
             Object.keys(childWindows).forEach(type => {
                 const winState = childWindows[type];
@@ -702,13 +703,14 @@ async function appStart() {
                     const win = BrowserWindow.fromId(winState.windowId);
                     if (!win || win.isDestroyed()) return;
 
-                    if (type === 'mixer') {
-                        win.close();
-                    } else {
-                        win.hide();
-                    }
+                    // Close all windows (not just mixer) when going to tray
+                    win.close();
+                    
+                    // Reset WindowManager state since window is destroyed
+                    WindowManager.handleWindowClosed({ type, windowId: winState.windowId });
                 } catch (err) { }
             });
+            WindowManager.isGoingToTray = false;
 
             // Phase 4: Schedule engine disposal when hidden to tray
             // (polling loop handles this automatically)
@@ -1590,7 +1592,8 @@ function broadcastState(excludeEngine = false) {
         currentSampleRate: audioState.currentSampleRate,
         playlist: audioState.playlist,
         playlistIndex: audioState.playlistIndex,
-        monitoringSource: audioState.monitoringSource
+        monitoringSource: audioState.monitoringSource,
+        engineAlive: audioState.engineAlive
     };
 
     // Skip if state hasn't changed (reduces IPC overhead)
@@ -2447,16 +2450,48 @@ function setupAudioIPC() {
         broadcastState();
     });
 
-    // State debugger: Send main state and forward to engine
-    ipcMain.on('state-debug:request', (e, data) => {
-        const windowId = data?.windowId;
+    // State debugger: Send main state and query engine state
+    ipcMain.on('state-debug:request', async (e, data) => {
+        // windowId comes from the sender directly (state-debug window sends via sendToMain)
+        const windowId = e.sender.id;
         const action = data?.action;  // Specific action to log (optional)
         const detail = data?.detail;
+        console.log('[app] state-debug:request, windowId:', windowId);
         if (!windowId) return;
 
         // Log specific action if provided
         if (action && action !== 'request') {
             logStateDebugAction(action, detail);
+        }
+
+        // Request engine state if engine is alive
+        let engineState = null;
+        if (engineWindow && !engineWindow.isDestroyed()) {
+            try {
+                engineState = await new Promise((resolve, reject) => {
+                    const requestId = Date.now().toString();
+                    const timeout = setTimeout(() => {
+                        ipcMain.removeListener('engine:state', handler);
+                        resolve({ error: 'timeout', message: 'Engine state request timed out' });
+                    }, 1000);
+
+                    function handler(evt, response) {
+                        if (response?.requestId === requestId) {
+                            clearTimeout(timeout);
+                            ipcMain.removeListener('engine:state', handler);
+                            resolve(response.state);
+                        }
+                    }
+
+                    ipcMain.on('engine:state', handler);
+                    engineWindow.webContents.send('cmd:getState', { requestId });
+                });
+            } catch (err) {
+                console.error('[app] Error getting engine state:', err);
+                engineState = { error: err.message };
+            }
+        } else {
+            engineState = { error: 'Engine not available' };
         }
 
         // Send main state to state-debug window (include recent actions)
@@ -2482,24 +2517,57 @@ function setupAudioIPC() {
             midiParams: audioState.midiParams,
             trackerParams: audioState.trackerParams,
             childWindows: {
-                parameters: { open: childWindows.parameters.open },
-                monitoring: { open: childWindows.monitoring.open },
-                mixer: { open: childWindows.mixer.open }
+                parameters: { ...childWindows.parameters },
+                monitoring: { ...childWindows.monitoring },
+                mixer: { ...childWindows.mixer },
+                settings: { ...childWindows.settings },
+                help: { ...childWindows.help }
             },
+            windows: {
+                player: {
+                    windowId: wins.main?.id,
+                    visible: wins.main?.isVisible(),
+                    minimized: wins.main?.isMinimized(),
+                    focused: wins.main?.isFocused()
+                },
+                engine: {
+                    windowId: engineWindow?.id,
+                    alive: !!engineWindow && !engineWindow.isDestroyed()
+                },
+                stateDebug: {
+                    windowId: windowId
+                }
+            },
+            engineState,
             idleState: {
-                lastActivityTime: new Date(idleDisposalState.lastActivityTime).toLocaleTimeString(),
-                pollingActive: !!idleDisposalState.checkInterval
+                // Compute current state based on existing variables
+                state: (() => {
+                    if (idleDisposalState.isDisposing) return 'DISPOSING';
+                    if (!engineWindow || engineWindow.isDestroyed()) return 'DISPOSED';
+                    if (audioState.isPlaying) return 'ACTIVE';
+                    return isWindowVisible() ? 'PAUSED_VISIBLE' : 'PAUSED_HIDDEN';
+                })(),
+                lastActivityTime: idleDisposalState.lastActivityTime,
+                lastActivityTimeStr: new Date(idleDisposalState.lastActivityTime).toLocaleTimeString(),
+                isDisposing: idleDisposalState.isDisposing,
+                pollingActive: !!idleDisposalState.checkInterval,
+                isPlaying: audioState.isPlaying,
+                engineAlive: !!engineWindow && !engineWindow.isDestroyed(),
+                windowVisible: isWindowVisible(),
+                timeoutMs: getIdleTimeoutMs(),
+                idleTimeMs: Date.now() - idleDisposalState.lastActivityTime
             }
         };
 
-        // Send state to state-debug window
-        tools.sendToId(windowId, 'state-debug:main', {
-            state: mainState
-        });
-
-        // Forward to engine if alive
-        if (engineWindow && !engineWindow.isDestroyed()) {
-            engineWindow.webContents.send('state-debug:request', { windowId });
+        // Send state back directly to the sender (state-debug window)
+        console.log('[app] Sending state-debug response');
+        try {
+            e.sender.send('state-debug:main', {
+                state: mainState
+            });
+            console.log('[app] state-debug response sent');
+        } catch (err) {
+            console.error('[app] Error sending state-debug:', err);
         }
     });
 

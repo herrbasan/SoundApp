@@ -23,6 +23,9 @@ const WindowManager = {
         help: { open: false, visible: false, windowId: null }
     },
 
+    // Flag to prevent focus restoration when going to tray
+    isGoingToTray: false,
+
     /**
      * Initialize the manager with dependencies
      * @param {Object} loggerInstance - Logger to use
@@ -176,11 +179,17 @@ const WindowManager = {
 
         this.logger.debug('window-manager', `Restoring focus (${reason})`, { isMinimized, isVisible });
 
+        // Skip focus restoration if going to tray
+        if (this.isGoingToTray) {
+            this.logger.debug('window-manager', 'Skipping focus restore - going to tray');
+            return;
+        }
+
         // Small timeout to allow OS animations/state updates to settle
         setTimeout(() => {
             if (this.mainWin.isDestroyed()) return;
 
-            // 1. Ensure visible
+            // 1. Ensure visible (main window was minimized, not hidden)
             if (!this.mainWin.isVisible()) {
                 this.mainWin.show();
             }

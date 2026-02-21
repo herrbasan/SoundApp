@@ -1,27 +1,29 @@
 /**
  * State Debugger Window
  * 
- * Displays real-time state from main process (app.js) and engine (engines.js)
+ * Displays real-time state from main process (app.js)
  * for debugging complex state transitions.
  */
 
 let bridge;
+let initialized = false;
 let g = {
     init_data: null
 };
 
 // State storage
 const state = {
-    main: null,
-    engine: null,
-    audio: null
+    main: null
 };
 
 // DOM elements
-let mainStateEl, engineStateEl, audioStateEl;
-let mainTimeEl, engineTimeEl, audioTimeEl;
+let mainStateEl;
+let mainTimeEl;
 
 async function init() {
+    if (initialized) return;
+    initialized = true;
+
     if (window.bridge) {
         bridge = window.bridge;
     } else {
@@ -36,11 +38,7 @@ async function init() {
 
     // Cache DOM elements
     mainStateEl = document.getElementById('main-state');
-    engineStateEl = document.getElementById('engine-state');
-    audioStateEl = document.getElementById('audio-state');
     mainTimeEl = document.getElementById('main-timestamp');
-    engineTimeEl = document.getElementById('engine-timestamp');
-    audioTimeEl = document.getElementById('audio-timestamp');
 
     // Setup button handlers
     document.getElementById('btn-copy').addEventListener('click', copyToClipboard);
@@ -49,32 +47,25 @@ async function init() {
 
     // Listen for state updates from main process
     bridge.on('state-debug:main', (data) => {
+        console.log('[state-debug] Received main state');
         state.main = data.state;
         renderMainState();
-    });
-
-    bridge.on('state-debug:engine', (data) => {
-        state.engine = data.state;
-        renderEngineState();
-    });
-
-    bridge.on('state-debug:audio', (data) => {
-        state.audio = data;
-        renderAudioState();
     });
 
     // Request initial state
     requestState();
 
-    // Auto-refresh every 2 seconds as fallback
-    setInterval(requestState, 2000);
-    
+    // Auto-refresh every 1 second for real-time debugging
+    setInterval(requestState, 1000);
+
     // Mark as ready for CSS transition
     document.querySelector('main').classList.add('ready');
 }
 
 function requestState() {
-    bridge.sendToStage('state-debug:request');
+    console.log('[state-debug] requestState called');
+    // Send directly to main process (no stageId/player relay needed)
+    bridge.sendToMain('state-debug:request');
 }
 
 function renderMainState() {
@@ -85,26 +76,6 @@ function renderMainState() {
     
     mainTimeEl.textContent = new Date().toLocaleTimeString();
     mainStateEl.innerHTML = renderObject(state.main);
-}
-
-function renderEngineState() {
-    if (!state.engine) {
-        engineStateEl.innerHTML = '<div class="state-row"><span class="state-value null">No data</span></div>';
-        return;
-    }
-    
-    engineTimeEl.textContent = new Date().toLocaleTimeString();
-    engineStateEl.innerHTML = renderObject(state.engine);
-}
-
-function renderAudioState() {
-    if (!state.audio) {
-        audioStateEl.innerHTML = '<div class="state-row"><span class="state-value null">No data</span></div>';
-        return;
-    }
-    
-    audioTimeEl.textContent = new Date().toLocaleTimeString();
-    audioStateEl.innerHTML = renderObject(state.audio);
 }
 
 function renderObject(obj, prefix = '') {
@@ -157,9 +128,7 @@ function escapeHtml(text) {
 function getExportData() {
     return {
         timestamp: new Date().toISOString(),
-        main: state.main,
-        engine: state.engine,
-        audio: state.audio
+        main: state.main
     };
 }
 
@@ -237,50 +206,54 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
             stereoSeparation: 120
         },
         childWindows: {
-            parameters: { open: true },
-            monitoring: { open: false },
-            mixer: { open: false }
+            parameters: { open: true, visible: true, windowId: 3 },
+            monitoring: { open: false, visible: false, windowId: null },
+            mixer: { open: false, visible: false, windowId: null },
+            settings: { open: false, visible: false, windowId: null },
+            help: { open: false, visible: false, windowId: null }
+        },
+        windows: {
+            player: { windowId: 1, visible: true, minimized: false, focused: true },
+            engine: { windowId: 2, alive: true },
+            stateDebug: { windowId: 4 }
+        },
+        engineState: {
+            engines: {
+                ffmpeg: { loaded: true, active: true, pipeline: 'normal' },
+                midi: { loaded: true, active: false, moduleLoaded: true, initialized: false },
+                tracker: { loaded: false, active: false, moduleLoaded: true }
+            },
+            playback: {
+                file: 'Example Audio Book.m4b',
+                type: 'FFmpeg',
+                playing: true,
+                position: 1234.56,
+                duration: 3741.2
+            },
+            pipeline: {
+                active: 'normal',
+                rubberbandLoaded: false,
+                rubberbandInitialized: false
+            },
+            windows: {
+                parameters: 3,
+                monitoring: null,
+                parametersVisible: true,
+                monitoringVisible: false
+            }
         },
         idleState: {
-            lastActivityTime: new Date().toLocaleTimeString(),
-            engineDisposalTimeout: false,
-            visibleDisposeTimeout: false
+            state: 'ACTIVE',
+            lastActivityTime: Date.now(),
+            lastActivityTimeStr: new Date().toLocaleTimeString(),
+            isDisposing: false,
+            pollingActive: true,
+            isPlaying: true,
+            engineAlive: true,
+            windowVisible: true,
+            timeoutMs: 10000,
+            idleTimeMs: 0
         }
-    };
-    
-    state.engine = {
-        audioParams: {
-            mode: "pitchtime",
-            tapeSpeed: 0,
-            pitch: 3,
-            tempo: 1.15,
-            formant: true,
-            locked: false
-        },
-        activePipeline: "rubberband",
-        windows: {
-            parametersOpen: true,
-            monitoringReady: false
-        },
-        midiSettings: {
-            pitch: 0,
-            speed: null
-        },
-        trackerParams: {
-            pitch: 1.1,
-            tempo: 0.95,
-            stereoSeparation: 120
-        }
-    };
-    
-    state.audio = {
-        isFFmpeg: true,
-        isMidi: false,
-        isMod: false,
-        fp: "My Audio Book [ABC123] - Chapter 5.m4b",
-        paused: false,
-        currentTime: 1234.56,
-        duration: 3741.2
     };
     
     // Wait for DOM ready then render
@@ -288,30 +261,16 @@ if (typeof process === 'undefined' || !process.versions || !process.versions.ele
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
                 mainStateEl = document.getElementById('main-state');
-                engineStateEl = document.getElementById('engine-state');
-                audioStateEl = document.getElementById('audio-state');
                 mainTimeEl = document.getElementById('main-timestamp');
-                engineTimeEl = document.getElementById('engine-timestamp');
-                audioTimeEl = document.getElementById('audio-timestamp');
-                
                 renderMainState();
-                renderEngineState();
-                renderAudioState();
                 document.querySelector('main').classList.add('ready');
             }, 100);
         });
     } else {
         setTimeout(() => {
             mainStateEl = document.getElementById('main-state');
-            engineStateEl = document.getElementById('engine-state');
-            audioStateEl = document.getElementById('audio-state');
             mainTimeEl = document.getElementById('main-timestamp');
-            engineTimeEl = document.getElementById('engine-timestamp');
-            audioTimeEl = document.getElementById('audio-timestamp');
-            
             renderMainState();
-            renderEngineState();
-            renderAudioState();
             document.querySelector('main').classList.add('ready');
         }, 100);
     }
