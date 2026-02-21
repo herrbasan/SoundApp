@@ -875,7 +875,18 @@ async function init() {
 	ipcRenderer.on('cmd:play', (e) => {
 		logger.debug('cmd:play received');
 		if (g.currentAudio) {
-			if (g.currentAudio.paused) {
+			// FIX: Check both paused flag AND actual player state
+			// During restoration, paused may be false but player might not be playing
+			let shouldPlay = g.currentAudio.paused;
+			
+			// For FFmpeg, also check if the underlying player is actually playing
+			if (g.currentAudio.isFFmpeg && g.currentAudio.player) {
+				if (!g.currentAudio.player.isPlaying) {
+					shouldPlay = true;
+				}
+			}
+			
+			if (shouldPlay) {
 				g.currentAudio.play();
 				startPositionPush();
 			}

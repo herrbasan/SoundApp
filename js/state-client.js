@@ -1,179 +1,328 @@
-/**
- * State Client - Unified State Management for Renderer Processes
- * 
- * Provides a synchronous, local-feeling API for accessing the ground truth
- * state held in the main process (app.js). Abstracts away IPC communication.
- * 
- * Principles:
- * - Synchronous Reads: get() returns from local proxy immediately
- * - Asynchronous Writes: set() sends intent to Main, returns Promise
- * - Reactive: subscribe() for UI updates without parsing broadcasts
- * - Unified Namespace: audio.*, playback.*, midi.*, tracker.*, system.*, ui.*
- */
-
 'use strict';
+
+/**
+ * State Client - Unified state management for renderer processes
+ * 
+ * Provides a synchronous, local-feeling API for accessing application state
+ * that is actually maintained in the main process. Uses IPC for sync and
+ * subscriptions for reactive updates.
+ * 
+ * Usage:
+ *   const value = State.get('audio.pitch');
+ *   await State.set('audio.pitch', 3);
+ *   State.subscribe('audio.pitch', (newVal, oldVal) => { ... });
+ *   await State.dispatch('play');
+ */
 
 const { ipcRenderer } = require('electron');
 
-// StateClient singleton
-const StateClient = {
-    // Local synchronized proxy of ground truth state
-    _state: {
-        audio: {
-            mode: 'tape',
-            tapeSpeed: 0,
-            pitch: 0,
-            tempo: 1.0,
-            formant: false,
-            locked: false,
-            volume: 0.5
-        },
-        playback: {
-            file: null,
-            isPlaying: false,
-            position: 0,
-            duration: 0,
-            loop: false
-        },
-        midi: {
-            transpose: 0,
-            bpm: null,
-            metronome: false,
-            soundfont: null
-        },
-        tracker: {
-            pitch: 1.0,
-            tempo: 1.0,
-            stereoSeparation: 100
-        },
-        playlist: {
-            items: [],
-            index: 0
-        },
-        file: {
-            metadata: null,
-            type: null
-        },
-        ui: {
-            monitoringSource: 'main'
-        },
-        system: {
-            engineAlive: false,
-            activePipeline: 'normal'
+// ═══════════════════════════════════════════════════════════════════════════
+// INTERNAL STATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Local proxy of ground truth state (synced from main)
+const _state = {};
+
+// Subscription registry: key -> Set of callbacks
+const _subscriptions = new Map();
+
+// Pending request tracking for async operations
+let _requestId = 0;
+const _pendingRequests = new Map();
+
+// Window visibility state (for pause processing optimization)
+let _isVisible = true;
+let _isInitialized = false;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KEY MAPPING
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Map flat keys to nested paths in state object
+const KEY_MAP = {
+    // Audio params
+    'audio.mode': 'mode',
+    'audio.tapeSpeed': 'tapeSpeed',
+    'audio.pitch': 'pitch',
+    'audio.tempo': 'tempo',
+    'audio.formant': 'formant',
+    'audio.locked': 'locked',
+    'audio.volume': 'volume',
+    
+    // Playback
+    'playback.file': 'file',
+    'playback.isPlaying': 'isPlaying',
+    'playback.position': 'position',
+    'playback.duration': 'duration',
+    'playback.loop': 'loop',
+    
+    // MIDI
+    'midi.transpose': 'midiParams.transpose',
+    'midi.bpm': 'midiParams.bpm',
+    'midi.metronome': 'midiParams.metronome',
+    'midi.soundfont': 'midiParams.soundfont',
+    
+    // Tracker
+    'tracker.pitch': 'trackerParams.pitch',
+    'tracker.tempo': 'trackerParams.tempo',
+    'tracker.stereoSeparation': 'trackerParams.stereoSeparation',
+    
+    // Playlist
+    'playlist.items': 'playlist',
+    'playlist.index': 'playlistIndex',
+    
+    // File/Metadata
+    'file.metadata': 'metadata',
+    'file.type': 'fileType',
+    
+    // UI/System
+    'ui.monitoringSource': 'monitoringSource',
+    'system.engineAlive': 'engineAlive',
+    'system.activePipeline': 'activePipeline'
+};
+
+// Writable keys (can use State.set)
+const WRITABLE_KEYS = new Set([
+    'audio.mode',
+    'audio.tapeSpeed',
+    'audio.pitch',
+    'audio.tempo',
+    'audio.formant',
+    'audio.locked',
+    'audio.volume',
+    'playback.loop',
+    'ui.monitoringSource'
+]);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Get nested value from state object using dot-notation path
+ */
+function _getPath(obj, path) {
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+        if (current === null || current === undefined) return undefined;
+        current = current[part];
+    }
+    return current;
+}
+
+/**
+ * Set nested value in state object using dot-notation path
+ */
+function _setPath(obj, path, value) {
+    const parts = path.split('.');
+    let current = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!current[part] || typeof current[part] !== 'object') {
+            current[part] = {};
         }
-    },
+        current = current[part];
+    }
+    const lastPart = parts[parts.length - 1];
+    const oldValue = current[lastPart];
+    current[lastPart] = value;
+    return oldValue;
+}
 
-    // Subscription registry: key -> Set(callbacks)
-    _subscriptions: new Map(),
+/**
+ * Match key against subscription pattern (supports wildcards)
+ */
+function _matchPattern(key, pattern) {
+    if (pattern === '*') return true;
+    if (pattern === key) return true;
+    if (pattern.endsWith('.*')) {
+        const prefix = pattern.slice(0, -2);
+        return key.startsWith(prefix + '.');
+    }
+    return false;
+}
 
-    // Pending set() promises: key -> { resolve, reject, timeout }
-    _pendingSets: new Map(),
+/**
+ * Notify all subscribers matching a key
+ */
+function _notifySubscribers(key, newValue, oldValue) {
+    for (const [pattern, callbacks] of _subscriptions) {
+        if (_matchPattern(key, pattern)) {
+            for (const callback of callbacks) {
+                try {
+                    callback(newValue, oldValue, key);
+                } catch (err) {
+                    console.error('[StateClient] Subscriber error:', err);
+                }
+            }
+        }
+    }
+}
 
-    // Write timeout in ms
-    _WRITE_TIMEOUT: 5000,
+/**
+ * Apply delta update from main process
+ */
+function _applyDelta(delta) {
+    // OPTIMIZATION: Skip subscription notifications when window hidden
+    // We still store the delta so state is current when window shows
+    const shouldNotify = _isVisible;
+    
+    for (const [key, value] of Object.entries(delta)) {
+        const oldValue = _state[key];
+        
+        // Skip if value hasn't changed
+        if (oldValue === value) continue;
+        
+        _state[key] = value;
+        
+        if (shouldNotify) {
+            _notifySubscribers(key, value, oldValue);
+        }
+    }
+}
 
-    // Initialization flag
-    _initialized: false,
+// ═══════════════════════════════════════════════════════════════════════════
+// IPC HANDLERS
+// ═══════════════════════════════════════════════════════════════════════════
 
+// Receive state updates from main process
+ipcRenderer.on('state:update', (e, delta) => {
+    _applyDelta(delta);
+});
+
+// Receive confirmation of set operations
+ipcRenderer.on('state:confirm', (e, { key, value, error }) => {
+    if (error) {
+        console.error('[StateClient] Set failed:', key, error);
+    }
+    // Note: Actual state update comes via state:update broadcast
+});
+
+// Receive action completion
+ipcRenderer.on('action:complete', (e, { requestId, result, error }) => {
+    const pending = _pendingRequests.get(requestId);
+    if (pending) {
+        _pendingRequests.delete(requestId);
+        if (error) {
+            pending.reject(new Error(error));
+        } else {
+            pending.resolve(result);
+        }
+    }
+});
+
+// Handle visibility changes from main
+ipcRenderer.on('window-visibility', (e, visible) => {
+    _isVisible = visible;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ═══════════════════════════════════════════════════════════════════════════
+
+const State = {
     /**
-     * Initialize the StateClient
-     * Sets up IPC listeners for state updates from main process
+     * Initialize the State Client and sync with main process
      */
     init() {
-        if (this._initialized) return;
-        this._initialized = true;
-
-        // Listen for state broadcasts from main
-        ipcRenderer.on('state:update', (e, delta) => {
-            this._applyDelta(delta);
+        if (_isInitialized) return Promise.resolve();
+        
+        return new Promise((resolve, reject) => {
+            // Request full state sync
+            ipcRenderer.send('state:requestSync');
+            
+            // Wait for first state update
+            const handler = (e, delta) => {
+                _applyDelta(delta);
+                _isInitialized = true;
+                ipcRenderer.removeListener('state:update', handler);
+                resolve();
+            };
+            
+            ipcRenderer.on('state:update', handler);
+            
+            // Timeout fallback
+            setTimeout(() => {
+                if (!_isInitialized) {
+                    ipcRenderer.removeListener('state:update', handler);
+                    reject(new Error('StateClient init timeout'));
+                }
+            }, 5000);
         });
-
-        // Listen for state change confirmations
-        ipcRenderer.on('state:confirm', (e, { key, value, error }) => {
-            this._handleConfirmation(key, value, error);
-        });
-
-        // Request initial state sync
-        ipcRenderer.send('state:requestSync');
-
-        console.log('[StateClient] Initialized');
     },
 
     /**
-     * Get a state value synchronously
-     * @param {string} key - Dot-notation path (e.g., 'audio.pitch', 'playback.isPlaying')
-     * @returns {any} Current value or undefined if not found
+     * Get a value from state (synchronous)
+     * @param {string} key - State key (e.g., 'audio.pitch')
+     * @returns {any} Current value
      */
     get(key) {
-        return this._getPath(this._state, key);
+        return _state[key];
     },
 
     /**
-     * Get entire state tree (use with caution - prefer get())
-     * @returns {Object} Deep copy of current state
+     * Get entire state tree (use sparingly)
+     * @returns {object} Full state
      */
     getAll() {
-        return JSON.parse(JSON.stringify(this._state));
+        return { ..._state };
     },
 
     /**
-     * Set a state value (sends intent to main process)
-     * @param {string} key - Dot-notation path
+     * Set a value (asynchronous - sends intent to main)
+     * @param {string} key - State key to set
      * @param {any} value - New value
-     * @returns {Promise} Resolves when main confirms update, rejects on error
+     * @returns {Promise<void>}
      */
     async set(key, value) {
-        // Optimistic local update for immediate UI feedback
-        const oldValue = this.get(key);
-        this._setPath(this._state, key, value);
-        this._notifySubscribers(key, value, oldValue);
-
-        // Send intent to main process
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                this._pendingSets.delete(key);
-                reject(new Error(`State set timeout: ${key}`));
-            }, this._WRITE_TIMEOUT);
-
-            this._pendingSets.set(key, { resolve, reject, timeout });
-            
-            ipcRenderer.send('state:setIntent', { key, value });
-        });
+        if (!WRITABLE_KEYS.has(key)) {
+            throw new Error(`Key "${key}" is read-only or unknown`);
+        }
+        
+        // Optimistic update (will be confirmed/overridden by main)
+        const oldValue = _state[key];
+        _state[key] = value;
+        _notifySubscribers(key, value, oldValue);
+        
+        // Send intent to main
+        ipcRenderer.send('state:setIntent', { key, value });
     },
 
     /**
-     * Toggle a boolean state value
-     * @param {string} key - Dot-notation path to boolean
-     * @returns {Promise} Resolves with new value
+     * Toggle a boolean value
+     * @param {string} key - Boolean state key
+     * @returns {Promise<boolean>} New value
      */
     async toggle(key) {
         const current = this.get(key);
         if (typeof current !== 'boolean') {
-            throw new Error(`Cannot toggle non-boolean: ${key} = ${current}`);
+            throw new Error(`Cannot toggle non-boolean key "${key}"`);
         }
-        await this.set(key, !current);
-        return !current;
+        const newValue = !current;
+        await this.set(key, newValue);
+        return newValue;
     },
 
     /**
      * Subscribe to state changes
-     * @param {string} key - Dot-notation path (supports wildcards: 'audio.*')
-     * @param {Function} callback - (newValue, oldValue, key) => void
-     * @returns {Function} Unsubscribe function
+     * @param {string} pattern - Key or wildcard (e.g., 'audio.pitch', 'audio.*', '*')
+     * @param {function} callback - (newValue, oldValue, key) => void
+     * @returns {function} Unsubscribe function
      */
-    subscribe(key, callback) {
-        if (!this._subscriptions.has(key)) {
-            this._subscriptions.set(key, new Set());
+    subscribe(pattern, callback) {
+        if (!_subscriptions.has(pattern)) {
+            _subscriptions.set(pattern, new Set());
         }
-        this._subscriptions.get(key).add(callback);
-
+        _subscriptions.get(pattern).add(callback);
+        
         // Return unsubscribe function
         return () => {
-            const subs = this._subscriptions.get(key);
-            if (subs) {
-                subs.delete(callback);
-                if (subs.size === 0) {
-                    this._subscriptions.delete(key);
+            const callbacks = _subscriptions.get(pattern);
+            if (callbacks) {
+                callbacks.delete(callback);
+                if (callbacks.size === 0) {
+                    _subscriptions.delete(pattern);
                 }
             }
         };
@@ -181,144 +330,64 @@ const StateClient = {
 
     /**
      * Unsubscribe from state changes
-     * @param {string} key - Dot-notation path
-     * @param {Function} callback - Same function passed to subscribe()
+     * @param {string} pattern - Key pattern
+     * @param {function} callback - Same callback passed to subscribe
      */
-    unsubscribe(key, callback) {
-        const subs = this._subscriptions.get(key);
-        if (subs) {
-            subs.delete(callback);
-            if (subs.size === 0) {
-                this._subscriptions.delete(key);
+    unsubscribe(pattern, callback) {
+        const callbacks = _subscriptions.get(pattern);
+        if (callbacks) {
+            callbacks.delete(callback);
+            if (callbacks.size === 0) {
+                _subscriptions.delete(pattern);
             }
         }
     },
 
     /**
-     * Dispatch an action (complex intent)
-     * @param {string} action - Action name (e.g., 'play', 'pause', 'seek', 'next', 'prev')
-     * @param {Object} payload - Optional payload
-     * @returns {Promise} Resolves when action completes
+     * Dispatch an action to the main process
+     * @param {string} action - Action name (play, pause, toggle, seek, next, prev)
+     * @param {object} payload - Optional action data
+     * @returns {Promise<object>} Action result
      */
     async dispatch(action, payload = {}) {
+        const requestId = ++_requestId;
+        
         return new Promise((resolve, reject) => {
-            const requestId = `${action}_${Date.now()}`;
-            const timeout = setTimeout(() => {
-                ipcRenderer.removeListener('action:complete', handler);
-                reject(new Error(`Action timeout: ${action}`));
-            }, this._WRITE_TIMEOUT);
-
-            const handler = (e, data) => {
-                if (data.requestId === requestId) {
-                    clearTimeout(timeout);
-                    ipcRenderer.removeListener('action:complete', handler);
-                    if (data.error) {
-                        reject(new Error(data.error));
-                    } else {
-                        resolve(data.result);
-                    }
-                }
-            };
-
-            ipcRenderer.on('action:complete', handler);
+            // Store pending request
+            _pendingRequests.set(requestId, { resolve, reject });
+            
+            // Send action to main
             ipcRenderer.send('action:dispatch', { action, payload, requestId });
+            
+            // Timeout cleanup
+            setTimeout(() => {
+                if (_pendingRequests.has(requestId)) {
+                    _pendingRequests.delete(requestId);
+                    reject(new Error(`Action "${action}" timeout`));
+                }
+            }, 10000);
         });
     },
 
-    // --- Internal Methods ---
-
     /**
-     * Apply delta update from main process
-     * @param {Object} delta - Object with changed key-value pairs
+     * Check if StateClient is initialized
+     * @returns {boolean}
      */
-    _applyDelta(delta) {
-        if (!delta || typeof delta !== 'object') return;
-
-        for (const [key, value] of Object.entries(delta)) {
-            const oldValue = this.get(key);
-            if (JSON.stringify(oldValue) !== JSON.stringify(value)) {
-                this._setPath(this._state, key, value);
-                this._notifySubscribers(key, value, oldValue);
-            }
-        }
+    isInitialized() {
+        return _isInitialized;
     },
 
     /**
-     * Handle set() confirmation from main process
+     * Force a full state sync from main (rarely needed)
      */
-    _handleConfirmation(key, value, error) {
-        const pending = this._pendingSets.get(key);
-        if (!pending) return;
-
-        clearTimeout(pending.timeout);
-        this._pendingSets.delete(key);
-
-        if (error) {
-            // Revert optimistic update on error
-            this._applyDelta({ [key]: value });
-            pending.reject(new Error(error));
-        } else {
-            pending.resolve(value);
-        }
-    },
-
-    /**
-     * Notify subscribers of state change
-     */
-    _notifySubscribers(key, newValue, oldValue) {
-        // Exact key match
-        const exactSubs = this._subscriptions.get(key);
-        if (exactSubs) {
-            exactSubs.forEach(cb => {
-                try { cb(newValue, oldValue, key); } catch (err) { console.error(err); }
-            });
-        }
-
-        // Wildcard match (e.g., 'audio.*' matches 'audio.pitch')
-        const parts = key.split('.');
-        const parentKey = parts.slice(0, -1).join('.');
-        if (parentKey) {
-            const wildcardSubs = this._subscriptions.get(`${parentKey}.*`);
-            if (wildcardSubs) {
-                wildcardSubs.forEach(cb => {
-                    try { cb(newValue, oldValue, key); } catch (err) { console.error(err); }
-                });
-            }
-        }
-
-        // Root wildcard ('*') - notify of any change
-        const rootWildcard = this._subscriptions.get('*');
-        if (rootWildcard) {
-            rootWildcard.forEach(cb => {
-                try { cb(newValue, oldValue, key); } catch (err) { console.error(err); }
-            });
-        }
-    },
-
-    /**
-     * Get value at dot-notation path
-     */
-    _getPath(obj, path) {
-        return path.split('.').reduce((o, p) => o?.[p], obj);
-    },
-
-    /**
-     * Set value at dot-notation path (creates nested objects as needed)
-     */
-    _setPath(obj, path, value) {
-        const parts = path.split('.');
-        const last = parts.pop();
-        const target = parts.reduce((o, p) => {
-            if (!o[p]) o[p] = {};
-            return o[p];
-        }, obj);
-        target[last] = value;
+    sync() {
+        ipcRenderer.send('state:requestSync');
     }
 };
 
-// Auto-initialize if in renderer process
-if (typeof window !== 'undefined' && window.process?.type === 'renderer') {
-    StateClient.init();
-}
+// Auto-init on load (but don't block)
+State.init().catch(err => {
+    console.warn('[StateClient] Auto-init failed:', err.message);
+});
 
-module.exports = StateClient;
+module.exports = State;

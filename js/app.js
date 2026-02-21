@@ -754,7 +754,7 @@ async function appStart() {
             wins.main.webContents.setFrameRate(60);
         });
 
-        // Reduce position update frequency when hidden to tray
+        // Reduce position update frequency when hidden/minimized
         wins.main.on('hide', () => {
             let keep = false;
             try {
@@ -762,9 +762,22 @@ async function appStart() {
                 keep = !!(cnf?.ui?.keepRunningInTray);
             } catch (err) { }
             
+            // Always reduce position updates when hidden (tray or minimized)
+            // 'minimal' mode = 500ms interval (2 updates/sec vs 20/sec in normal)
+            sendToEngine('engine:set-position-mode', { mode: 'minimal' });
+            
             if (keep) {
-                // Going to tray - minimize position updates
+                logger.debug('throttle', 'Window hidden to tray - position updates minimized');
+            } else {
+                logger.debug('throttle', 'Window minimized - position updates minimized');
+            }
+        });
+        
+        // Also handle minimize event for Windows
+        wins.main.on('minimize', () => {
+            if (!wins.main.isVisible()) {
                 sendToEngine('engine:set-position-mode', { mode: 'minimal' });
+                logger.debug('throttle', 'Window minimized - position updates minimized');
             }
         });
 
@@ -1532,7 +1545,7 @@ async function restoreEngineIfNeeded() {
         
         // OPTIMIZATION: Disable throttling when engine restored (active playback)
         // Unthrottle all windows for responsive UI during audio playback
-        const { BrowserWindow } = require('electron');
+        // FIX: Use module-level BrowserWindow (line 2) to avoid TDZ with line 1441
         BrowserWindow.getAllWindows().forEach(win => {
             if (!win.isDestroyed()) {
                 logger.debug('throttle', 'Engine restored - unthrottling window', { windowId: win.id });
