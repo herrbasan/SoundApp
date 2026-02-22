@@ -2844,6 +2844,11 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 		}
 	}
 
+	// Restart monitoring loop if window is open (was stopped by destroyMonitoring)
+	if (g.windows.monitoring && g.monitoringReady && !g.monitoringLoop) {
+		startMonitoringLoop();
+	}
+
 	// Send updated sample rate info after HQ mode toggle
 	ipcRenderer.send('audio:sample-rate-info', {
 		maxSampleRate: g.maxSampleRate,
