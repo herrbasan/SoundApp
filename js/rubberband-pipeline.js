@@ -146,30 +146,6 @@ class RubberbandPipeline {
         if (this.player) await this.player.stop(retain);
     }
 
-    fadeOut() {
-        if (!this.gainNode) return Promise.resolve();
-        return new Promise(resolve => {
-            const now = this.ctx.currentTime;
-            const gain = this.gainNode.gain;
-            gain.cancelScheduledValues(now);
-            gain.setValueAtTime(gain.value, now);
-            gain.linearRampToValueAtTime(0, now + 0.012);
-            setTimeout(resolve, 12);
-        });
-    }
-
-    fadeIn() {
-        if (!this.gainNode) return Promise.resolve();
-        return new Promise(resolve => {
-            const now = this.ctx.currentTime;
-            const gain = this.gainNode.gain;
-            gain.cancelScheduledValues(now);
-            gain.setValueAtTime(0, now);
-            gain.linearRampToValueAtTime(this.currentVolume || 1.0, now + 0.015);
-            setTimeout(resolve, 15);
-        });
-    }
-
     seek(time) {
         if (this.player) this.player.seek(time);
     }

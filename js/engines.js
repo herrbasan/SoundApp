@@ -1370,34 +1370,8 @@ async function init() {
 			else if (data.param === 'formant') {
 				g.currentAudioParams.formant = !!data.value;
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
-					// Options changes: use fade + stabilization pattern
-					// (rubberband internally recreates kernel, which needs settling time)
-					if (g.rubberbandPlayer.isPlaying && typeof g.rubberbandPlayer.fadeOut === 'function') {
-						try {
-							await g.rubberbandPlayer.fadeOut();
-							
-							// Re-check after async - player may have been destroyed
-							if (!g.rubberbandPlayer) return;
-
-							if (typeof g.rubberbandPlayer.setOptions === 'function') {
-								g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
-							}
-
-							// 300ms stabilization for kernel recreation
-							await new Promise(resolve => setTimeout(resolve, 300));
-							
-							// Re-check after async - player may have been destroyed
-							if (!g.rubberbandPlayer) return;
-
-							await g.rubberbandPlayer.fadeIn();
-						} catch (err) {
-							console.error('[Stage] Error during formant change:', err);
-						}
-					} else {
-						// Not playing - just apply option directly
-						if (typeof g.rubberbandPlayer.setOptions === 'function') {
-							g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
-						}
+					if (typeof g.rubberbandPlayer.setOptions === 'function') {
+						g.rubberbandPlayer.setOptions({ formantPreserved: !!data.value });
 					}
 				}
 			}
