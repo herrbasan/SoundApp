@@ -85,11 +85,8 @@ class RubberbandPipeline {
                     switch (event) {
                         case 'position':
                             // Track rubberband output frames for accurate position
-                            // Subtract baseline to account for pre-playback processing
-                            const rawFrames = payload | 0;
-                            this._rubberbandOutputFrames = rawFrames - this._rubberbandBaselineFrames;
+                            this._rubberbandOutputFrames = (payload | 0) - this._rubberbandBaselineFrames;
                             this._rubberbandPositionAt = this.ctx.currentTime;
-                            console.log('[RubberbandPipeline] Position msg: raw=' + rawFrames + ' baseline=' + this._rubberbandBaselineFrames + ' result=' + this._rubberbandOutputFrames);
                             break;
                         case 'warmed-up':
                             // Ramp volume up now that rubberband is producing real output
@@ -160,6 +157,11 @@ class RubberbandPipeline {
         let metadata = null;
         if(this.player) {
             metadata = await this.player.open(filePath);
+            // CRITICAL: Pause immediately after open to prevent premature processing
+            // play() will unpause after the startup delay
+            if (this._needsStartupDelay) {
+                this.player.pause();
+            }
         } else {
             console.error('RubberbandPipeline.open: player is null!');
             throw new Error('Rubberband player not initialized');
@@ -185,11 +187,10 @@ class RubberbandPipeline {
             // Delay actual playback
             setTimeout(() => {
                 if (this.player) {
-                    // Capture baseline frame count - rubberband has been processing during delay
-                    // Position should start from 0, so subtract this baseline from future updates
-                    this._rubberbandBaselineFrames = this._rubberbandOutputFrames;
-                    console.log('[RubberbandPipeline] Setting baseline: ' + this._rubberbandBaselineFrames + ' frames');
+                    // Reset position tracking to start from 0
+                    this._rubberbandOutputFrames = 0;
                     this._rubberbandPositionAt = 0;
+                    this._rubberbandBaselineFrames = 0;
                     this.player.play();
                     // Volume will ramp up when warmed-up signal arrives
                 }
