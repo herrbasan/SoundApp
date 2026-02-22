@@ -36,6 +36,9 @@ class RubberbandPipeline {
         this._isWarmedUp = false;
         this._targetVolumeAfterWarmup = 1.0;
         
+        // Brutal fix: delay first play after file change to let rubberband stabilize
+        this._needsStartupDelay = false;
+        
         this.initialized = false;
     }
 
@@ -164,6 +167,26 @@ class RubberbandPipeline {
 
     play() {
         if(!this.player) return;
+        
+        // Brutal fix: delay first play after file change to let rubberband stabilize
+        if (this._needsStartupDelay) {
+            this._needsStartupDelay = false;
+            console.log('[RubberbandPipeline] Delaying playback 1000ms for startup stabilization');
+            
+            // Start muted
+            if (this.gainNode) {
+                this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+            }
+            
+            // Delay actual playback
+            setTimeout(() => {
+                if (this.player) {
+                    this.player.play();
+                    // Volume will ramp up when warmed-up signal arrives
+                }
+            }, 1000);
+            return;
+        }
         
         // Start muted - will ramp up when rubberband signals warmup complete
         if (this.gainNode && !this._isWarmedUp) {
@@ -383,6 +406,7 @@ class RubberbandPipeline {
         this._isWarmedUp = false;
         this._rubberbandOutputFrames = 0;
         this._rubberbandPositionAt = 0;
+        this._needsStartupDelay = true;
         
         try {
             this.rubberbandNode = new AudioWorkletNode(this.ctx, 'realtime-pitch-shift-processor', {
