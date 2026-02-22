@@ -73,23 +73,29 @@ class RubberbandPipeline {
             
             // Listen for messages from the worklet (position, warmup)
             this.rubberbandNode.port.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                const event = data[0];
-                const payload = data[1];
-                
-                switch (event) {
-                    case 'position':
-                        // Track rubberband output frames for accurate position
-                        this._rubberbandOutputFrames = payload | 0;
-                        this._rubberbandPositionAt = this.ctx.currentTime;
-                        break;
-                    case 'warmed-up':
-                        // Ramp volume up now that rubberband is producing real output
-                        if (!this._isWarmedUp) {
-                            this._isWarmedUp = true;
-                            this._rampUpVolume();
-                        }
-                        break;
+                try {
+                    const data = JSON.parse(e.data);
+                    const event = data[0];
+                    const payload = data[1];
+                    
+                    switch (event) {
+                        case 'position':
+                            // Track rubberband output frames for accurate position
+                            this._rubberbandOutputFrames = payload | 0;
+                            this._rubberbandPositionAt = this.ctx.currentTime;
+                            console.log('[RubberbandPipeline] Position update:', this._rubberbandOutputFrames, 'frames =', (this._rubberbandOutputFrames/48000).toFixed(3), 's');
+                            break;
+                        case 'warmed-up':
+                            console.log('[RubberbandPipeline] Warmed up received');
+                            // Ramp volume up now that rubberband is producing real output
+                            if (!this._isWarmedUp) {
+                                this._isWarmedUp = true;
+                                this._rampUpVolume();
+                            }
+                            break;
+                    }
+                } catch (err) {
+                    console.error('[RubberbandPipeline] Error parsing worklet message:', err);
                 }
             };
         } catch(e) {
@@ -214,18 +220,28 @@ class RubberbandPipeline {
     getCurrentTime() {
         // Use rubberband output frames for position, not FFmpeg consumption
         // This eliminates the "rush" visual artifact
-        let frames = this._rubberbandOutputFrames | 0;
         
-        // Extrapolate from last position message
-        if (this.isPlaying && this._rubberbandPositionAt > 0) {
-            const dt = this.ctx.currentTime - this._rubberbandPositionAt;
-            if (dt > 0 && dt < 0.20) {
-                frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
+        // If we have rubberband position data, use it
+        if (this._rubberbandPositionAt > 0) {
+            let frames = this._rubberbandOutputFrames | 0;
+            
+            // Extrapolate from last position message
+            if (this.isPlaying) {
+                const dt = this.ctx.currentTime - this._rubberbandPositionAt;
+                if (dt > 0 && dt < 0.20) {
+                    frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
+                }
             }
+            
+            const time = this._seekOffset + (frames / 48000);
+            console.log('[RubberbandPipeline] getCurrentTime (rubberband):', time.toFixed(3), 's');
+            return Math.min(time, this.duration);
         }
         
-        const time = this._seekOffset + (frames / 48000);
-        return Math.min(time, this.duration);
+        // Fallback to FFmpeg position (during startup before first rubberband position message)
+        const ffmpegTime = this.player ? this.player.getCurrentTime() : 0;
+        console.log('[RubberbandPipeline] getCurrentTime (FFmpeg fallback):', ffmpegTime.toFixed(3), 's, _rubberbandPositionAt:', this._rubberbandPositionAt);
+        return Math.min(ffmpegTime, this.duration);
     }
 
     setLoop(enabled) {
@@ -394,21 +410,27 @@ class RubberbandPipeline {
             
             // Listen for messages from the worklet
             this.rubberbandNode.port.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                const event = data[0];
-                const payload = data[1];
-                
-                switch (event) {
-                    case 'position':
-                        this._rubberbandOutputFrames = payload | 0;
-                        this._rubberbandPositionAt = this.ctx.currentTime;
-                        break;
-                    case 'warmed-up':
-                        if (!this._isWarmedUp) {
-                            this._isWarmedUp = true;
-                            this._rampUpVolume();
-                        }
-                        break;
+                try {
+                    const data = JSON.parse(e.data);
+                    const event = data[0];
+                    const payload = data[1];
+                    
+                    switch (event) {
+                        case 'position':
+                            this._rubberbandOutputFrames = payload | 0;
+                            this._rubberbandPositionAt = this.ctx.currentTime;
+                            console.log('[RubberbandPipeline] Position update:', this._rubberbandOutputFrames, 'frames =', (this._rubberbandOutputFrames/48000).toFixed(3), 's');
+                            break;
+                        case 'warmed-up':
+                            console.log('[RubberbandPipeline] Warmed up received');
+                            if (!this._isWarmedUp) {
+                                this._isWarmedUp = true;
+                                this._rampUpVolume();
+                            }
+                            break;
+                    }
+                } catch (err) {
+                    console.error('[RubberbandPipeline] Error parsing worklet message:', err);
                 }
             };
             
