@@ -38,6 +38,7 @@ class RubberbandPipeline {
         
         // Brutal fix: delay first play after file change to let rubberband stabilize
         this._needsStartupDelay = false;
+        this._rubberbandBaselineFrames = 0;  // Frame count at actual playback start
         
         this.initialized = false;
     }
@@ -84,7 +85,8 @@ class RubberbandPipeline {
                     switch (event) {
                         case 'position':
                             // Track rubberband output frames for accurate position
-                            this._rubberbandOutputFrames = payload | 0;
+                            // Subtract baseline to account for pre-playback processing
+                            this._rubberbandOutputFrames = (payload | 0) - this._rubberbandBaselineFrames;
                             this._rubberbandPositionAt = this.ctx.currentTime;
                             break;
                         case 'warmed-up':
@@ -181,8 +183,9 @@ class RubberbandPipeline {
             // Delay actual playback
             setTimeout(() => {
                 if (this.player) {
-                    // Reset rubberband position tracking to sync with actual playback start
-                    this._rubberbandOutputFrames = 0;
+                    // Capture baseline frame count - rubberband has been processing during delay
+                    // Position should start from 0, so subtract this baseline from future updates
+                    this._rubberbandBaselineFrames = this._rubberbandOutputFrames;
                     this._rubberbandPositionAt = 0;
                     this.player.play();
                     // Volume will ramp up when warmed-up signal arrives
@@ -413,6 +416,7 @@ class RubberbandPipeline {
         this._isWarmedUp = false;
         this._rubberbandOutputFrames = 0;
         this._rubberbandPositionAt = 0;
+        this._rubberbandBaselineFrames = 0;
         this._needsStartupDelay = true;
         
         try {
