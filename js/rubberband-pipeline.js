@@ -38,7 +38,6 @@ class RubberbandPipeline {
         
         // Brutal fix: delay first play after file change to let rubberband stabilize
         this._needsStartupDelay = false;
-        this._rubberbandBaselineFrames = 0;  // Frame count at actual playback start
         
         this.initialized = false;
     }
@@ -85,7 +84,7 @@ class RubberbandPipeline {
                     switch (event) {
                         case 'position':
                             // Track rubberband output frames for accurate position
-                            this._rubberbandOutputFrames = (payload | 0) - this._rubberbandBaselineFrames;
+                            this._rubberbandOutputFrames = payload | 0;
                             this._rubberbandPositionAt = this.ctx.currentTime;
                             break;
                         case 'warmed-up':
@@ -157,11 +156,6 @@ class RubberbandPipeline {
         let metadata = null;
         if(this.player) {
             metadata = await this.player.open(filePath);
-            // CRITICAL: Pause immediately after open to prevent premature processing
-            // play() will unpause after the startup delay
-            if (this._needsStartupDelay) {
-                this.player.pause();
-            }
         } else {
             console.error('RubberbandPipeline.open: player is null!');
             throw new Error('Rubberband player not initialized');
@@ -187,10 +181,10 @@ class RubberbandPipeline {
             // Delay actual playback
             setTimeout(() => {
                 if (this.player) {
-                    // Reset position tracking to start from 0
-                    this._rubberbandOutputFrames = 0;
-                    this._rubberbandPositionAt = 0;
-                    this._rubberbandBaselineFrames = 0;
+                    // Tell rubberband to start counting position from 0
+                    if (this.rubberbandNode) {
+                        this.rubberbandNode.port.postMessage(JSON.stringify(['start-counting']));
+                    }
                     this.player.play();
                     // Volume will ramp up when warmed-up signal arrives
                 }
@@ -201,6 +195,11 @@ class RubberbandPipeline {
         // Start muted - will ramp up when rubberband signals warmup complete
         if (this.gainNode && !this._isWarmedUp) {
             this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+        }
+        
+        // Tell rubberband to start counting position from 0
+        if (this.rubberbandNode) {
+            this.rubberbandNode.port.postMessage(JSON.stringify(['start-counting']));
         }
         
         this.player.play();
@@ -420,7 +419,6 @@ class RubberbandPipeline {
         this._isWarmedUp = false;
         this._rubberbandOutputFrames = 0;
         this._rubberbandPositionAt = 0;
-        this._rubberbandBaselineFrames = 0;
         this._needsStartupDelay = true;
         
         try {
