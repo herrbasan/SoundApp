@@ -27,7 +27,8 @@ const CONTROL = {
   UNDERRUN_COUNT: 9, // Underrun counter
   START_TIME_HI: 10, // Scheduled start time (high 32 bits of float64)
   START_TIME_LO: 11, // Scheduled start time (low 32 bits of float64)
-  SIZE: 12           // Total control buffer size
+  PLAYBACK_RATE: 12, // Playback rate multiplier (1000 = 1.0x, stored as int)
+  SIZE: 13           // Total control buffer size
 };
 
 const STATE = {
@@ -48,6 +49,15 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     this.hasEnded = false;
     this.framesPlayed = 0;
     this.startTime = 0;
+    this.readPosition = 0;      // Fractional frame position for pitch shifting
+    
+    // Fade state (prevents clicks on transitions)
+    this.lastState = 0;             // Previous state to detect transitions
+    this.isFadingOut = false;       // Currently fading out?
+    this.isFadingIn = false;        // Currently fading in?
+    this.fadeSamplesRemaining = 0;  // Samples left in fade
+    this.fadeSamplesTotal = 0;      // Total samples for fade-in calculation
+    this.defaultFadeSamples = 240;  // 5ms at 48kHz
     
     this.port.onmessage = this.onMessage.bind(this);
   }
@@ -120,10 +130,25 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     // Read state atomically
     const state = Atomics.load(this.controlBuffer, CONTROL.STATE);
     
-    // Stopped or paused: output silence
-    if (state !== STATE.PLAYING) {
+    // Detect transitions and trigger fades
+    if (this.lastState !== STATE.PLAYING && state === STATE.PLAYING && !this.isFadingIn) {
+      // Starting playback: fade in
+      this.isFadingIn = true;
+      this.fadeSamplesRemaining = this.defaultFadeSamples;
+      this.fadeSamplesTotal = this.defaultFadeSamples;
+    } else if (this.lastState === STATE.PLAYING && state !== STATE.PLAYING && !this.isFadingOut) {
+      // Stopping playback: fade out
+      this.isFadingOut = true;
+      this.fadeSamplesRemaining = this.defaultFadeSamples;
+      this.fadeSamplesTotal = this.defaultFadeSamples;
+    }
+    this.lastState = state;
+    
+    // Stopped or paused: output silence (after fade completes)
+    if (state !== STATE.PLAYING && !this.isFadingOut) {
       channel0.fill(0);
       channel1.fill(0);
+      this.isFadingIn = false;
       return true;
     }
 
@@ -166,8 +191,32 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
       } else {
         // Read interleaved samples from ring buffer
         const bufferIndex = (localReadPtr % this.ringSize) * this.channels;
-        channel0[i] = this.audioBuffer[bufferIndex];
-        channel1[i] = this.audioBuffer[bufferIndex + 1];
+        let sampleL = this.audioBuffer[bufferIndex];
+        let sampleR = this.audioBuffer[bufferIndex + 1];
+        
+        // Apply fade in/out (prevents clicks on transitions)
+        if (this.isFadingIn) {
+          // Fade in: start at 0, ramp up to 1
+          const fadeFactor = 1.0 - (this.fadeSamplesRemaining / this.fadeSamplesTotal);
+          sampleL *= fadeFactor;
+          sampleR *= fadeFactor;
+          this.fadeSamplesRemaining--;
+          if (this.fadeSamplesRemaining <= 0) {
+            this.isFadingIn = false;
+          }
+        } else if (this.isFadingOut) {
+          // Fade out: start at 1, ramp down to 0
+          const fadeFactor = this.fadeSamplesRemaining / this.fadeSamplesTotal;
+          sampleL *= fadeFactor;
+          sampleR *= fadeFactor;
+          this.fadeSamplesRemaining--;
+          if (this.fadeSamplesRemaining <= 0) {
+            this.isFadingOut = false;
+          }
+        }
+        
+        channel0[i] = sampleL;
+        channel1[i] = sampleR;
         
         localReadPtr++;
         framesRead++;
