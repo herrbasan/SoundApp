@@ -41,10 +41,6 @@ const STATE = {
   PAUSED: 2
 };
 
-// Fade durations for smooth transitions (in seconds)
-const FADE_OUT_DURATION = 0.012;  // 12ms fade out
-const FADE_IN_DURATION = 0.015;   // 15ms fade in
-
 /**
  * Get the path to the SAB worklet processor file.
  */
@@ -556,15 +552,6 @@ class FFmpegStreamPlayerSAB {
       try { this.workletNode.connect(this.gainNode); } catch(e) {}
     }
     
-    // Smooth fade in from silence to avoid click
-    if (this.gainNode) {
-      const now = this.audioContext.currentTime;
-      const gain = this.gainNode.gain;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(0, now);
-      gain.linearRampToValueAtTime(this._targetVolume, now + FADE_IN_DURATION);
-    }
-    
     // Set scheduled start time
     this._setScheduledStart(when);
     
@@ -590,22 +577,6 @@ class FFmpegStreamPlayerSAB {
     if (this.controlBuffer) {
       Atomics.store(this.controlBuffer, CONTROL.STATE, STATE.PAUSED);
     }
-    
-    // Smooth fade out before disconnecting to avoid click
-    if (this.gainNode && this.workletNode) {
-      const now = this.audioContext.currentTime;
-      const gain = this.gainNode.gain;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(gain.value, now);
-      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION);
-      
-      // Disconnect after fade completes to stop CPU usage
-      setTimeout(() => {
-        if (!this.isPlaying && this.workletNode) {
-          try { this.workletNode.disconnect(); } catch(e) {}
-        }
-      }, FADE_OUT_DURATION * 1000 + 5);
-    }
   }
 
   resume() {
@@ -614,16 +585,6 @@ class FFmpegStreamPlayerSAB {
 
   seek(seconds) {
     if (!this.decoder || !this.controlBuffer) return false;
-    
-    // Quick fade out/in to mask seek discontinuity
-    const wasPlaying = this.isPlaying;
-    if (this.gainNode && wasPlaying) {
-      const now = this.audioContext.currentTime;
-      const gain = this.gainNode.gain;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(gain.value, now);
-      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION * 0.5);  // Half-speed fade for seeks
-    }
     
     const success = this.decoder.seek(seconds);
     if (success) {
@@ -651,15 +612,6 @@ class FFmpegStreamPlayerSAB {
       for (let i = 0; i < 16; i++) {
         const read = this._fillRingBuffer();
         if (read <= 0) break;
-      }
-      
-      // Fade back in if was playing
-      if (this.gainNode && wasPlaying) {
-        const now = this.audioContext.currentTime;
-        const gain = this.gainNode.gain;
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(0, now + FADE_OUT_DURATION * 0.5);
-        gain.linearRampToValueAtTime(this._targetVolume, now + FADE_OUT_DURATION * 0.5 + FADE_IN_DURATION * 0.7);
       }
     }
     return success;
@@ -706,18 +658,6 @@ class FFmpegStreamPlayerSAB {
     this.onEndedCallback = callback;
   }
   
-  fadeOut() {
-    if (!this.gainNode) return Promise.resolve();
-    return new Promise(resolve => {
-      const now = this.audioContext.currentTime;
-      const gain = this.gainNode.gain;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(gain.value, now);
-      gain.linearRampToValueAtTime(0, now + FADE_OUT_DURATION);
-      setTimeout(resolve, FADE_OUT_DURATION * 1000);
-    });
-  }
-
   clearBuffer() {
     if (this.audioBuffer) {
       this.audioBuffer.fill(0);
