@@ -83,10 +83,8 @@ class RubberbandPipeline {
                             // Track rubberband output frames for accurate position
                             this._rubberbandOutputFrames = payload | 0;
                             this._rubberbandPositionAt = this.ctx.currentTime;
-                            console.log('[RubberbandPipeline] Position update:', this._rubberbandOutputFrames, 'frames =', (this._rubberbandOutputFrames/48000).toFixed(3), 's');
                             break;
                         case 'warmed-up':
-                            console.log('[RubberbandPipeline] Warmed up received');
                             // Ramp volume up now that rubberband is producing real output
                             if (!this._isWarmedUp) {
                                 this._isWarmedUp = true;
@@ -234,14 +232,11 @@ class RubberbandPipeline {
             }
             
             const time = this._seekOffset + (frames / 48000);
-            console.log('[RubberbandPipeline] getCurrentTime (rubberband):', time.toFixed(3), 's');
             return Math.min(time, this.duration);
         }
         
         // Fallback to FFmpeg position (during startup before first rubberband position message)
-        const ffmpegTime = this.player ? this.player.getCurrentTime() : 0;
-        console.log('[RubberbandPipeline] getCurrentTime (FFmpeg fallback):', ffmpegTime.toFixed(3), 's, _rubberbandPositionAt:', this._rubberbandPositionAt);
-        return Math.min(ffmpegTime, this.duration);
+        return this.player ? this.player.getCurrentTime() : 0;
     }
 
     setLoop(enabled) {
@@ -419,10 +414,8 @@ class RubberbandPipeline {
                         case 'position':
                             this._rubberbandOutputFrames = payload | 0;
                             this._rubberbandPositionAt = this.ctx.currentTime;
-                            console.log('[RubberbandPipeline] Position update:', this._rubberbandOutputFrames, 'frames =', (this._rubberbandOutputFrames/48000).toFixed(3), 's');
                             break;
                         case 'warmed-up':
-                            console.log('[RubberbandPipeline] Warmed up received');
                             if (!this._isWarmedUp) {
                                 this._isWarmedUp = true;
                                 this._rampUpVolume();
