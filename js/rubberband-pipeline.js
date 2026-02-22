@@ -86,8 +86,10 @@ class RubberbandPipeline {
                         case 'position':
                             // Track rubberband output frames for accurate position
                             // Subtract baseline to account for pre-playback processing
-                            this._rubberbandOutputFrames = (payload | 0) - this._rubberbandBaselineFrames;
+                            const rawFrames = payload | 0;
+                            this._rubberbandOutputFrames = rawFrames - this._rubberbandBaselineFrames;
                             this._rubberbandPositionAt = this.ctx.currentTime;
+                            console.log('[RubberbandPipeline] Position msg: raw=' + rawFrames + ' baseline=' + this._rubberbandBaselineFrames + ' result=' + this._rubberbandOutputFrames);
                             break;
                         case 'warmed-up':
                             // Ramp volume up now that rubberband is producing real output
@@ -186,6 +188,7 @@ class RubberbandPipeline {
                     // Capture baseline frame count - rubberband has been processing during delay
                     // Position should start from 0, so subtract this baseline from future updates
                     this._rubberbandBaselineFrames = this._rubberbandOutputFrames;
+                    console.log('[RubberbandPipeline] Setting baseline: ' + this._rubberbandBaselineFrames + ' frames');
                     this._rubberbandPositionAt = 0;
                     this.player.play();
                     // Volume will ramp up when warmed-up signal arrives
