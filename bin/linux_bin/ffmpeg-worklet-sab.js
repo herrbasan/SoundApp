@@ -57,7 +57,7 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     this.isFadingIn = false;        // Currently fading in?
     this.fadeSamplesRemaining = 0;  // Samples left in fade
     this.fadeSamplesTotal = 0;      // Total samples for fade-in calculation
-    this.defaultFadeSamples = 24000;  // 500ms at 48kHz
+    this.defaultFadeSamples = 960;  // 20ms at 48kHz
     
     this.port.onmessage = this.onMessage.bind(this);
   }
@@ -204,19 +204,28 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
           if (this.fadeSamplesRemaining <= 0) {
             this.isFadingIn = false;
           }
+          channel0[i] = sampleL;
+          channel1[i] = sampleR;
         } else if (this.isFadingOut) {
-          // Fade out: start at 1, ramp down to 0
-          const fadeFactor = this.fadeSamplesRemaining / this.fadeSamplesTotal;
-          sampleL *= fadeFactor;
-          sampleR *= fadeFactor;
-          this.fadeSamplesRemaining--;
-          if (this.fadeSamplesRemaining <= 0) {
+          // Fade out: start at 1, ramp down to 0, then silence
+          if (this.fadeSamplesRemaining > 0) {
+            const fadeFactor = this.fadeSamplesRemaining / this.fadeSamplesTotal;
+            sampleL *= fadeFactor;
+            sampleR *= fadeFactor;
+            this.fadeSamplesRemaining--;
+            channel0[i] = sampleL;
+            channel1[i] = sampleR;
+          } else {
+            // Fade complete - output silence
+            channel0[i] = 0;
+            channel1[i] = 0;
             this.isFadingOut = false;
           }
+        } else {
+          // Normal playback
+          channel0[i] = sampleL;
+          channel1[i] = sampleR;
         }
-        
-        channel0[i] = sampleL;
-        channel1[i] = sampleR;
         
         localReadPtr++;
         framesRead++;
