@@ -181,6 +181,9 @@ class RubberbandPipeline {
             // Delay actual playback
             setTimeout(() => {
                 if (this.player) {
+                    // Reset rubberband position tracking to sync with actual playback start
+                    this._rubberbandOutputFrames = 0;
+                    this._rubberbandPositionAt = 0;
                     this.player.play();
                     // Volume will ramp up when warmed-up signal arrives
                 }
@@ -240,18 +243,22 @@ class RubberbandPipeline {
     
     getCurrentTime() {
         // Use rubberband output frames for position, not FFmpeg consumption
-        // This eliminates the "rush" visual artifact
+        // CRITICAL: Only count rubberband output when actually playing!
+        // The worklet processes audio even when paused, so we must check isPlaying.
         
-        // If we have rubberband position data, use it
+        if (!this.isPlaying) {
+            // When paused/stopped, return the seek offset (current position)
+            return this._seekOffset;
+        }
+        
+        // If we have rubberband position data and we're playing, use it
         if (this._rubberbandPositionAt > 0) {
             let frames = this._rubberbandOutputFrames | 0;
             
             // Extrapolate from last position message
-            if (this.isPlaying) {
-                const dt = this.ctx.currentTime - this._rubberbandPositionAt;
-                if (dt > 0 && dt < 0.20) {
-                    frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
-                }
+            const dt = this.ctx.currentTime - this._rubberbandPositionAt;
+            if (dt > 0 && dt < 0.20) {
+                frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
             }
             
             const time = this._seekOffset + (frames / 48000);
@@ -402,7 +409,7 @@ class RubberbandPipeline {
             try { this.player.gainNode.disconnect(); } catch(e) {}
         }
         
-        // Reset warmup state
+        // Reset warmup state and position tracking
         this._isWarmedUp = false;
         this._rubberbandOutputFrames = 0;
         this._rubberbandPositionAt = 0;
