@@ -588,12 +588,38 @@ async function detectMaxSampleRate() {
 }
 
 // Start position push interval (adaptive: faster when scrubbing)
+let _positionLogStartTime = 0;
+let _positionLogStartPos = 0;
+let _positionLogFile = null;
+
 function startPositionPush() {
     if (positionPushInterval) return;
+    
+    // Reset position logging for new playback session
+    _positionLogStartTime = performance.now();
+    _positionLogStartPos = g.currentAudio?.getCurrentTime() || 0;
+    _positionLogFile = g.currentAudio?.fp ? path.basename(g.currentAudio.fp) : 'unknown';
+    logger.info('position-log', 'Started position tracking', { file: _positionLogFile, startPos: _positionLogStartPos });
+    
     const interval = POSITION_PUSH_INTERVALS[positionPushMode] || POSITION_PUSH_INTERVALS.normal;
     positionPushInterval = setInterval(() => {
         if (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') {
             const pos = g.currentAudio.getCurrentTime();
+            
+            // Log position for first 3 seconds of wall clock time
+            const elapsed = performance.now() - _positionLogStartTime;
+            if (elapsed <= 3000) {
+                const posDelta = pos - _positionLogStartPos;
+                const logData = JSON.stringify({ 
+                    elapsedMs: Math.round(elapsed), 
+                    position: Math.round(pos * 1000) / 1000, 
+                    posDelta: Math.round(posDelta * 1000) / 1000,
+                    file: _positionLogFile,
+                    pipeline: g.activePipeline
+                });
+                logger.info('position-log', `Position: ${pos.toFixed(3)}s | Data: ${logData}`);
+            }
+            
             ipcRenderer.send('audio:position', pos);
         }
     }, interval);
@@ -2207,8 +2233,20 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 
 				ffPlayer.onEnded(audioEnded);
 
-
-				const metadata = await ffPlayer.open(fp);
+				// For rubberband with locked settings, pass initial params to apply BEFORE opening
+				// This prevents audio rush when locked settings are applied at file start
+				let metadata;
+				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && g.currentAudioParams) {
+					const initialParams = {
+						pitch: Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0),
+						tempo: g.currentAudioParams.tempo || 1.0,
+						formant: !!g.currentAudioParams.formant
+					};
+					logger.info('playAudio', 'Opening rubberband with initial params', initialParams);
+					metadata = await ffPlayer.open(fp, initialParams);
+				} else {
+					metadata = await ffPlayer.open(fp);
+				}
 				
 				// Re-apply audio params after open() - reset() may have cleared them
 				if (g.activePipeline === 'rubberband' && g.rubberbandPlayer) {
@@ -2461,7 +2499,19 @@ async function switchPipeline(newMode, shouldPlay = null) {
 
 	if (newPlayer) {
 		try {
-			await newPlayer.open(g.currentAudio.fp);
+			// For rubberband, pass initial params to apply BEFORE opening
+			// This prevents audio rush when locked settings are applied at file start
+			if (newMode === 'rubberband' && g.currentAudioParams) {
+				const initialParams = {
+					pitch: Math.pow(2, (g.currentAudioParams.pitch || 0) / 12.0),
+					tempo: g.currentAudioParams.tempo || 1.0,
+					formant: !!g.currentAudioParams.formant
+				};
+				logger.info('rubberband', 'Opening with initial params', initialParams);
+				await newPlayer.open(g.currentAudio.fp, initialParams);
+			} else {
+				await newPlayer.open(g.currentAudio.fp);
+			}
 
 			g.currentAudio.player = newPlayer;
 
@@ -2537,6 +2587,16 @@ async function switchPipeline(newMode, shouldPlay = null) {
 function clearAudio(skipRubberbandDispose = false) {
 	logger.debug('audio', 'clearAudio called', { hasRubberband: !!g.rubberbandPlayer, activePipeline: g.activePipeline, skipRubberbandDispose });
 
+	// CRITICAL: Stop position pushing FIRST to prevent old position reports during file change
+	stopPositionPush();
+
+	// Clear current audio reference to prevent time queries from old file
+	if (g.currentAudio) {
+		if (g.currentAudio.isMod) player.stop();
+		if (g.currentAudio.isMidi && midi) midi.stop();
+		g.currentAudio = undefined;
+	}
+
 	if (g.ffmpegPlayer) {
 		if (typeof g.ffmpegPlayer.clearBuffer === 'function') g.ffmpegPlayer.clearBuffer();
 		g.ffmpegPlayer.stop(true);
@@ -2560,23 +2620,24 @@ function clearAudio(skipRubberbandDispose = false) {
 		}
 
 		if (!skipRubberbandDispose) {
-			g.rubberbandPlayer.reset();
+				// CRITICAL: Stop player BEFORE resetting params to prevent time reporting from old file
+			// The reset() changes pitch which triggers kernel reset - we don't want time from old file
 			if (g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.clearBuffer === 'function') {
 				g.rubberbandPlayer.player.clearBuffer();
 			}
 			g.rubberbandPlayer.stop(true); // Use retain=true to preserve internal player resources
+			// Reset player time to prevent old time from bleeding into new file
+			if (g.rubberbandPlayer.player && typeof g.rubberbandPlayer.player.seek === 'function') {
+				g.rubberbandPlayer.player.seek(0);
+			}
+			// Now safe to reset params
+			g.rubberbandPlayer.reset();
 		}
 
 		// Only reset activePipeline if we're not preserving rubberband
 		if (!skipRubberbandDispose) {
 			g.activePipeline = 'normal';
 		}
-	}
-	if (g.currentAudio) {
-		if (g.currentAudio.isMod) player.stop();
-		if (g.currentAudio.isMidi && midi) midi.stop();
-
-		g.currentAudio = undefined;
 	}
 	
 	// Reset transition state

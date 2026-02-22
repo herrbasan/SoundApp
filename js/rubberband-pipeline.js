@@ -27,6 +27,15 @@ class RubberbandPipeline {
             formantPreserved: false
         };
         
+        // Position tracking from rubberband output (not FFmpeg input)
+        this._rubberbandOutputFrames = 0;
+        this._rubberbandPositionAt = 0;
+        this._seekOffset = 0;
+        
+        // Warmup state
+        this._isWarmedUp = false;
+        this._targetVolumeAfterWarmup = 1.0;
+        
         this.initialized = false;
     }
 
@@ -61,6 +70,28 @@ class RubberbandPipeline {
             });
 
             this.rubberbandNode.connect(this.gainNode);
+            
+            // Listen for messages from the worklet (position, warmup)
+            this.rubberbandNode.port.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                const event = data[0];
+                const payload = data[1];
+                
+                switch (event) {
+                    case 'position':
+                        // Track rubberband output frames for accurate position
+                        this._rubberbandOutputFrames = payload | 0;
+                        this._rubberbandPositionAt = this.ctx.currentTime;
+                        break;
+                    case 'warmed-up':
+                        // Ramp volume up now that rubberband is producing real output
+                        if (!this._isWarmedUp) {
+                            this._isWarmedUp = true;
+                            this._rampUpVolume();
+                        }
+                        break;
+                }
+            };
         } catch(e) {
             console.error('Rubberband node creation failed:', e);
             throw e;
@@ -110,6 +141,11 @@ class RubberbandPipeline {
         
         this.filePath = filePath;
         
+        // Reset position tracking for new file
+        this._seekOffset = 0;
+        this._rubberbandOutputFrames = 0;
+        this._rubberbandPositionAt = 0;
+        
         let metadata = null;
         if(this.player) {
             metadata = await this.player.open(filePath);
@@ -123,7 +159,14 @@ class RubberbandPipeline {
     }
 
     play() {
-        if(this.player) this.player.play();
+        if(!this.player) return;
+        
+        // Start muted - will ramp up when rubberband signals warmup complete
+        if (this.gainNode && !this._isWarmedUp) {
+            this.gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+        }
+        
+        this.player.play();
     }
 
     pause() {
@@ -159,11 +202,30 @@ class RubberbandPipeline {
     }
 
     seek(time) {
-        if(this.player) this.player.seek(time);
+        if(this.player) {
+            this.player.seek(time);
+            // Reset rubberband position tracking
+            this._seekOffset = time;
+            this._rubberbandOutputFrames = 0;
+            this._rubberbandPositionAt = 0;
+        }
     }
     
     getCurrentTime() {
-        return this.player ? this.player.getCurrentTime() : 0;
+        // Use rubberband output frames for position, not FFmpeg consumption
+        // This eliminates the "rush" visual artifact
+        let frames = this._rubberbandOutputFrames | 0;
+        
+        // Extrapolate from last position message
+        if (this.isPlaying && this._rubberbandPositionAt > 0) {
+            const dt = this.ctx.currentTime - this._rubberbandPositionAt;
+            if (dt > 0 && dt < 0.20) {
+                frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
+            }
+        }
+        
+        const time = this._seekOffset + (frames / 48000);
+        return Math.min(time, this.duration);
     }
 
     setLoop(enabled) {
@@ -174,7 +236,11 @@ class RubberbandPipeline {
     get volume() { return this.currentVolume; }
     set volume(v) {
         this.currentVolume = v;
-        if(this.gainNode) this.gainNode.gain.setValueAtTime(v, this.ctx.currentTime);
+        this._targetVolumeAfterWarmup = v;
+        // Only set immediately if warmed up, otherwise let _rampUpVolume handle it
+        if(this.gainNode && this._isWarmedUp) {
+            this.gainNode.gain.setValueAtTime(v, this.ctx.currentTime);
+        }
     }
 
     setPitch(ratio) {
@@ -302,6 +368,11 @@ class RubberbandPipeline {
             try { this.player.gainNode.disconnect(); } catch(e) {}
         }
         
+        // Reset warmup state
+        this._isWarmedUp = false;
+        this._rubberbandOutputFrames = 0;
+        this._rubberbandPositionAt = 0;
+        
         try {
             this.rubberbandNode = new AudioWorkletNode(this.ctx, 'realtime-pitch-shift-processor', {
                 numberOfInputs: 1,
@@ -321,6 +392,26 @@ class RubberbandPipeline {
                 this.player.gainNode.connect(this.rubberbandNode);
             }
             
+            // Listen for messages from the worklet
+            this.rubberbandNode.port.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                const event = data[0];
+                const payload = data[1];
+                
+                switch (event) {
+                    case 'position':
+                        this._rubberbandOutputFrames = payload | 0;
+                        this._rubberbandPositionAt = this.ctx.currentTime;
+                        break;
+                    case 'warmed-up':
+                        if (!this._isWarmedUp) {
+                            this._isWarmedUp = true;
+                            this._rampUpVolume();
+                        }
+                        break;
+                }
+            };
+            
             // Reapply current settings
             this.setPitch(this.currentPitch);
             this.setTempo(this.currentTempo);
@@ -334,6 +425,15 @@ class RubberbandPipeline {
             console.error('[RubberbandPipeline] Failed to recreate rubberband worklet:', e);
             throw e;
         }
+    }
+    
+    _rampUpVolume() {
+        if (!this.gainNode) return;
+        const now = this.ctx.currentTime;
+        const gain = this.gainNode.gain;
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(gain.value, now);
+        gain.linearRampToValueAtTime(this._targetVolumeAfterWarmup, now + 0.015);
     }
 
     dispose() {
