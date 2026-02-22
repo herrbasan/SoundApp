@@ -1880,7 +1880,11 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 		let parse = path.parse(fp);
 		let bench = performance.now();
 
-
+		if (!autoAdvance && g.currentAudio && !g.currentAudio.paused) {
+			if (g.currentAudio.isFFmpeg && g.currentAudio.player && typeof g.currentAudio.player.fadeOut === 'function' && g.activePipeline !== 'rubberband') {
+				await g.currentAudio.player.fadeOut();
+			}
+		}
 
 		g.blocky = true;
 		
