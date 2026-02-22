@@ -58,7 +58,7 @@ class FFmpegSABProcessor extends AudioWorkletProcessor {
     this.isFadingIn = false;        // Currently fading in?
     this.fadeSamplesRemaining = 0;  // Samples left in fade
     this.fadeSamplesTotal = 0;      // Total samples for fade-in calculation
-    this.defaultFadeSamples = 240;  // 5ms at 48kHz
+    this.defaultFadeSamples = 480;  // 10ms at 48kHz
     
     this.port.onmessage = this.onMessage.bind(this);
   }
