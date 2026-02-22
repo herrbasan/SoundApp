@@ -179,6 +179,8 @@ function createTrackerPlayer() {
         if (g.monitoringSplitter) {
             tracker.gain.connect(g.monitoringSplitter);
         }
+        tracker._initialized = true;
+        logger.debug('tracker', 'Tracker initialized, gain connected');
         g.blocky = false;
     });
     
@@ -247,7 +249,15 @@ async function initTrackerPlayerLazy() {
 // =============================================================================
 
 // Current audio file info (for pipeline routing decisions, not full state)
-g.currentAudioParams = null;   // FFmpeg params from Main (mode, tapeSpeed, pitch, tempo, formant, locked)
+// Initialize with defaults so eager-init engine has safe values before cmd:setParams arrives
+g.currentAudioParams = {        // FFmpeg params from Main (mode, tapeSpeed, pitch, tempo, formant, locked)
+    mode: 'tape',
+    tapeSpeed: 0,
+    pitch: 0,
+    tempo: 1.0,
+    formant: false,
+    locked: false
+};
 g.currentMidiParams = null;    // MIDI params from Main (transpose, bpm, metronome, soundfont)
 g.currentTrackerParams = null; // Tracker params from Main (pitch, tempo, stereoSeparation)
 
@@ -833,11 +843,14 @@ async function init() {
 			if (g.monitoringSplitter) {
 				player.gain.connect(g.monitoringSplitter);
 			}
+			player._initialized = true;
+			logger.debug('tracker', 'Eager-init tracker initialized');
 			g.blocky = false;
 			engineReady();
 			});
 	} else {
 		// Already initialized (likely by toggleHQMode), but we still need to trigger engineReady
+		if (player) player._initialized = true;
 		engineReady();
 	}
 
@@ -1450,12 +1463,8 @@ async function init() {
 			console.error('[MIDI] Failed to read user soundfonts directory:', err);
 		}
 
-		// Sort: TimGM first, then alphabetically
-		availableFonts.sort((a, b) => {
-			if (a.filename.startsWith('TimGM')) return -1;
-			if (b.filename.startsWith('TimGM')) return 1;
-			return a.label.localeCompare(b.label);
-		});
+		// Sort alphabetically by label (case-insensitive)
+		availableFonts.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
 
 		// Fallback if no fonts found
 		if (availableFonts.length === 0) {
@@ -1657,6 +1666,140 @@ function _clamp01(v) {
 	return v;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIO TRANSITION STATE MACHINE
+// Centralized management of audio lifecycle to prevent crackling and ensure
+// proper sequencing: init -> ready -> play -> stop
+// ═══════════════════════════════════════════════════════════════════════════
+
+const AudioTransitionState = {
+	IDLE: 'idle',
+	INITIALIZING: 'initializing',  // Library loading, WASM init, worklet setup
+	READY: 'ready',                // Fully initialized, safe to play
+	STARTING: 'starting',          // Play requested, waiting for stable output
+	PLAYING: 'playing',
+	STOPPING: 'stopping',
+	SEEKING: 'seeking'
+};
+
+// Central transition state
+let gAudioTransition = {
+	state: AudioTransitionState.IDLE,
+	pendingPlay: false,      // Play was requested during init
+	pendingSeek: null,       // Seek position requested during init
+	initPromise: null,       // Promise that resolves when init completes
+	startTime: 0,            // When current state started
+	playerType: null         // 'midi', 'tracker', 'ffmpeg'
+};
+
+/**
+ * Transition to a new state with logging
+ */
+function transitionTo(newState, reason = '') {
+	const oldState = gAudioTransition.state;
+	gAudioTransition.state = newState;
+	gAudioTransition.startTime = performance.now();
+	logger.debug('audio-transition', `${oldState} -> ${newState}`, { reason });
+}
+
+/**
+ * Wait for player to be fully initialized before playing
+ * This prevents crackling by ensuring the audio graph is complete
+ */
+async function waitForPlayerReady(player, type, timeoutMs = 5000) {
+	const startTime = performance.now();
+	
+	if (type === 'tracker') {
+		// Tracker: wait for onInitialized (gain node connection)
+		if (player._initialized || player.gain?.connect) {
+			return true; // Already ready
+		}
+		return new Promise((resolve, reject) => {
+			const checkInterval = setInterval(() => {
+				if (player._initialized || player.gain?.connect) {
+					clearInterval(checkInterval);
+					clearTimeout(timeoutId);
+					resolve(true);
+				}
+				if (performance.now() - startTime > timeoutMs) {
+					clearInterval(checkInterval);
+					reject(new Error('Tracker init timeout'));
+				}
+			}, 10);
+			
+			const timeoutId = setTimeout(() => {
+				clearInterval(checkInterval);
+				resolve(false); // Don't reject, proceed anyway
+			}, timeoutMs);
+		});
+	}
+	
+	if (type === 'midi') {
+		// MIDI: wait for initialized flag
+		if (midi?.initialized) {
+			return true;
+		}
+		return new Promise((resolve) => {
+			const checkInterval = setInterval(() => {
+				if (midi?.initialized) {
+					clearInterval(checkInterval);
+					clearTimeout(timeoutId);
+					resolve(true);
+				}
+			}, 10);
+			
+			const timeoutId = setTimeout(() => {
+				clearInterval(checkInterval);
+				resolve(false); // Proceed anyway
+			}, timeoutMs);
+		});
+	}
+	
+	// FFmpeg is always ready after open()
+	return true;
+}
+
+/**
+ * Safe play wrapper that ensures init is complete before starting
+ */
+async function safePlay(player, type, targetVol, shouldStartPaused = false) {
+	if (shouldStartPaused) {
+		transitionTo(AudioTransitionState.READY, 'start paused');
+		return;
+	}
+	
+	transitionTo(AudioTransitionState.STARTING, `play requested for ${type}`);
+	
+	try {
+		// Wait for player to be ready
+		await waitForPlayerReady(player, type);
+		
+		// Small settling delay for worklet stabilization (prevents crackling)
+		if (type === 'midi' || type === 'tracker') {
+			await new Promise(r => setTimeout(r, 20));
+		}
+		
+		transitionTo(AudioTransitionState.PLAYING, `${type} playback started`);
+		
+		// Now safe to play
+		if (type === 'midi') {
+			midi.play();
+		} else if (type === 'tracker') {
+			player.unpause();
+		} else if (type === 'ffmpeg') {
+			player.play();
+		}
+		
+		startPositionPush();
+		ipcRenderer.send('audio:state', { isPlaying: true });
+		
+	} catch (err) {
+		logger.error('audio-transition', 'Failed to start playback', { type, error: err.message });
+		transitionTo(AudioTransitionState.READY, 'play failed');
+		throw err;
+	}
+}
+
 function setVolume(v, persist = false) {
 	v = _clamp01(v);
 	if (!g.config.audio) g.config.audio = {};
@@ -1850,14 +1993,30 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				get paused() { return midi ? midi.paused : true; },
 				duration: 0,
 				play: () => {
-					try { midi.setVol((g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol); } catch (e) { }
-					midi.play();
+					// If MIDI is already initialized, just resume
+					if (midi?.initialized) {
+						transitionTo(AudioTransitionState.PLAYING, 'MIDI resume');
+						try { midi.setVol((g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol); } catch (e) { }
+						midi.play();
+						startPositionPush();
+					} else {
+						logger.warn('midi', 'Play called before initialization complete');
+					}
 				},
-				pause: () => { midi.pause(); },
+				pause: () => { 
+					midi.pause();
+					transitionTo(AudioTransitionState.READY, 'MIDI paused');
+				},
 				seek: (time) => midi.seek(time),
 				getCurrentTime: () => midi.getCurrentTime()
 			};
 			try {
+				transitionTo(AudioTransitionState.INITIALIZING, 'MIDI load starting');
+				
+				// CRITICAL: MIDI's load() temporarily plays to calculate duration.
+				// Mute during load to prevent audible blip, then unmute for actual playback.
+				midi.setVol(0);
+				
 				await midi.load(tools.getFileURL(fp));
 
 				// Reconnect monitoring taps for new MIDI player
@@ -1867,16 +2026,20 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 					g.currentAudio.duration = midi.getDuration();
 				}
 
-				midi.setVol(initialVol);
 				midi.setLoop(g.isLoop);
 				if (n > 0) {
 					midi.seek(n);
 					g.currentAudio.currentTime = n;
 				}
+				
 				if (startPaused) {
-					try { midi.setVol(0); } catch (e) { }
+					// Already muted from above
 					midi.pause();
+					transitionTo(AudioTransitionState.READY, 'MIDI paused');
 				} else {
+					// Now safe to start actual playback
+					transitionTo(AudioTransitionState.PLAYING, 'MIDI playback starting');
+					midi.setVol(targetVol);
 					midi.play();
 					startPositionPush();
 					ipcRenderer.send('audio:state', { isPlaying: true });
@@ -1886,10 +2049,10 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				g.blocky = false;
 				checkState();
 
-
 			} catch (err) {
 				console.error('MIDI playback error:', err);
 				console.error('[Engine] Error loading MIDI file!');
+				transitionTo(AudioTransitionState.IDLE, 'MIDI error');
 				g.blocky = false;
 				return false;
 			}
@@ -1913,31 +2076,67 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				paused: startPaused,
 				duration: 0,
 				play: () => {
+					if (!trackerPlayer._initialized) {
+						logger.warn('tracker', 'Play called before initialization complete');
+						return;
+					}
 					g.currentAudio.paused = false;
+					transitionTo(AudioTransitionState.PLAYING, 'Tracker resume');
 					try { trackerPlayer.gain.gain.value = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : targetVol; } catch (e) { }
 					trackerPlayer.unpause();
 					startPositionPush();
 					ipcRenderer.send('audio:state', { isPlaying: true });
 				},
-				pause: () => { g.currentAudio.paused = true; trackerPlayer.pause() },
+				pause: () => { 
+					g.currentAudio.paused = true; 
+					trackerPlayer.pause();
+					transitionTo(AudioTransitionState.READY, 'Tracker paused');
+				},
 				getCurrentTime: () => trackerPlayer.getCurrentTime(),
 				seek: (n) => trackerPlayer.seek(n)
 			};
 			if (g.windows.monitoring) {
 				extractAndSendWaveform(fp);
 			}
-			// Load the file (tracker is now initialized and gain is connected)
 			
-			// Small delay to ensure chiptune internal init is complete
-			setTimeout(() => {
+			// Load the file - but wait for initialization to complete before playing
+			transitionTo(AudioTransitionState.INITIALIZING, 'Tracker load starting');
+			
+			// Wait for tracker to be fully initialized (gain node connected)
+			const waitForTrackerInit = async () => {
+				if (trackerPlayer._initialized) return;
+				return new Promise((resolve) => {
+					const checkInterval = setInterval(() => {
+						if (trackerPlayer._initialized || trackerPlayer.gain?.gain) {
+							clearInterval(checkInterval);
+							resolve();
+						}
+					}, 10);
+					setTimeout(() => { clearInterval(checkInterval); resolve(); }, 2000);
+				});
+			};
+			
+			await waitForTrackerInit();
+			
+			// CRITICAL: chiptune's load() auto-plays! Don't call unpause() after.
+			// Set volume BEFORE load since playback starts immediately.
+			if (!startPaused) {
+				transitionTo(AudioTransitionState.PLAYING, 'Tracker playback starting');
+				trackerPlayer.gain.gain.value = targetVol;
 				trackerPlayer.load(tools.getFileURL(fp));
-				trackerPlayer.gain.gain.value = initialVol;
-				
-				// Ensure playback starts (chiptune should auto-play, but verify)
-				if (!startPaused && trackerPlayer.unpause) {
-					trackerPlayer.unpause();
-				}
-			}, 100);
+				startPositionPush();
+				ipcRenderer.send('audio:state', { isPlaying: true });
+			} else {
+				// For paused start, we still need to load but then immediately pause
+				trackerPlayer.gain.gain.value = 0;  // Mute first
+				trackerPlayer.load(tools.getFileURL(fp));
+				// Give it a moment to start then pause
+				setTimeout(() => {
+					trackerPlayer.pause();
+					trackerPlayer.gain.gain.value = initialVol;
+				}, 50);
+				transitionTo(AudioTransitionState.READY, 'Tracker paused');
+			}
 
 			// Reconnect monitoring taps for new tracker player
 			await updateMonitoringConnections();
@@ -2405,6 +2604,9 @@ function clearAudio(skipRubberbandDispose = false) {
 
 		g.currentAudio = undefined;
 	}
+	
+	// Reset transition state
+	transitionTo(AudioTransitionState.IDLE, 'clearAudio');
 }
 
 function audioEnded(e) {
@@ -2789,6 +2991,8 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 			player.onInitialized(() => {
 				player.gain.connect(g.audioContext.destination);
 				// Monitoring taps are managed lazily by applyRoutingState()
+				player._initialized = true;
+				logger.debug('tracker', 'toggleHQMode tracker initialized');
 				resolve();
 			});
 		});

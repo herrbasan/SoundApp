@@ -1,5 +1,5 @@
 'use strict';
-const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen, MessageChannelMain } = require('electron');
+const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen, MessageChannelMain, shell } = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper_new.js');
@@ -142,12 +142,8 @@ async function scanAvailableSoundfonts() {
         logger.warn('soundfont', 'Failed to read user soundfonts directory', { error: err.message });
     }
 
-    // Sort: TimGM first, then alphabetically
-    availableFonts.sort((a, b) => {
-        if (a.filename.startsWith('TimGM')) return -1;
-        if (b.filename.startsWith('TimGM')) return 1;
-        return a.label.localeCompare(b.label);
-    });
+    // Sort alphabetically by label (case-insensitive)
+    availableFonts.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
 
     // Fallback if no fonts found
     if (availableFonts.length === 0) {
@@ -679,6 +675,35 @@ async function appStart() {
     // Initialize WindowManager with main window
     WindowManager.init(logger, wins.main);
 
+    // ═══════════════════════════════════════════════════════════
+    // EAGER ENGINE INITIALIZATION (Parallel Startup Optimization)
+    // If we know a file will be loaded soon, start creating the engine
+    // window in parallel with the renderer initialization. This overlaps
+    // the ~100ms engine creation time with main window setup.
+    // ═══════════════════════════════════════════════════════════
+    const hasStartupFile = (() => {
+        // Check command line args (skip flags and squirrel events)
+        const args = process.argv.slice(1);
+        const hasFileArg = args.some(arg => 
+            !arg.startsWith('--') && 
+            !arg.includes('squirrel') &&
+            arg !== '.'
+        );
+        if (hasFileArg) return true;
+        
+        // Check default directory setting
+        const cfg = user_cfg ? user_cfg.get() : {};
+        return !!(cfg && cfg.ui && cfg.ui.defaultDir);
+    })();
+    
+    if (hasStartupFile) {
+        logger.info('main', 'Eager engine init: detected startup file, creating engine in parallel');
+        // Don't await - let it initialize in parallel with renderer
+        createEngineWindow({ skipAutoLoad: true }).catch(err => {
+            logger.warn('main', 'Eager engine creation failed', { error: err.message });
+        });
+    }
+
     // Opt-in: keep running in tray (hide main window on close)
     // Listen for 'hide' event since all windows hide instead of close
     try {
@@ -705,7 +730,7 @@ async function appStart() {
 
                     // Close all windows (not just mixer) when going to tray
                     win.close();
-                    
+
                     // Reset WindowManager state since window is destroyed
                     WindowManager.handleWindowClosed({ type, windowId: winState.windowId });
                 } catch (err) { }
@@ -714,7 +739,7 @@ async function appStart() {
 
             // Phase 4: Schedule engine disposal when hidden to tray
             // (polling loop handles this automatically)
-            
+
             // OPTIMIZATION: Aggressive background throttling when going to tray
             // This reduces CPU from Chromium's baseline ~0.3% to near-zero
             logger.debug('throttle', 'Enabling aggressive throttling (tray)');
@@ -761,18 +786,18 @@ async function appStart() {
                 let cnf = user_cfg ? user_cfg.get() : {};
                 keep = !!(cnf?.ui?.keepRunningInTray);
             } catch (err) { }
-            
+
             // Always reduce position updates when hidden (tray or minimized)
             // 'minimal' mode = 500ms interval (2 updates/sec vs 20/sec in normal)
             sendToEngine('engine:set-position-mode', { mode: 'minimal' });
-            
+
             if (keep) {
                 logger.debug('throttle', 'Window hidden to tray - position updates minimized');
             } else {
                 logger.debug('throttle', 'Window minimized - position updates minimized');
             }
         });
-        
+
         // Also handle minimize event for Windows
         wins.main.on('minimize', () => {
             if (!wins.main.isVisible()) {
@@ -1065,8 +1090,8 @@ function mainCommand(e, data) {
 // ═══════════════════════════════════════════════════════════
 
 async function createEngineWindow(options = {}) {
-    if (engineWindow) return;
-    if (audioState.engineInitializing) return;
+    if (engineWindow) return Promise.resolve();
+    if (audioState.engineInitializing) return Promise.resolve();
 
     audioState.engineInitializing = true;
     console.log('[] ');
@@ -1171,10 +1196,10 @@ function shouldDisposeEngine() {
     if (audioState.isPlaying) return false;
     if (!engineWindow) return false;
     if (idleDisposalState.isDisposing) return false;
-    
+
     const idleTime = Date.now() - idleDisposalState.lastActivityTime;
     const timeout = getIdleTimeoutMs();
-    
+
     return idleTime >= timeout;
 }
 
@@ -1191,14 +1216,14 @@ function checkIdleDisposal() {
         }
         return;
     }
-    
+
     console.log('[Idle] Timeout reached, disposing engine...');
     performDisposal();
 }
 
 function startIdleDisposalLoop() {
     if (idleDisposalState.checkInterval) return;
-    
+
     console.log('[Idle] Starting disposal check loop');
     idleDisposalState.checkInterval = setInterval(() => {
         checkIdleDisposal();
@@ -1212,19 +1237,19 @@ function broadcastIdleTime() {
     if (!wins.main?.isVisible() || wins.main?.isMinimized()) {
         return;
     }
-    
+
     // Send idle time to player for debug display
     // When playing, show full timeout (effectively reset)
     const timeout = getIdleTimeoutMs();
     let remaining;
-    
+
     if (audioState.isPlaying) {
         remaining = Math.round(timeout / 1000);
     } else {
         const idleTime = Date.now() - idleDisposalState.lastActivityTime;
         remaining = Math.max(0, Math.round((timeout - idleTime) / 1000));
     }
-    
+
     sendToPlayer('idle:time', {
         remaining: remaining  // seconds until disposal
     });
@@ -1240,7 +1265,7 @@ function stopIdleDisposalLoop() {
 
 function recordUserActivity() {
     idleDisposalState.lastActivityTime = Date.now();
-    
+
     // OPTIMIZATION: Restart idle loop if it was stopped
     // This ensures loop is running when user interacts after full idle state
     if (!idleDisposalState.checkInterval) {
@@ -1259,7 +1284,7 @@ async function performDisposal() {
 
     try {
         disposeEngineWindow();
-        
+
         // OPTIMIZATION: Aggressive throttling when engine disposed (0% audio need)
         // This reduces Chromium background CPU from ~0.3% to near-zero
         const { BrowserWindow } = require('electron');
@@ -1270,7 +1295,7 @@ async function performDisposal() {
                 win.webContents.setFrameRate(1);
             }
         });
-        
+
         // Reset isDisposing after successful disposal so next disposal can happen
         idleDisposalState.isDisposing = false;
         console.log(`[Disposal] performDisposal completed`);
@@ -1377,7 +1402,7 @@ async function restoreEngineIfNeeded() {
     logger.info('main', 'restoreEngineIfNeeded: starting restoration');
     const startTime = Date.now();
     const timings = { start: startTime };
-    
+
     // Start benchmark tracking for full dispose→restore→play cycle
     restorationBenchmark = {
         startTime: startTime,
@@ -1542,7 +1567,7 @@ async function restoreEngineIfNeeded() {
             paramsApplyMs: elapsed - (timings.fileLoaded - timings.start)
         });
         audioState.isRestoration = false; // Clear restoration flag on success
-        
+
         // OPTIMIZATION: Disable throttling when engine restored (active playback)
         // Unthrottle all windows for responsive UI during audio playback
         // FIX: Use module-level BrowserWindow (line 2) to avoid TDZ with line 1441
@@ -1743,7 +1768,7 @@ function setupAudioIPC() {
         logStateDebugAction('play', audioState.engineAlive ? 'Play (engine alive)' : 'Play (engine was disposed, restoring...)');
 
         audioState.isPlaying = true;
-        
+
         // If engine was disposed, restore it first
         if (!audioState.engineAlive) {
             console.log('[] ');
@@ -1843,25 +1868,26 @@ function setupAudioIPC() {
                 audioState.formant = false;
             }
 
-            // Send params BEFORE loading file (so playAudio uses correct mode)
-            // Include parametersOpen so rubberband activates for pitchtime mode
-            sendToEngine('cmd:setParams', {
-                mode: audioState.mode,
-                tapeSpeed: audioState.tapeSpeed,
-                pitch: audioState.pitch,
-                tempo: audioState.tempo,
-                formant: audioState.formant,
-                locked: audioState.locked,
-                volume: audioState.volume,
-                loop: audioState.loop,
-                parametersOpen: childWindows.parameters.open
-            });
-
             // Update parameters window UI if we reset
             if (!audioState.locked && childWindows.parameters.open) {
                 sendParamsToParametersWindow(true);
             }
         }
+
+        // ── Send params BEFORE loading file (so playAudio uses correct mode) ──
+        // This runs whether engine was just created or already existed (eager init)
+        // Include parametersOpen so rubberband activates for pitchtime mode
+        sendToEngine('cmd:setParams', {
+            mode: audioState.mode,
+            tapeSpeed: audioState.tapeSpeed,
+            pitch: audioState.pitch,
+            tempo: audioState.tempo,
+            formant: audioState.formant,
+            locked: audioState.locked,
+            volume: audioState.volume,
+            loop: audioState.loop,
+            parametersOpen: childWindows.parameters.open
+        });
 
         // Note: cmd:playlist should be sent BEFORE calling audio:load
         // We don't send it here to avoid duplicates when handleTrackEnded sends it
@@ -2036,7 +2062,7 @@ function setupAudioIPC() {
     ipcMain.on('audio:state', (e, data) => {
         if (data.isPlaying !== undefined) {
             audioState.isPlaying = data.isPlaying;
-            
+
             // Benchmark: Log when audio actually starts playing after restoration
             if (data.isPlaying && restorationBenchmark.active) {
                 const totalMs = Date.now() - restorationBenchmark.startTime;
@@ -2490,8 +2516,20 @@ function setupAudioIPC() {
         sendToEngine('tracker-reset-params', data);
     });
 
-    ipcMain.on('open-soundfonts-folder', (e, data) => {
-        sendToEngine('open-soundfonts-folder', data);
+    ipcMain.on('open-soundfonts-folder', async (e, data) => {
+        // Handle directly in main process using Electron's native shell
+        const userSoundfontsPath = path.join(user_data, 'soundfonts');
+        try {
+            await fs.mkdir(userSoundfontsPath, { recursive: true });
+            const result = await shell.openPath(userSoundfontsPath);
+            if (result !== '') {
+                logger.error('soundfont', 'Failed to open soundfonts folder', { error: result });
+            } else {
+                logger.debug('soundfont', 'Opened soundfonts folder', { path: userSoundfontsPath });
+            }
+        } catch (err) {
+            logger.error('soundfont', 'Failed to open soundfonts folder', { error: err.message });
+        }
     });
 
     ipcMain.on('get-available-soundfonts', async (e, data) => {
@@ -2606,17 +2644,17 @@ function setupAudioIPC() {
             if (keyMap[key]) {
                 // Update audioState
                 audioState[keyMap[key]] = value;
-                
+
                 // Forward to engine if applicable
                 if (key.startsWith('audio.')) {
                     sendToEngine('audio:setParams', {
                         [keyMap[key]]: value
                     });
                 }
-                
+
                 // Broadcast to all renderers
                 broadcastState();
-                
+
                 // Confirm to sender
                 e.sender.send('state:confirm', { key, value });
             } else {
@@ -2631,7 +2669,7 @@ function setupAudioIPC() {
     ipcMain.on('action:dispatch', (e, { action, payload, requestId }) => {
         try {
             let result = null;
-            
+
             switch (action) {
                 case 'play':
                     handlePlay();
@@ -2667,7 +2705,7 @@ function setupAudioIPC() {
                 default:
                     throw new Error(`Unknown action: ${action}`);
             }
-            
+
             e.sender.send('action:complete', { requestId, result });
         } catch (err) {
             e.sender.send('action:complete', { requestId, error: err.message });
