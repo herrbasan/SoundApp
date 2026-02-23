@@ -588,38 +588,13 @@ async function detectMaxSampleRate() {
 }
 
 // Start position push interval (adaptive: faster when scrubbing)
-let _positionLogStartTime = 0;
-let _positionLogStartPos = 0;
-let _positionLogFile = null;
-
 function startPositionPush() {
     if (positionPushInterval) return;
-    
-    // Reset position logging for new playback session
-    _positionLogStartTime = performance.now();
-    _positionLogStartPos = g.currentAudio?.getCurrentTime() || 0;
-    _positionLogFile = g.currentAudio?.fp ? path.basename(g.currentAudio.fp) : 'unknown';
-    logger.info('position-log', 'Started position tracking', { file: _positionLogFile, startPos: _positionLogStartPos });
     
     const interval = POSITION_PUSH_INTERVALS[positionPushMode] || POSITION_PUSH_INTERVALS.normal;
     positionPushInterval = setInterval(() => {
         if (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') {
             const pos = g.currentAudio.getCurrentTime();
-            
-            // Log position for first 3 seconds of wall clock time
-            const elapsed = performance.now() - _positionLogStartTime;
-            if (elapsed <= 3000) {
-                const posDelta = pos - _positionLogStartPos;
-                const logData = JSON.stringify({ 
-                    elapsedMs: Math.round(elapsed), 
-                    position: Math.round(pos * 1000) / 1000, 
-                    posDelta: Math.round(posDelta * 1000) / 1000,
-                    file: _positionLogFile,
-                    pipeline: g.activePipeline
-                });
-                logger.info('position-log', `Position: ${pos.toFixed(3)}s | Data: ${logData}`);
-            }
-            
             ipcRenderer.send('audio:position', pos);
         }
     }, interval);
