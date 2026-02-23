@@ -1,5 +1,5 @@
 'use strict';
-const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen, MessageChannelMain, shell } = require('electron');
+const { app, protocol, BrowserWindow, Menu, ipcMain, Tray, nativeImage, screen, MessageChannelMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require("fs").promises;
 const helper = require('../libs/electron_helper/helper_new.js');
@@ -8,6 +8,7 @@ const update = require('../libs/electron_helper/update.js');
 const squirrel_startup = require('./squirrel_startup.js');
 const configDefaults = require('./config-defaults.js');
 const logger = require('./logger-main');
+const registry = require('./registry.js');
 
 // Set process title for identification in task manager
 process.title = 'SoundApp Main';
@@ -2541,6 +2542,64 @@ function setupAudioIPC() {
         } catch (err) {
             logger.error('soundfont', 'Failed to get available soundfonts', { error: err.message });
             e.sender.send('available-soundfonts', { fonts: [] });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SETTINGS WINDOW HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Browse for default directory
+    ipcMain.on('browse-directory', async (e, data) => {
+        try {
+            const result = await dialog.showOpenDialog({
+                properties: ['openDirectory'],
+                title: 'Select Default Music Directory'
+            });
+            if (!result.canceled && result.filePaths.length > 0) {
+                const selectedPath = result.filePaths[0];
+                e.sender.send('directory-selected', selectedPath);
+            }
+        } catch (err) {
+            logger.error('settings', 'Failed to browse for directory', { error: err.message });
+        }
+    });
+
+    // Register file associations
+    ipcMain.on('register-file-types', async (e, data) => {
+        try {
+            const exePath = app.getPath('exe');
+            await registry('register', exePath, app_path);
+            e.sender.send('registry-action-complete', { success: true });
+            logger.info('settings', 'File associations registered');
+        } catch (err) {
+            logger.error('settings', 'Failed to register file types', { error: err.message });
+            e.sender.send('registry-action-complete', { success: false, error: err.message });
+        }
+    });
+
+    // Unregister file associations
+    ipcMain.on('unregister-file-types', async (e, data) => {
+        try {
+            const exePath = app.getPath('exe');
+            await registry('unregister', exePath, app_path);
+            e.sender.send('registry-action-complete', { success: true });
+            logger.info('settings', 'File associations unregistered');
+        } catch (err) {
+            logger.error('settings', 'Failed to unregister file types', { error: err.message });
+            e.sender.send('registry-action-complete', { success: false, error: err.message });
+        }
+    });
+
+    // Open Windows Default Programs UI
+    ipcMain.on('open-default-programs', async (e, data) => {
+        try {
+            registry.openDefaultProgramsUI();
+            e.sender.send('registry-action-complete', { success: true });
+            logger.info('settings', 'Opened Default Programs UI');
+        } catch (err) {
+            logger.error('settings', 'Failed to open default programs', { error: err.message });
+            e.sender.send('registry-action-complete', { success: false, error: err.message });
         }
     });
 

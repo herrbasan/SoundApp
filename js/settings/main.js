@@ -251,7 +251,7 @@ function initDefaultDirectory() {
 	updateClearBtn();
 
 	browseBtn.addEventListener('click', () => {
-		bridge.sendToStage('browse-directory', {});
+		bridge.sendToMain('browse-directory', {});
 	});
 
 	clearDirBtn.addEventListener('click', () => {
@@ -274,15 +274,15 @@ function initFileAssociations() {
 	const registryNotice = document.getElementById('registryNotice');
 
 	registerBtn.addEventListener('click', () => {
-		bridge.sendToStage('register-file-types', {});
+		bridge.sendToMain('register-file-types', {});
 	});
 
 	unregisterBtn.addEventListener('click', () => {
-		bridge.sendToStage('unregister-file-types', {});
+		bridge.sendToMain('unregister-file-types', {});
 	});
 
 	setDefaultBtn.addEventListener('click', () => {
-		bridge.sendToStage('open-default-programs', {});
+		bridge.sendToMain('open-default-programs', {});
 	});
 
 	bridge.on('registry-action-complete', (data) => {

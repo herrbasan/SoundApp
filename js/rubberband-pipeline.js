@@ -345,19 +345,35 @@ class RubberbandPipeline {
     }
 
     // Pipeline routing control
-    connect() {
-        if(this.gainNode && !this.isConnected) {
+    connect(destinationNode = null) {
+        if (!this.gainNode) return;
+        
+        if (destinationNode) {
+            // Connect to specific node (e.g., monitoring splitter)
+            this.gainNode.connect(destinationNode);
+        } else if (!this.isConnected) {
+            // Connect to default destination
             this.gainNode.connect(this.ctx.destination);
             this.isConnected = true;
-            console.log('RubberbandPipeline connected to destination');
         }
     }
 
-    disconnect() {
-        if(this.gainNode && this.isConnected) {
-            this.gainNode.disconnect();
+    disconnect(destinationNode = null) {
+        if (!this.gainNode) return;
+        
+        if (destinationNode) {
+            // Disconnect from specific node only
+            try {
+                this.gainNode.disconnect(destinationNode);
+            } catch (e) {
+                // Ignore if not connected
+            }
+        } else if (this.isConnected) {
+            // Disconnect from all
+            try {
+                this.gainNode.disconnect();
+            } catch (e) {}
             this.isConnected = false;
-            console.log('RubberbandPipeline disconnected from destination');
         }
     }
 
