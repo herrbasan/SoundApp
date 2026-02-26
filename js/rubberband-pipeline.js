@@ -142,20 +142,13 @@ class RubberbandPipeline {
     async open(filePath) {
         if(!this.initialized) await this.init();
         
-        console.log('[RubberbandPipeline] open() called, file:', filePath.substring(filePath.lastIndexOf('\\')+1));
-        console.log('[RubberbandPipeline]  - rubberbandNode exists:', !!this.rubberbandNode);
-        console.log('[RubberbandPipeline]  - player exists:', !!this.player);
-        console.log('[RubberbandPipeline]  - player.gainNode exists:', !!(this.player && this.player.gainNode));
-        
         // Only recreate worklet if disposed (null)
         // File changes reuse the same worklet to avoid WASM memory leaks
         if (!this.rubberbandNode) {
-            console.log('[RubberbandPipeline] Recreating worklet (was disposed)');
             await this.recreateWorklet();
         } else if (this.filePath && this.filePath !== filePath) {
             // File changed - reset worklet state instead of recreating
             // The 100ms warmup delay in play() masks any potential audio bleed
-            console.log('[RubberbandPipeline] File change - reusing worklet, resetting state');
             this._resetWorkletState();
         }
         
@@ -170,29 +163,22 @@ class RubberbandPipeline {
         if (this._playTimeout) {
             clearTimeout(this._playTimeout);
             this._playTimeout = null;
-            console.log('[RubberbandPipeline] Cancelled pending play timeout');
         }
         
         // Ensure player is connected to rubberband (player.open() may disconnect internally)
         if (this.player && this.player.gainNode && this.rubberbandNode) {
-            console.log('[RubberbandPipeline] Ensuring player->rubberband connection');
             try { 
                 this.player.gainNode.disconnect(this.rubberbandNode); 
             } catch(e) {}
             try {
                 this.player.gainNode.connect(this.rubberbandNode);
-                console.log('[RubberbandPipeline] Connected player.gainNode to rubberbandNode');
-            } catch(e) {
-                console.error('[RubberbandPipeline] Failed to connect:', e);
-            }
+            } catch(e) {}
         }
         
         let metadata = null;
         if(this.player) {
             metadata = await this.player.open(filePath);
-            console.log('[RubberbandPipeline] player.open() completed, duration:', metadata?.duration);
         } else {
-            console.error('RubberbandPipeline.open: player is null!');
             throw new Error('Rubberband player not initialized');
         }
         this.setPitch(this.currentPitch);
@@ -201,12 +187,8 @@ class RubberbandPipeline {
     }
 
     play() {
-        console.log('[RubberbandPipeline] play() called, player exists:', !!this.player, '_needsStartupDelay:', this._needsStartupDelay, '_isDisposing:', this._isDisposing);
         if(!this.player) return;
-        if(this._isDisposing) {
-            console.log('[RubberbandPipeline] Cannot play - disposal in progress');
-            return;
-        }
+        if(this._isDisposing) return;
         
         // Brutal fix: delay first play after file change to let rubberband stabilize
         if (this._needsStartupDelay) {
@@ -221,19 +203,11 @@ class RubberbandPipeline {
             // Delay actual playback
             this._playTimeout = setTimeout(() => {
                 this._playTimeout = null;
-                console.log('[RubberbandPipeline] Delayed playback starting, rubberbandNode exists:', !!this.rubberbandNode, '_isDisposing:', this._isDisposing);
-                if (this._isDisposing) {
-                    console.log('[RubberbandPipeline] Cannot play - was disposing during timeout');
-                    return;
-                }
+                if (this._isDisposing) return;
                 if (this.player && this.rubberbandNode) {
                     // Tell rubberband to start counting position from 0
                     this.rubberbandNode.port.postMessage(JSON.stringify(['start-counting']));
-                    console.log('[RubberbandPipeline] Sent start-counting');
                     this.player.play();
-                    console.log('[RubberbandPipeline] player.play() called');
-                } else {
-                    console.log('[RubberbandPipeline] Cannot play - player or rubberbandNode missing');
                 }
             }, 100);
             return;
@@ -450,7 +424,6 @@ class RubberbandPipeline {
     }
 
     _resetWorkletState() {
-        console.log('[RubberbandPipeline] _resetWorkletState called');
         // Reset position tracking
         this._seekOffset = 0;
         this._rubberbandOutputFrames = 0;
@@ -459,22 +432,16 @@ class RubberbandPipeline {
         // Reset warmup state - triggers 100ms delay which masks bleed
         this._isWarmedUp = false;
         this._needsStartupDelay = true;
-        console.log('[RubberbandPipeline] _needsStartupDelay set to true');
         
         // Send reset message to worklet to clear internal buffers
         if (this.rubberbandNode) {
             this.rubberbandNode.port.postMessage(JSON.stringify(['reset-file']));
             // Re-prime the kernel for the new file
             this.rubberbandNode.port.postMessage(JSON.stringify(['prime', 4]));
-            console.log('[RubberbandPipeline] Sent reset-file and prime');
         }
     }
 
     async disposeWorklet() {
-        const stack = new Error().stack;
-        console.log('[RubberbandPipeline] disposeWorklet() called, rubberbandNode exists:', !!this.rubberbandNode, 'playTimeout exists:', !!this._playTimeout);
-        console.log('[RubberbandPipeline] disposeWorklet stack:', stack.substring(0, 500));
-        
         // Mark as disposing to prevent play() from setting up new timeouts
         this._isDisposing = true;
         
@@ -482,7 +449,6 @@ class RubberbandPipeline {
         if (this._playTimeout) {
             clearTimeout(this._playTimeout);
             this._playTimeout = null;
-            console.log('[RubberbandPipeline] Cancelled play timeout in disposeWorklet');
         }
         
         if(this.rubberbandNode) {
@@ -507,9 +473,6 @@ class RubberbandPipeline {
             await new Promise(resolve => setTimeout(resolve, 50));
             
             this.rubberbandNode = null;
-            // Note: isConnected tracks gainNode→destination, not rubberband state
-            
-            console.log('[RubberbandPipeline] Worklet disposed');
         }
         
         this._isDisposing = false;
@@ -585,7 +548,7 @@ class RubberbandPipeline {
             // Prime the kernel with silence to avoid warm-up artifacts
             this.rubberbandNode.port.postMessage(JSON.stringify(['prime', 4]));
             
-            console.log('[RubberbandPipeline] Worklet recreated with pitch:', this.currentPitch, 'tempo:', this.currentTempo);
+
         } catch(e) {
             console.error('[RubberbandPipeline] Failed to recreate rubberband worklet:', e);
             throw e;
@@ -602,8 +565,6 @@ class RubberbandPipeline {
     }
 
     dispose() {
-        console.log('[RubberbandPipeline] Full dispose');
-        
         // Cancel any pending play timeout
         if (this._playTimeout) {
             clearTimeout(this._playTimeout);
