@@ -1931,6 +1931,30 @@ function setupAudioIPC() {
             return;
         }
 
+        // Engine is alive - reset params if locked=false, then send params before load
+        const didResetParams = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+        if (didResetParams) {
+            resetParamsToDefaults(audioState.fileType, { file: nextFile });
+        }
+
+        // Send params BEFORE loading file so engine uses correct pipeline and settings
+        sendToEngine('cmd:setParams', {
+            mode: audioState.mode,
+            tapeSpeed: audioState.tapeSpeed,
+            pitch: audioState.pitch,
+            tempo: audioState.tempo,
+            formant: audioState.formant,
+            locked: audioState.locked,
+            volume: audioState.volume,
+            loop: audioState.loop,
+            parametersOpen: childWindows.parameters.open
+        });
+
+        // Update parameters window UI if we reset
+        if (didResetParams && childWindows.parameters.open) {
+            sendParamsToParametersWindow(true);
+        }
+
         // Engine is alive - update engine's playlist index and load the file directly
         // Don't use cmd:next since it would double-increment the index
         sendToEngine('cmd:playlist', {
@@ -1969,6 +1993,30 @@ function setupAudioIPC() {
         if (!audioState.engineAlive) {
             await restoreEngineIfNeeded();
             return;
+        }
+
+        // Engine is alive - reset params if locked=false, then send params before load
+        const didResetParams = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+        if (didResetParams) {
+            resetParamsToDefaults(audioState.fileType, { file: prevFile });
+        }
+
+        // Send params BEFORE loading file so engine uses correct pipeline and settings
+        sendToEngine('cmd:setParams', {
+            mode: audioState.mode,
+            tapeSpeed: audioState.tapeSpeed,
+            pitch: audioState.pitch,
+            tempo: audioState.tempo,
+            formant: audioState.formant,
+            locked: audioState.locked,
+            volume: audioState.volume,
+            loop: audioState.loop,
+            parametersOpen: childWindows.parameters.open
+        });
+
+        // Update parameters window UI if we reset
+        if (didResetParams && childWindows.parameters.open) {
+            sendParamsToParametersWindow(true);
         }
 
         // Engine is alive - update engine's playlist index and load the file directly
@@ -2030,6 +2078,30 @@ function setupAudioIPC() {
                 audioState.fileType = getFileType(firstFile);
                 audioState.position = 0;
                 audioState.isPlaying = true;
+
+                // Reset params if locked=false (new playlist = new file context)
+                const didResetParams = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+                if (didResetParams) {
+                    resetParamsToDefaults(audioState.fileType, { file: firstFile });
+                }
+
+                // Send params BEFORE loading file so engine uses correct pipeline and settings
+                sendToEngine('cmd:setParams', {
+                    mode: audioState.mode,
+                    tapeSpeed: audioState.tapeSpeed,
+                    pitch: audioState.pitch,
+                    tempo: audioState.tempo,
+                    formant: audioState.formant,
+                    locked: audioState.locked,
+                    volume: audioState.volume,
+                    loop: audioState.loop,
+                    parametersOpen: childWindows.parameters.open
+                });
+
+                // Update parameters window UI if we reset
+                if (didResetParams && childWindows.parameters.open) {
+                    sendParamsToParametersWindow(true);
+                }
 
                 // Update engine and load first file
                 sendToEngine('cmd:playlist', {
@@ -3013,6 +3085,30 @@ async function handleTrackEnded() {
                 // Engine not alive, restoring
                 await restoreEngineIfNeeded();
             } else {
+                // Engine is alive - reset params if locked=false, then send params before load
+                const didResetParams = audioState.fileType === 'FFmpeg' ? !audioState.locked : true;
+                if (didResetParams) {
+                    resetParamsToDefaults(audioState.fileType, { file: nextFile });
+                }
+
+                // Send params BEFORE loading file so engine uses correct pipeline and settings
+                sendToEngine('cmd:setParams', {
+                    mode: audioState.mode,
+                    tapeSpeed: audioState.tapeSpeed,
+                    pitch: audioState.pitch,
+                    tempo: audioState.tempo,
+                    formant: audioState.formant,
+                    locked: audioState.locked,
+                    volume: audioState.volume,
+                    loop: audioState.loop,
+                    parametersOpen: childWindows.parameters.open
+                });
+
+                // Update parameters window UI if we reset
+                if (didResetParams && childWindows.parameters.open) {
+                    sendParamsToParametersWindow(true);
+                }
+
                 // Engine is alive, update its playlist index and load the new file
                 // Engine needs g.idx to stay in sync with app.js playlistIndex
                 // Sending cmd:playlist and cmd:load

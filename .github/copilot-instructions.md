@@ -1,10 +1,6 @@
 # SoundApp — Agent Instructions
 
-> **⚠️ BRANCH CONTEXT:** This is an experimental development branch featuring the Engine-based audio architecture with idle disposal, MessagePort direct communication, and lazy initialization. This branch is ahead of main.
-
 > **📖 MINDSET:** Read and internalize [`DETERMINISTIC_MIND.md`](DETERMINISTIC_MIND.md) — core principles for code quality and reasoning.
-
-> **📋 CURRENT WORK:** See [`docs/Current_Tasks.md`](docs/Current_Tasks.md) — state centralization status, known issues, and remaining tasks.
 
 ---
 
@@ -181,6 +177,47 @@ g.currentAudio = { fp, player, paused, isFFmpeg, isMidi, isMod, ... };
 
 ---
 
+## Audio Transition State Machine
+
+Centralized management of audio lifecycle in `js/engines.js` to prevent crackling and ensure proper sequencing.
+
+### States
+
+| State | Description |
+|-------|-------------|
+| `IDLE` | No audio loaded |
+| `INITIALIZING` | Library loading, WASM init, worklet setup |
+| `READY` | Fully initialized, safe to play |
+| `PLAYING` | Active playback |
+
+### Key Behaviors
+
+**MIDI Lazy-Init Protection:**
+```javascript
+// Mute during load() to prevent duration-calculation blip
+midi.setVol(0);
+await midi.load(tools.getFileURL(fp));
+// ...later when playing:
+midi.setVol(targetVol);
+midi.play();
+```
+
+**Tracker Auto-Play Handling:**
+The chiptune library's `load()` auto-plays internally. We don't call `unpause()` after load.
+```javascript
+// chiptune auto-plays on load
+trackerPlayer.load(tools.getFileURL(fp));
+// No unpause() needed - already playing
+```
+
+**FFmpeg Fade Handling:**
+The SAB player has built-in fades (12ms out, 15ms in) managed in the main thread:
+- Fade out on stop/pause
+- Fade in on play
+- Quick fade on seek
+
+---
+
 ## Idle Disposal (0% CPU Mode)
 
 ### State Machine
@@ -310,6 +347,42 @@ MIDI behaves differently — the module loads at engine startup (loads WASM/Soun
     "disableMidiPlayer": true
   }
 }
+```
+
+---
+
+### Rubberband Pipeline Startup
+
+**Issue:** Rubberband has an internal accumulation stall (~85ms) where it collects 4096 samples before processing. During this warmup:
+- FFmpeg starts playing immediately
+- Rubberband outputs audio but doesn't report position
+- Position appears to "rush" forward when counting starts
+- Audio crackle during warmup
+
+**Solution:** One-second startup delay with controlled position counting.
+
+```
+File Load → 1000ms Delay → Start Playback
+            ↓
+    Rubberband processes (no position counting)
+    _countingEnabled = false
+            ↓
+    Send 'start-counting' message
+    _countingEnabled = true, counters reset to 0
+            ↓
+    Audible playback begins
+    Position starts at 0
+```
+
+**Implementation:**
+- Worklet has `_countingEnabled` flag (default: false)
+- `play()` checks `_needsStartupDelay` flag
+- After 1000ms delay, sends `'start-counting'` message
+- Position counting starts from 0 when audible playback begins
+
+**Files:**
+- `js/rubberband-pipeline.js` — Delay logic, message sending
+- `libs/rubberband/realtime-pitch-shift-processor.js` — Counting flag, message handling
 ```
 
 ---
@@ -561,6 +634,16 @@ bin/win_bin/                  # Windows binaries
 1. **Position Update Smoothness**: 50ms interval is slightly less smooth than 15ms (barely noticeable, but ~60% less IPC traffic).
 
 2. **Mixer FFmpeg Path (Packaged)**: The way FFmpeg paths are provided in the mixer pipeline does not work when packaged. The `init_data.ffmpeg_napi_path` and `init_data.ffmpeg_player_path` constructed in `player.js` use relative paths that break in the packaged app structure.
+
+### Recently Fixed
+
+1. **MIDI/Tracker Crackling on Lazy-Init**: Fixed by muting during initialization and waiting for `initialized` flags before playing.
+
+2. **Double-Play on MIDI/Tracker**: Fixed by understanding library auto-play behavior and removing redundant play calls.
+
+3. **Soundfonts Folder Button**: Fixed by moving handler to main process where `shell.openPath()` works correctly.
+
+4. **Soundfont Sorting**: Removed forced TimGM priority; now sorted alphabetically case-insensitive.
 
 ---
 

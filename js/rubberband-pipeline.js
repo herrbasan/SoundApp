@@ -83,7 +83,8 @@ class RubberbandPipeline {
                     
                     switch (event) {
                         case 'position':
-                            // Track rubberband output frames for accurate position
+                            // Track rubberband output frames for debug/logging only
+                            // We use player's position as ground truth for getCurrentTime
                             this._rubberbandOutputFrames = payload | 0;
                             this._rubberbandPositionAt = this.ctx.currentTime;
                             break;
@@ -238,41 +239,51 @@ class RubberbandPipeline {
     }
 
     seek(time) {
-        if(this.player) {
-            this.player.seek(time);
-            // Reset rubberband position tracking
-            this._seekOffset = time;
-            this._rubberbandOutputFrames = 0;
-            this._rubberbandPositionAt = 0;
+        if(!this.player) return;
+        
+        // Seek the player first (this updates player's _seekOffset)
+        this.player.seek(time);
+        
+        // Reset our position tracking to match
+        this._seekOffset = time;
+        this._rubberbandOutputFrames = 0;
+        this._rubberbandPositionAt = 0;
+        
+        // Tell worklet to reset its position counter
+        if (this.rubberbandNode) {
+            this.rubberbandNode.port.postMessage(JSON.stringify(['seek']));
         }
     }
     
     getCurrentTime() {
-        // Use rubberband output frames for position, not FFmpeg consumption
-        // CRITICAL: Only count rubberband output when actually playing!
-        // The worklet processes audio even when paused, so we must check isPlaying.
+        // Use player's position as ground truth - rubberband worklet position
+        // can be stale due to async message processing
         
         if (!this.isPlaying) {
             // When paused/stopped, return the seek offset (current position)
             return this._seekOffset;
         }
         
-        // If we have rubberband position data and we're playing, use it
-        if (this._rubberbandPositionAt > 0) {
-            let frames = this._rubberbandOutputFrames | 0;
-            
-            // Extrapolate from last position message
-            const dt = this.ctx.currentTime - this._rubberbandPositionAt;
-            if (dt > 0 && dt < 0.20) {
-                frames += Math.floor(dt * 48000); // Rubberband runs at 48kHz fixed
-            }
-            
-            const time = this._seekOffset + (frames / 48000);
-            return Math.min(time, this.duration);
+        // Get player's position (this is accurate - comes from SAB worklet)
+        const playerTime = this.player ? this.player.getCurrentTime() : 0;
+        
+        // For looping: wrap around if we exceed duration
+        if (this.isLoop && this.duration > 0) {
+            return playerTime % this.duration;
         }
         
-        // Fallback to FFmpeg position (during startup before first rubberband position message)
-        return this.player ? this.player.getCurrentTime() : 0;
+        return Math.min(playerTime, this.duration);
+    }
+    
+    // Called by engines.js when player signals a loop occurred
+    onPlayerLoop() {
+        // Reset rubberband position tracking to sync with player's loop
+        this._rubberbandOutputFrames = 0;
+        this._rubberbandPositionAt = 0;
+        // Tell worklet to reset its counter
+        if (this.rubberbandNode) {
+            this.rubberbandNode.port.postMessage(JSON.stringify(['loop']));
+        }
     }
 
     setLoop(enabled) {

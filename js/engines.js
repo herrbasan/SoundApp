@@ -271,6 +271,10 @@ const POSITION_PUSH_INTERVALS = {
     minimal: 500    // Deep background - minimal updates
 };
 
+// Loop detection for rubberband pipeline
+let _lastPlayerPosition = 0;
+let _loopDetected = false;
+
 // =============================================================================
 // ROUTING COORDINATOR - Centralized State Machine
 // =============================================================================
@@ -595,6 +599,22 @@ function startPositionPush() {
     positionPushInterval = setInterval(() => {
         if (g.currentAudio && typeof g.currentAudio.getCurrentTime === 'function') {
             const pos = g.currentAudio.getCurrentTime();
+            
+            // Detect loop for rubberband pipeline: position jumped backward significantly
+            if (g.activePipeline === 'rubberband' && g.rubberbandPlayer && g.currentAudio.isPlaying) {
+                // If position dropped by more than 0.5s, a loop likely occurred
+                if (_lastPlayerPosition > pos + 0.5 && _lastPlayerPosition > g.currentAudio.duration * 0.8) {
+                    if (!_loopDetected) {
+                        console.log('[Engine] Loop detected in rubberband pipeline, resetting position tracking');
+                        g.rubberbandPlayer.onPlayerLoop();
+                        _loopDetected = true;
+                        // Reset after a short delay to allow next loop detection
+                        setTimeout(() => { _loopDetected = false; }, 1000);
+                    }
+                }
+                _lastPlayerPosition = pos;
+            }
+            
             ipcRenderer.send('audio:position', pos);
         }
     }, interval);
