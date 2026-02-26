@@ -1940,7 +1940,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				g.activePipeline === 'rubberband' &&
 				desiredPipeline === 'rubberband' &&
 				g.currentAudio?.fp === fp);
-			clearAudio(skipRubberbandDispose);
+			await clearAudio(skipRubberbandDispose);
 		
 		// Restore the desired pipeline so we init with correct one
 		if (isFFmpeg && desiredPipeline === 'rubberband') {
@@ -2579,7 +2579,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 	}
 }
 
-function clearAudio(skipRubberbandDispose = false) {
+async function clearAudio(skipRubberbandDispose = false) {
 	logger.debug('audio', 'clearAudio called', { hasRubberband: !!g.rubberbandPlayer, activePipeline: g.activePipeline, skipRubberbandDispose });
 
 	// CRITICAL: Stop position pushing FIRST to prevent old position reports during file change
@@ -2609,9 +2609,11 @@ function clearAudio(skipRubberbandDispose = false) {
 		// Dispose worklet to flush internal buffers and prevent audio bleed
 		// Skip if we're preserving rubberband (e.g., HQ toggle with rubberband active)
 		if (!skipRubberbandDispose && typeof g.rubberbandPlayer.disposeWorklet === 'function') {
-			g.rubberbandPlayer.disposeWorklet().catch(e => {
+			try {
+				await g.rubberbandPlayer.disposeWorklet();
+			} catch(e) {
 				console.error('[clearAudio] Failed to dispose rubberband worklet:', e);
-			});
+			}
 		}
 
 		if (!skipRubberbandDispose) {
@@ -3507,12 +3509,12 @@ window.disposeEngines = {
 	},
 	
 	// Dispose all audio engines
-	all: () => {
+	all: async () => {
 
 		window.disposeEngines.midi();
 		window.disposeEngines.tracker();
 		window.disposeEngines.ffmpeg();
-		clearAudio();
+		await clearAudio();
 
 	},
 	
