@@ -118,6 +118,21 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 ---
 
+## What's New in 2.2.0
+
+**Complete Audio Architecture Rework** — A ground-up refactor of the audio engine and state management:
+
+- **Three-Process Architecture** — Separated Main (state/lifecycle), Engine (audio playback), and Player (UI) processes for better stability and performance
+- **Ground Truth State** — Centralized state in the main process that survives engine disposal, ensuring consistent behavior across window lifecycle changes
+- **Idle Disposal (0% CPU Mode)** — Engine automatically disposes after 5-10 seconds of paused playback, reducing background CPU to zero. Restores instantly when needed
+- **State Client Architecture** — Unified state management system with proper state machines for audio transitions, window lifecycle, and idle disposal
+- **Rubberband Pipeline Fixes** — Fixed position rush, memory leaks, and race conditions in pitch/time shifting. Added proper warmup handling and position tracking
+- **Performance Optimizations** — Reduced CPU usage through Electron background throttling, optimized IPC traffic, and MessagePort for high-frequency VU data
+- **Enhanced Mixer** — Improved FFmpeg streaming in packaged mode, better multi-track synchronization
+- **Volume Boost Display** — Volume now shows 0-200% range with dB values (100% = 0 dB, 200% = +6 dB)
+
+---
+
 ## What's New in 2.1.0
 
 **Parameters Window** — Unified controls window (`P` key) for advanced playback features, automatically adapting to the current file type:
