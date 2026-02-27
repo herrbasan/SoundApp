@@ -29,7 +29,7 @@ This is that app. I finally decided to share it.
 
 **Gapless looping.** Press `L` and the current track loops seamlessly — no gap, no click. I use this constantly: find a loop, let it run, jam over it.
 
-**Multi-track preview.** Press `M` to open the mixer with all the files from the current folder. Perfect for checking stems or bounces from your DAW. Solo individual tracks, mute others, hear them in context — without launching a full session. This feature is new, and it's already changed how I work.
+**Multi-track preview.** Press `M` to open the mixer with all the files from the current folder. Perfect for checking stems or bounces from your DAW. Solo individual tracks, mute others, hear them in context — without launching a full session.
 
 **Format icons you can read.** SoundApp registers as a handler for audio formats and gives each one a distinct color: green for FLAC, red for MP3, gray for PCM, orange for AAC, purple for OGG, yellow for tracker modules. You can see what's what at a glance in your file manager.
 
@@ -40,6 +40,32 @@ This is that app. I finally decided to share it.
 I built this for myself — a musician who needs to quickly audition files while working. But it's useful for anyone who works with audio: producers, sound designers, podcast editors, sample collectors, or just music lovers with large collections who are tired of waiting for their player to load.
 
 ---
+
+## Parameters Window
+
+![SoundApp Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot_params.png)
+
+Press `P` to open the Parameters window. It adapts to whatever you're playing — audio, MIDI, or tracker — and shows only the controls you need.
+
+**Audio files:** The Tape Speed slider changes pitch and tempo together — like a varispeed deck. Use it to drop a song into a key you can sing comfortably, or slow it down to figure out a part. If you need pitch and tempo independent, enable Pitch/Time mode. The Rubber Band Library handles the processing — it actually sounds good, even slowed down.
+
+**MIDI files:** Same idea — transpose to your vocal range, adjust tempo to a comfortable speed, or enable the metronome to practice along. Switch SoundFonts if you want different sounds. I use this to run through standards or play along with backing tracks.
+
+**Tracker modules:** Adjust pitch and tempo, then use the channel mixer to solo or mute individual channels. You can also tweak the stereo separation — sometimes those old MOD files are too narrow.
+
+## Monitoring Window
+
+![SoundApp Screenshot](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot_monitoring.png)
+
+Click the meters in the main window to open the full Monitoring window. I wanted proper visual feedback without opening my DAW.
+
+**Waveform overview** shows the entire file with a playhead — you always know where you are. The **spectrum analyzer** below it shows frequency content in real time.
+
+**Loudness metering** follows EBU R128: Short-term and Integrated LUFS, Loudness Range, and Peak-to-Loudness Ratio. Pick your target — Streaming (-14), Broadcast (-23), CD/Club (-9), or Podcast (-18). The meter turns green when you hit it.
+
+**Vectorscope** shows your stereo image and phase correlation. The L/R level meters on the side have smooth ballistics you can actually read.
+
+**A note on accuracy:** I'm not a sound engineer. The loudness metering is based on my understanding of the EBU R128 spec — possibly flawed, definitely coded with help from LLMs — and my own math. If you know this stuff and something looks off, please tell me. Feedback is not just welcome, it's needed.
 
 ## The Mixer
 
@@ -150,7 +176,6 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 A few things I'd like to add eventually:
 
 - **Playlist window** — for when you actually want to see what's queued
-- **Waveform display** — if performance allows
 - **Markers** — save positions within a file for A/B comparison
 - **Quick tag editor** — fix metadata without leaving the app
 
