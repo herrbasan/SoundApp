@@ -660,8 +660,20 @@ function updatePositionUI() {
 }
 
 function updateVolumeUI() {
-    const vol = g.state.volume;
-    if (g.playvolume) g.playvolume.innerText = (Math.round(vol * 100)) + '%';
+    const vol = g.state.volume;  // 0-1 slider position
+    
+    // Display: 0-200% with dB (50% slider = 100% = 0 dB, 100% slider = 200% = +6 dB)
+    if (g.playvolume) {
+        const percent = Math.round(vol * 200);
+        if (vol === 0) {
+            g.playvolume.innerText = '0% (-∞ dB)';
+        } else {
+            const db = 20 * Math.log10(vol * 2);
+            const dbStr = db >= 0 ? `+${db.toFixed(1)}` : db.toFixed(1);
+            g.playvolume.innerText = `${percent}% (${dbStr} dB)`;
+        }
+    }
+    
     if (g.ctrl_volume_bar_inner) g.ctrl_volume_bar_inner.style.width = (vol * 100) + '%';
 }
 
