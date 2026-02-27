@@ -987,6 +987,8 @@ function createTray() {
         },
         { label: 'Reset Windows', click: () => { resetAllWindows(); } },
         { type: 'separator' },
+        { label: 'About / Check for Updates', click: () => { showAbout(); } },
+        { type: 'separator' },
         { label: 'Quit', click: () => { app.quit(); } }
     ]);
     tray.setContextMenu(contextMenu);
@@ -1058,6 +1060,12 @@ async function checkUpdate() {
     else {
         console.log('No updates available');
     }
+}
+
+async function showAbout() {
+    console.log('Showing About / Check for updates');
+    // Use checkWithUI which shows the splash immediately and performs the check
+    await update.checkWithUI('herrbasan/SoundApp', update_progress, { useSemVer: true });
 }
 
 function update_progress(e) {
