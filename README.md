@@ -18,9 +18,6 @@ This is that app. I finally decided to share it.
 
 ---
 
-![Controls](https://raw.githubusercontent.com/herrbasan/SoundApp/main/build/screenshot_controls.png)
-**For the non-SoundApp purists and mouse-handling cowboys, there is an optional control bar. Press `C` to toggle.**
-
 
 ## What Makes It Different
 
