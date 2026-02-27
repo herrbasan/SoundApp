@@ -3,6 +3,7 @@ out/
 logs/
 .vscode/
 .claude/
+.continue/
 _Material/
 _Archive/
 env.json
