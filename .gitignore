@@ -2,6 +2,7 @@ node_modules/
 out/
 logs/
 .vscode/
+.claude/
 _Material/
 _Archive/
 env.json
