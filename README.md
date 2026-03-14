@@ -141,6 +141,15 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 ---
 
+## What's New in 2.2.1
+
+**Performance & Volume Fixes** — Quick startup and proper gain boost:
+
+- **Instant Window Display** — Fixed ~900ms delay before window appeared. The player window now shows immediately while initialization happens in the background
+- **Volume Boost Fixed** — 200% volume now actually applies +6dB gain boost (was capped at 100% / 0dB). Quiet tracks can now be amplified as intended
+
+---
+
 ## What's New in 2.2.0
 
 **Complete Audio Architecture Rework** — A ground-up refactor of the audio engine and state management:

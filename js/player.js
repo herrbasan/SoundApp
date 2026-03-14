@@ -63,7 +63,7 @@ g.state = {
     isPlaying: false,
     position: 0,
     duration: 0,
-    volume: 0.5,
+    volume: 1.0,
     metadata: null,
     fileType: null,
     maxSampleRate: null,
@@ -143,6 +143,11 @@ init();
 async function init() {
     fb('Init Player UI');
     g.win = helper.window;
+    
+    // Show window immediately for perceived performance
+    // Heavy config setup happens in background
+    g.win.show();
+    
     g.main_env = await helper.global.get('main_env');
     g.basePath = await helper.global.get('base_path');
     g.isPackaged = await helper.global.get('isPackaged');
@@ -219,7 +224,7 @@ async function init() {
     }
 
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    g.win.show();
+    // Window was shown early for perceived performance
     if (!g.isPackaged) { g.win.toggleDevTools() }
 
     setupIPC();
@@ -236,7 +241,8 @@ function setupIPC() {
         if (data.isPlaying !== undefined) g.state.isPlaying = data.isPlaying;
         if (data.position !== undefined) g.state.position = data.position;
         if (data.duration !== undefined) g.state.duration = data.duration;
-        if (data.volume !== undefined) g.state.volume = data.volume;
+        // Convert gain (0-2) back to slider position (0-1) for display
+        if (data.volume !== undefined) g.state.volume = data.volume / 2;
         if (data.metadata !== undefined) g.state.metadata = data.metadata;
         if (data.fileType !== undefined) g.state.fileType = data.fileType;
         if (data.loop !== undefined) g.state.loop = data.loop;
@@ -910,7 +916,9 @@ function setVolume(v, persist = false) {
     g.config.audio.volume = v;
     updateVolumeUI();
 
-    ipcRenderer.send('audio:setParams', { volume: v });
+    // Scale 0-1 slider to 0-2 gain (0% to 200% volume)
+    const gainValue = v * 2;
+    ipcRenderer.send('audio:setParams', { volume: gainValue });
 
     if (persist && g.config_obj) {
         g.config_obj.set(g.config);

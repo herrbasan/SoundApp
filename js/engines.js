@@ -1661,6 +1661,13 @@ function _clamp01(v) {
 	return v;
 }
 
+function _clampVolume(v) {
+	v = +v;
+	if (!(v >= 0)) return 0;
+	if (v > 2) return 2;  // Allow up to 200% volume boost
+	return v;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // AUDIO TRANSITION STATE MACHINE
 // Centralized management of audio lifecycle to prevent crackling and ensure
@@ -1796,7 +1803,7 @@ async function safePlay(player, type, targetVol, shouldStartPaused = false) {
 }
 
 function setVolume(v, persist = false) {
-	v = _clamp01(v);
+	v = _clampVolume(v);
 	if (!g.config.audio) g.config.audio = {};
 	g.config.audio.volume = v;
 	if (player) {
@@ -1978,7 +1985,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 					return false;
 				}
 			}
-			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 1.0;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
 				isMidi: true,
@@ -2061,7 +2068,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 				return false;
 			}
 
-			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+			const targetVol = (g && g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 1.0;
 			const initialVol = startPaused ? 0 : targetVol;
 			g.currentAudio = {
 				isMod: true,
@@ -2262,7 +2269,7 @@ async function playAudio(fp, n, startPaused = false, autoAdvance = false, restor
 					paused: startPaused,
 					duration: metadata.duration,
 					player: ffPlayer,
-					volume: (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5,
+					volume: (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 1.0,
 					play: () => { g.currentAudio.paused = false; ffPlayer.play(); },
 					pause: () => { g.currentAudio.paused = true; ffPlayer.pause(); },
 					seek: (time) => ffPlayer.seek(time),
@@ -2515,7 +2522,7 @@ async function switchPipeline(newMode, shouldPlay = null) {
 			g.currentAudio.seek = (t) => newPlayer.seek(t);
 			g.currentAudio.getCurrentTime = () => newPlayer.getCurrentTime();
 
-			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 0.5;
+			const vol = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? +g.config.audio.volume : 1.0;
 			newPlayer.volume = vol;
 			newPlayer.setLoop(g.isLoop);
 			
@@ -3101,7 +3108,7 @@ async function toggleHQMode(desiredState, skipPersist = false) {
 }
 
 function volumeUp() {
-	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 0.55;
+	const v = (g.config && g.config.audio && g.config.audio.volume !== undefined) ? (+g.config.audio.volume + 0.05) : 1.05;
 	setVolume(v, true);
 }
 

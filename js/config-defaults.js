@@ -18,7 +18,7 @@ module.exports = {
 	},
 
 	audio: {
-		volume: 0.5,
+		volume: 1.0,
 		output: { deviceId: '' },
 		hqMode: false,
 		disableMidiPlayer: false  // Set to true to save 0.3-0.5% constant CPU usage (MIDI files won't play)
