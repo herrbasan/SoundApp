@@ -6,7 +6,8 @@ PowerShell script for creating GitHub releases with auto-update artifacts.
 
 ### Prerequisites
 
-1. **GitHub CLI** must be installed and authenticated:
+1. **Release notes required** — You must provide release notes via the `-Notes` parameter
+2. **GitHub CLI** must be installed and authenticated:
    ```powershell
    # Install
    winget install --id GitHub.cli
@@ -14,15 +15,21 @@ PowerShell script for creating GitHub releases with auto-update artifacts.
    # Authenticate
    gh auth login
    ```
-
-2. **Clean main branch** with committed changes
-3. **Version bumped** in `package.json`
+3. **Clean main branch** with committed changes
+4. **Version bumped** in `package.json`
 
 ### Usage
 
-Basic release:
+> ⚠️ **Release notes are required** — The script will fail without them.
+
+Basic release (with release notes):
 ```powershell
-.\scripts\create-release.ps1
+.\scripts\create-release.ps1 -Notes "Fixed critical playback bug"
+```
+
+Or use a multi-line string for detailed notes:
+```powershell
+.\scripts\create-release.ps1 -Notes "Bug Fixes`n`n- Fixed startup delay`n- Fixed volume boost"
 ```
 
 Create draft release (won't trigger auto-updates):
@@ -59,12 +66,14 @@ Bump version in package.json
     ↓
 Commit and push to main
     ↓
-Run create-release.ps1
+Run create-release.ps1 -Notes "Release description"
     ↓
 Release appears on GitHub
     ↓
 Users receive auto-update
 ```
+
+**The `-Notes` parameter is required.** Without it, the script will error after building.
 
 ### Release tagging + notes
 
