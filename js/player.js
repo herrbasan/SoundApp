@@ -144,10 +144,7 @@ async function init() {
     fb('Init Player UI');
     g.win = helper.window;
     
-    // Show window immediately for perceived performance
-    // Heavy config setup happens in background
-    g.win.show();
-    
+    // Load config first (fast - cached) so we can position window before showing
     g.main_env = await helper.global.get('main_env');
     g.basePath = await helper.global.get('base_path');
     g.isPackaged = await helper.global.get('isPackaged');
@@ -194,19 +191,8 @@ async function init() {
     if ((g.config.windows.main.scale | 0) !== s) { g.config.windows.main.scale = s; saveCnf = true; }
     if (saveCnf) { g.config_obj.set(g.config); }
 
-    const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
-    if (theme0 === 'dark') {
-        document.body.classList.add('dark');
-    } else {
-        document.body.classList.remove('dark');
-    }
-    tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
-
+    // Apply saved window bounds BEFORE showing to prevent flash at default position
     const showControls0 = (g.config && g.config.ui && g.config.ui.showControls) ? true : false;
-    applyShowControls(showControls0);
-
-    ut.setCssVar('--space-base', s);
-
     let b = (g.config.windows && g.config.windows.main && g.config.windows.main.width && g.config.windows.main.height) ? g.config.windows.main : null;
     if (b) {
         const { MIN_WIDTH, MIN_HEIGHT_WITH_CONTROLS, MIN_HEIGHT_WITHOUT_CONTROLS } = require('./config-defaults.js').WINDOW_DIMENSIONS;
@@ -222,9 +208,23 @@ async function init() {
         await g.win.setBounds(nb);
         g.config.windows.main = { ...g.config.windows.main, x: nb.x, y: nb.y, width: nb.width, height: nb.height, scale: s | 0 };
     }
+    
+    // Show window at correct position for perceived performance
+    // Heavy UI setup happens after this
+    g.win.show();
+    
+    const theme0 = (g.config && g.config.ui) ? g.config.ui.theme : 'dark';
+    if (theme0 === 'dark') {
+        document.body.classList.add('dark');
+    } else {
+        document.body.classList.remove('dark');
+    }
+    tools.sendToMain('command', { command: 'set-theme', theme: theme0 });
+
+    applyShowControls(showControls0);
+    ut.setCssVar('--space-base', s);
 
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    // Window was shown early for perceived performance
     if (!g.isPackaged) { g.win.toggleDevTools() }
 
     setupIPC();

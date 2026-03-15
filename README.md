@@ -141,6 +141,16 @@ For architecture, format details, and contributor information, see [docs/ARCHITE
 
 ---
 
+## What's New in 2.2.2
+
+**Startup Polish** — No more window flash:
+
+- **Fixed Window Position Flash** — Window now opens directly at saved position instead of appearing at screen center then jumping
+- **Instant Window Display** — Window shows immediately while initialization happens in the background (no ~900ms delay)
+- **Volume Boost** — 200% volume applies +6dB gain boost as intended
+
+---
+
 ## What's New in 2.2.1
 
 **Performance & Volume Fixes** — Quick startup and proper gain boost:
